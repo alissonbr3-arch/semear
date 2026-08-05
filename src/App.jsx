@@ -342,6 +342,7 @@ export default function AgroTrackApp() {
   const [finances, setFinances] = useState([]);
   const [bonuses, setBonuses] = useState([]);
   const [bills, setBills] = useState([]);
+  const [categoryMemory, setCategoryMemory] = useState({});
   const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -385,12 +386,12 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st, bl] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
-        safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills")
+        safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -413,6 +414,7 @@ export default function AgroTrackApp() {
       setBonuses(bn || []);
       setSettings({ commissionRatePerHaYear: 30, projectShareRate: 20, ...(st || {}) });
       setBills(bl || []);
+      setCategoryMemory(cm || {});
       setLoading(false);
     })();
   }, [session, profile]);
@@ -451,6 +453,7 @@ export default function AgroTrackApp() {
   async function persistBonuses(data) { setBonuses(data); await safeSet("bonuses", data); }
   async function persistSettings(data) { setSettings(data); await safeSet("settings", data); }
   async function persistBills(data) { setBills(data); await safeSet("bills", data); }
+  async function persistCategoryMemory(data) { setCategoryMemory(data); await safeSet("categoryMemory", data); }
 
   function generateRecurringEntries(baseForm) {
     const entries = [];
@@ -493,8 +496,18 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
     persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date } : f)));
   }
+  function markBillPaid(entry, transaction) {
+    logActivity(makeLogEntry("update", "bill", entry.description, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
+    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date } : b)));
+  }
 
   function saveBill(form) {
+    if (form.category && form.description) {
+      const key = normalizeDescription(form.description);
+      if (key && categoryMemory[key] !== form.category) {
+        persistCategoryMemory({ ...categoryMemory, [key]: form.category });
+      }
+    }
     if (form.id) {
       logActivity(makeLogEntry("update", "bill", form.description, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
       persistBills(bills.map((b) => (b.id === form.id ? form : b)));
@@ -1288,13 +1301,15 @@ export default function AgroTrackApp() {
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bill" && (
-        <BillModal data={modal.data} onSave={saveBill} onClose={() => setModal(null)} />
+        <BillModal data={modal.data} categoryMemory={categoryMemory} onSave={saveBill} onClose={() => setModal(null)} />
       )}
       {modal?.type === "reconcile" && (
         <ReconciliationModal
-          finances={finances} clients={clients}
+          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory}
           onConfirmMatch={markFinancePaid}
+          onConfirmBillMatch={markBillPaid}
           onCreateFromTransaction={(t) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
+          onCreateBillFromTransaction={(t, category) => setModal({ type: "bill", data: { description: t.description || "", category: category || "", amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
           onClose={() => setModal(null)}
         />
       )}
@@ -3227,15 +3242,36 @@ function parseBankStatement(fileName, text) {
   return parseCSVStatement(text);
 }
 
-function matchStatementToFinances(transactions, finances) {
-  const credits = transactions.filter((t) => t.type === "credit");
-  const pending = finances.filter((f) => f.status === "pendente");
-  const used = new Set();
-  return credits.map((t) => {
-    const candidate = pending.find((f) => !used.has(f.id) && Math.abs(Number(f.amount) - t.amount) < 0.01);
-    if (candidate) used.add(candidate.id);
-    return { transaction: t, match: candidate || null };
+function normalizeDescription(text) {
+  return (text || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\d+/g, "")
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchBankTransactions(transactions, finances, bills, categoryMemory) {
+  const pendingFinances = finances.filter((f) => f.status === "pendente");
+  const pendingBills = (bills || []).filter((b) => b.status === "pendente");
+  const usedFinanceIds = new Set();
+  const usedBillIds = new Set();
+
+  const credits = transactions.filter((t) => t.type === "credit").map((t) => {
+    const candidate = pendingFinances.find((f) => !usedFinanceIds.has(f.id) && Math.abs(Number(f.amount) - t.amount) < 0.01);
+    if (candidate) usedFinanceIds.add(candidate.id);
+    return { transaction: t, kind: "credit", match: candidate || null };
   });
+
+  const debits = transactions.filter((t) => t.type === "debit").map((t) => {
+    const candidate = pendingBills.find((b) => !usedBillIds.has(b.id) && Math.abs(Number(b.amount) - t.amount) < 0.01);
+    if (candidate) usedBillIds.add(candidate.id);
+    const suggestedCategory = candidate ? "" : (categoryMemory || {})[normalizeDescription(t.description)] || "";
+    return { transaction: t, kind: "debit", match: candidate || null, suggestedCategory };
+  });
+
+  return [...credits, ...debits].sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || ""));
 }
 
 function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month }) {
@@ -3593,13 +3629,22 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
   );
 }
 
-function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTransaction, onClose }) {
+function ReconciliationModal({
+  finances, bills, clients, categoryMemory,
+  onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction, onClose,
+}) {
   const [rows, setRows] = useState(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
   const [confirmedIds, setConfirmedIds] = useState([]);
   const [fetchingBank, setFetchingBank] = useState(false);
+  const [categoryDrafts, setCategoryDrafts] = useState({});
   const fileInputRef = useRef(null);
+
+  function buildRows(transactions) {
+    setRows(matchBankTransactions(transactions, finances, bills, categoryMemory));
+    setCategoryDrafts({});
+  }
 
   async function handleFile(file) {
     setError("");
@@ -3611,7 +3656,7 @@ function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTr
         return;
       }
       setFileName(file.name);
-      setRows(matchStatementToFinances(transactions, finances));
+      buildRows(transactions);
     } catch {
       setError("Não foi possível ler o arquivo.");
     }
@@ -3629,20 +3674,27 @@ function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTr
       return;
     }
     setFileName("Banco do Brasil — busca automática");
-    setRows(matchStatementToFinances(transactions, finances));
+    buildRows(transactions);
   }
 
-  function handleConfirm(match, transaction) {
+  function handleConfirmFinance(match, transaction) {
     onConfirmMatch(match, transaction);
     setConfirmedIds((ids) => [...ids, match.id]);
   }
+
+  function handleConfirmBill(match, transaction) {
+    onConfirmBillMatch(match, transaction);
+    setConfirmedIds((ids) => [...ids, match.id]);
+  }
+
+  const categorySuggestions = Array.from(new Set([...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})]));
 
   return (
     <Modal title="Conciliar extrato bancário" onClose={onClose}>
       {!rows ? (
         <>
           <div style={{ fontSize: 10.5, color: "#9BA298", marginBottom: 14 }}>
-            Busque automaticamente do Banco do Brasil, ou envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários com status "Pendente", algum com o mesmo valor de cada crédito.
+            Busque automaticamente do Banco do Brasil, ou envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários e despesas com status "Pendente", algum com o mesmo valor de cada lançamento (entrada ou saída).
           </div>
           <PrimaryBtn onClick={handleFetchBank} disabled={fetchingBank} style={{ marginBottom: 14 }}>
             {fetchingBank ? "Buscando…" : "Buscar automaticamente (Banco do Brasil)"}
@@ -3653,33 +3705,69 @@ function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTr
         </>
       ) : (
         <div>
-          <div style={{ fontSize: 10, color: "#6B7268", marginBottom: 12 }}>{fileName} · {rows.length} crédito(s) encontrado(s)</div>
+          <div style={{ fontSize: 10, color: "#6B7268", marginBottom: 12 }}>{fileName} · {rows.length} lançamento(s) encontrado(s)</div>
           {rows.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma entrada (crédito) encontrada no extrato.</div>
+            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum lançamento encontrado no extrato.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" }}>
               {rows.map((r, i) => {
                 const isConfirmed = r.match && confirmedIds.includes(r.match.id);
-                const client = r.match ? clients.find((c) => c.id === r.match.clientId) : null;
+                const isCredit = r.kind === "credit";
+                const client = isCredit && r.match ? clients.find((c) => c.id === r.match.clientId) : null;
+                const draftCategory = categoryDrafts[i] ?? r.suggestedCategory ?? "";
                 return (
                   <div key={i} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#D6D3C7", marginBottom: 6 }}>
-                      <span>{fmtDate(r.transaction.date)} · {r.transaction.description || "—"}</span>
+                      <span>
+                        <span style={{
+                          display: "inline-block", fontSize: 8.5, fontWeight: 700, textTransform: "uppercase",
+                          color: isCredit ? "#7BC142" : "#E38B84", marginRight: 6,
+                        }}>
+                          {isCredit ? "Entrada" : "Saída"}
+                        </span>
+                        {fmtDate(r.transaction.date)} · {r.transaction.description || "—"}
+                      </span>
                       <strong>{fmtCurrency(r.transaction.amount)}</strong>
                     </div>
+
                     {isConfirmed ? (
-                      <div style={{ fontSize: 9.5, color: "#7BC142" }}>Conciliado com {client?.name || "—"}</div>
+                      <div style={{ fontSize: 9.5, color: "#7BC142" }}>
+                        {isCredit ? `Conciliado com ${client?.name || "—"}` : "Despesa conciliada"}
+                      </div>
+                    ) : isCredit ? (
+                      r.match ? (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 9.5, color: "#7BC142" }}>
+                            Combina com: {client?.name || "—"} ({fmtCurrency(r.match.amount)}, {r.match.referenceMonth})
+                          </span>
+                          <GhostBtn onClick={() => handleConfirmFinance(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 9.5, color: "#E3B455" }}>Nenhum honorário pendente com esse valor</span>
+                          <GhostBtn onClick={() => onCreateFromTransaction(r.transaction)}>Lançar honorário</GhostBtn>
+                        </div>
+                      )
                     ) : r.match ? (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 9.5, color: "#7BC142" }}>
-                          Combina com: {client?.name || "—"} ({fmtCurrency(r.match.amount)}, {r.match.referenceMonth})
+                          Combina com despesa: {r.match.description} ({fmtCurrency(r.match.amount)})
                         </span>
-                        <GhostBtn onClick={() => handleConfirm(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
+                        <GhostBtn onClick={() => handleConfirmBill(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
                       </div>
                     ) : (
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 9.5, color: "#E3B455" }}>Nenhum honorário pendente com esse valor</span>
-                        <GhostBtn onClick={() => onCreateFromTransaction(r.transaction)}>Lançar honorário</GhostBtn>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <input
+                          style={{ ...inputStyle, width: 180, fontSize: 10 }}
+                          list={`recon-cat-${i}`}
+                          placeholder="Categoria"
+                          value={draftCategory}
+                          onChange={(e) => setCategoryDrafts((d) => ({ ...d, [i]: e.target.value }))}
+                        />
+                        <datalist id={`recon-cat-${i}`}>
+                          {categorySuggestions.map((c) => <option key={c} value={c} />)}
+                        </datalist>
+                        <GhostBtn onClick={() => onCreateBillFromTransaction(r.transaction, draftCategory)}>Lançar despesa</GhostBtn>
                       </div>
                     )}
                   </div>
@@ -3739,7 +3827,7 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
 
 const BILL_CATEGORY_SUGGESTIONS = ["Salários", "Energia Elétrica", "Água", "Aluguel", "Manutenção de Máquinas e Equipamentos", "Combustível", "Internet/Telefone", "Material de Escritório", "Impostos", "Outros"];
 
-function BillModal({ data, onSave, onClose }) {
+function BillModal({ data, categoryMemory, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState({
     description: "", category: "", amount: "", date: new Date().toISOString().slice(0, 10),
@@ -3750,7 +3838,14 @@ function BillModal({ data, onSave, onClose }) {
   return (
     <Modal title={isEdit ? "Editar despesa" : "Nova despesa"} onClose={onClose}>
       <Field label="Descrição">
-        <input style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex: Energia elétrica — sede" />
+        <input style={inputStyle} value={form.description} onChange={(e) => {
+          const description = e.target.value;
+          setForm((f) => {
+            if (f.category) return { ...f, description };
+            const suggestion = (categoryMemory || {})[normalizeDescription(description)];
+            return suggestion ? { ...f, description, category: suggestion } : { ...f, description };
+          });
+        }} placeholder="Ex: Energia elétrica — sede" />
       </Field>
       <Field label="Categoria">
         <input style={inputStyle} list="bill-categories" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Ex: Energia Elétrica" />
