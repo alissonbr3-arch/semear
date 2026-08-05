@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2
+  Bug, Microscope, Flower2, History
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -42,6 +42,12 @@ function fmtDate(d) {
   if (!d) return "—";
   const dt = new Date(d + "T00:00:00");
   return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const dt = new Date(iso);
+  return dt.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function daysSince(d) {
@@ -315,6 +321,7 @@ export default function AgroTrackApp() {
   const [teamAvatars, setTeamAvatars] = useState({});
   const [tasks, setTasks] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [activityLog, setActivityLog] = useState([]);
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
@@ -357,11 +364,11 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles(),
-        safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents")
+        safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -379,6 +386,7 @@ export default function AgroTrackApp() {
       setTeamAvatars(ta || {});
       setTasks(tk || []);
       setDocuments(dc || []);
+      setActivityLog(al || []);
       setLoading(false);
     })();
   }, [session, profile]);
@@ -397,8 +405,24 @@ export default function AgroTrackApp() {
   async function persistTeamAvatars(data) { setTeamAvatars(data); await safeSet("teamAvatars", data); }
   async function persistTasks(data) { setTasks(data); await safeSet("tasks", data); }
   async function persistDocuments(data) { setDocuments(data); await safeSet("documents", data); }
+  async function persistActivityLog(data) { setActivityLog(data); await safeSet("activityLog", data); }
+
+  function makeLogEntry(action, entityType, entityName, details) {
+    return {
+      id: uid(),
+      at: new Date().toISOString(),
+      userId: session?.user?.id || null,
+      userName: profile?.name || session?.user?.email || "Desconhecido",
+      action, entityType, entityName: entityName || "(sem nome)", details: details || null,
+    };
+  }
+  function logActivity(entries) {
+    const list = Array.isArray(entries) ? entries : [entries];
+    persistActivityLog([...activityLog, ...list]);
+  }
 
   function saveClient(form) {
+    logActivity(makeLogEntry(form.id ? "update" : "create", "client", form.name));
     if (form.id) {
       persistClients(clients.map((c) => (c.id === form.id ? form : c)));
     } else {
@@ -407,9 +431,11 @@ export default function AgroTrackApp() {
     setModal(null);
   }
   function deleteClient(id) {
+    const client = clients.find((c) => c.id === id);
     const propIds = properties.filter((p) => p.clientId === id).map((p) => p.id);
     const fieldIds = fields.filter((f) => propIds.includes(f.propertyId)).map((f) => f.id);
     const harvestIds = harvests.filter((h) => fieldIds.includes(h.fieldId)).map((h) => h.id);
+    logActivity(makeLogEntry("delete", "client", client?.name, propIds.length || fieldIds.length ? `${propIds.length} propriedade(s) e ${fieldIds.length} talhão(ões) removidos junto` : null));
     persistVisits(visits.filter((v) => !harvestIds.includes(v.harvestId)));
     persistHarvests(harvests.filter((h) => !fieldIds.includes(h.fieldId)));
     persistFields(fields.filter((f) => !propIds.includes(f.propertyId)));
@@ -419,6 +445,7 @@ export default function AgroTrackApp() {
   }
 
   function saveProperty(form) {
+    logActivity(makeLogEntry(form.id ? "update" : "create", "property", form.name));
     if (form.id) {
       persistProperties(properties.map((p) => (p.id === form.id ? form : p)));
     } else {
@@ -427,8 +454,10 @@ export default function AgroTrackApp() {
     setModal(null);
   }
   function deleteProperty(id) {
+    const property = properties.find((p) => p.id === id);
     const fieldIds = fields.filter((f) => f.propertyId === id).map((f) => f.id);
     const harvestIds = harvests.filter((h) => fieldIds.includes(h.fieldId)).map((h) => h.id);
+    logActivity(makeLogEntry("delete", "property", property?.name, fieldIds.length ? `${fieldIds.length} talhão(ões) removido(s) junto` : null));
     persistVisits(visits.filter((v) => !harvestIds.includes(v.harvestId)));
     persistHarvests(harvests.filter((h) => !fieldIds.includes(h.fieldId)));
     persistFields(fields.filter((f) => f.propertyId !== id));
@@ -437,6 +466,7 @@ export default function AgroTrackApp() {
   }
 
   function saveField(form) {
+    logActivity(makeLogEntry(form.id ? "update" : "create", "field", form.name));
     if (form.id) {
       persistFields(fields.map((f) => (f.id === form.id ? form : f)));
     } else {
@@ -445,7 +475,9 @@ export default function AgroTrackApp() {
     setModal(null);
   }
   function deleteField(id) {
+    const field = fields.find((f) => f.id === id);
     const harvestIds = harvests.filter((h) => h.fieldId === id).map((h) => h.id);
+    logActivity(makeLogEntry("delete", "field", field?.name));
     persistVisits(visits.filter((v) => !harvestIds.includes(v.harvestId)));
     persistHarvests(harvests.filter((h) => h.fieldId !== id));
     persistFields(fields.filter((f) => f.id !== id));
@@ -453,6 +485,7 @@ export default function AgroTrackApp() {
   }
 
   function saveHarvest(form) {
+    logActivity(makeLogEntry(form.id ? "update" : "create", "harvest", form.name));
     if (form.id) {
       persistHarvests(harvests.map((h) => (h.id === form.id ? form : h)));
     } else {
@@ -461,12 +494,15 @@ export default function AgroTrackApp() {
     setModal(null);
   }
   function deleteHarvest(id) {
+    const harvest = harvests.find((h) => h.id === id);
+    logActivity(makeLogEntry("delete", "harvest", harvest?.name));
     persistVisits(visits.filter((v) => v.harvestId !== id));
     persistHarvests(harvests.filter((h) => h.id !== id));
     if (selectedHarvestId === id) setSelectedHarvestId(null);
   }
 
   function saveVisit(form) {
+    logActivity(makeLogEntry(form.id ? "update" : "create", "visit", fmtDate(form.date)));
     if (form.id) {
       persistVisits(visits.map((v) => (v.id === form.id ? form : v)));
     } else {
@@ -475,6 +511,8 @@ export default function AgroTrackApp() {
     setModal(null);
   }
   function deleteVisit(id) {
+    const visit = visits.find((v) => v.id === id);
+    logActivity(makeLogEntry("delete", "visit", visit ? fmtDate(visit.date) : null));
     persistVisits(visits.filter((v) => v.id !== id));
   }
 
@@ -555,20 +593,24 @@ export default function AgroTrackApp() {
       const r = await updateColaborador({ id: form.id, name: form.name, phone: form.phone, title: form.title });
       if (r.error) { setTeamError(r.error); return; }
       if (form.avatarDataUrl !== undefined) await saveTeamAvatar(form.id, form.avatarDataUrl);
+      logActivity(makeLogEntry("update", "team", form.name));
       await refreshTeam();
       setModal(null);
     } else {
       const r = await createColaborador({ name: form.name, email: form.email, phone: form.phone, title: form.title, password: form.password });
       if (r.error) { setTeamError(r.error); return; }
       if (form.avatarDataUrl && r.data?.id) await saveTeamAvatar(r.data.id, form.avatarDataUrl);
+      logActivity(makeLogEntry("create", "team", form.name));
       await refreshTeam();
       setModal({ type: "teamCreated", data: { name: form.name, email: form.email, password: form.password } });
     }
   }
   async function deleteTeamMember(id) {
+    const member = team.find((t) => t.id === id);
     const r = await deleteColaborador(id);
     if (r.error) { alert(r.error); return; }
     if (teamAvatars[id]) await saveTeamAvatar(id, null);
+    logActivity(makeLogEntry("delete", "team", member?.name));
     await refreshTeam();
   }
   async function saveTeamAvatar(id, dataUrl) {
@@ -578,6 +620,7 @@ export default function AgroTrackApp() {
   }
 
   function saveTask(form) {
+    logActivity(makeLogEntry(form.id ? "update" : "create", "task", form.title));
     if (form.id) {
       persistTasks(tasks.map((t) => (t.id === form.id ? form : t)));
     } else {
@@ -586,6 +629,8 @@ export default function AgroTrackApp() {
     setModal(null);
   }
   function deleteTask(id) {
+    const task = tasks.find((t) => t.id === id);
+    logActivity(makeLogEntry("delete", "task", task?.title));
     persistTasks(tasks.filter((t) => t.id !== id));
   }
   function toggleTaskDone(id) {
@@ -605,10 +650,12 @@ export default function AgroTrackApp() {
       url: pub.publicUrl, sizeBytes: file.size, uploadedAt: new Date().toISOString(),
     };
     await persistDocuments([...documents, doc]);
+    logActivity(makeLogEntry("create", "document", doc.title));
     return { ok: true };
   }
   async function deleteDocument(doc) {
     await supabase.storage.from("documents").remove([doc.path]);
+    logActivity(makeLogEntry("delete", "document", doc.title));
     await persistDocuments(documents.filter((d) => d.id !== doc.id));
   }
 
@@ -616,18 +663,22 @@ export default function AgroTrackApp() {
     if (form.id) {
       const r = await updateClientAccess({ id: form.id, name: form.name, phone: form.phone });
       if (r.error) { setTeamError(r.error); return; }
+      logActivity(makeLogEntry("update", "clientAccess", form.name));
       await refreshTeam();
       setModal(null);
     } else {
       const r = await createClientAccess({ name: form.name, email: form.email, phone: form.phone, password: form.password, clientId: form.clientId });
       if (r.error) { setTeamError(r.error); return; }
+      logActivity(makeLogEntry("create", "clientAccess", form.name));
       await refreshTeam();
       setModal({ type: "teamCreated", data: { name: form.name, email: form.email, password: form.password } });
     }
   }
   async function removeClientAccess(id) {
+    const account = clientProfiles.find((p) => p.id === id);
     const r = await deleteClientAccess(id);
     if (r.error) { alert(r.error); return; }
+    logActivity(makeLogEntry("delete", "clientAccess", account?.name));
     await refreshTeam();
   }
 
@@ -733,6 +784,7 @@ export default function AgroTrackApp() {
     { id: "agenda", label: "Agenda", icon: Calendar },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "equipe", label: "Equipe", icon: UserCog },
+    { id: "atividade", label: "Atividade", icon: History },
     { id: "configuracoes", label: "Configurações", icon: Settings },
   ];
 
@@ -981,6 +1033,10 @@ export default function AgroTrackApp() {
             onEdit={(t) => { setTeamError(""); setModal({ type: "team", data: t }); }}
             onDelete={deleteTeamMember}
           />
+        )}
+
+        {view === "atividade" && (
+          <ActivityLogView log={activityLog} />
         )}
 
         {view === "configuracoes" && (
@@ -2840,6 +2896,46 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete }) {
                       </div>
                     </td>
                   )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ACTIVITY_ACTION_LABELS = { create: "criou", update: "editou", delete: "excluiu" };
+const ACTIVITY_ENTITY_LABELS = {
+  client: "o cliente", property: "a propriedade", field: "o talhão", harvest: "a safra",
+  visit: "a visita", task: "o item da agenda", document: "o documento",
+  team: "o colaborador", clientAccess: "o acesso do cliente",
+};
+
+function ActivityLogView({ log }) {
+  const sorted = [...log].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 300);
+  return (
+    <div>
+      <div style={{ marginBottom: 18 }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Atividade</h2>
+        <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Quem criou, editou ou excluiu o quê, e quando.</p>
+      </div>
+      {sorted.length === 0 ? (
+        <EmptyState icon={History} title="Nenhuma atividade registrada ainda" sub="As ações feitas a partir de agora vão aparecer aqui." />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead><tr><th>Quando</th><th>Quem</th><th>O que</th></tr></thead>
+            <tbody>
+              {sorted.map((e) => (
+                <tr key={e.id}>
+                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, whiteSpace: "nowrap" }}>{fmtDateTime(e.at)}</td>
+                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{e.userName}</td>
+                  <td>
+                    {ACTIVITY_ACTION_LABELS[e.action] || e.action} {ACTIVITY_ENTITY_LABELS[e.entityType] || e.entityType} <strong style={{ color: "#F2F0E6" }}>{e.entityName}</strong>
+                    {e.details && <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 2 }}>{e.details}</div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
