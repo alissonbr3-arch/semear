@@ -449,6 +449,11 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("delete", "finance", client?.name));
     persistFinances(finances.filter((f) => f.id !== id));
   }
+  function markFinancePaid(entry, transaction) {
+    const client = clients.find((c) => c.id === entry.clientId);
+    logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
+    persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date } : f)));
+  }
 
   function saveBonus(form) {
     const gestor = team.find((t) => t.id === form.gestorId);
@@ -1133,6 +1138,7 @@ export default function AgroTrackApp() {
             onDeleteBonus={deleteBonus}
             onChangeRate={updateCommissionRate}
             onChangeProjectRate={updateProjectShareRate}
+            onReconcile={() => setModal({ type: "reconcile", data: null })}
           />
         )}
 
@@ -1218,6 +1224,14 @@ export default function AgroTrackApp() {
       )}
       {modal?.type === "bonus" && (
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "reconcile" && (
+        <ReconciliationModal
+          finances={finances} clients={clients}
+          onConfirmMatch={markFinancePaid}
+          onCreateFromTransaction={(t) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   );
@@ -3092,6 +3106,71 @@ function fmtCurrency(n) {
 const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo" };
 const FINANCE_TYPES_WITH_SHARE = ["projeto", "analise_solo"];
 
+function parseOFXStatement(text) {
+  const transactions = [];
+  const trnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
+  let match;
+  while ((match = trnRegex.exec(text))) {
+    const block = match[1];
+    const get = (tag) => {
+      const m = block.match(new RegExp(`<${tag}>([^<\r\n]*)`, "i"));
+      return m ? m[1].trim() : "";
+    };
+    const dtPosted = get("DTPOSTED");
+    const amount = parseFloat(get("TRNAMT"));
+    const memo = get("MEMO") || get("NAME");
+    if (!dtPosted || Number.isNaN(amount)) continue;
+    const date = `${dtPosted.slice(0, 4)}-${dtPosted.slice(4, 6)}-${dtPosted.slice(6, 8)}`;
+    transactions.push({ date, amount, description: memo, type: amount >= 0 ? "credit" : "debit" });
+  }
+  return transactions;
+}
+
+function parseBrazilianStatementDate(s) {
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return null;
+}
+
+function parseCSVStatement(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) return [];
+  const delim = lines[0].includes(";") ? ";" : ",";
+  const header = lines[0].split(delim).map((h) => h.trim().toLowerCase());
+  const dateIdx = header.findIndex((h) => h.includes("data"));
+  const valueIdx = header.findIndex((h) => h.includes("valor"));
+  const descIdx = header.findIndex((h) => h.includes("hist") || h.includes("descri"));
+  if (dateIdx === -1 || valueIdx === -1) return [];
+  const transactions = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(delim);
+    const rawDate = (cols[dateIdx] || "").trim();
+    const rawValue = (cols[valueIdx] || "").trim().replace(/\./g, "").replace(",", ".");
+    const amount = parseFloat(rawValue);
+    const date = parseBrazilianStatementDate(rawDate);
+    if (!date || Number.isNaN(amount)) continue;
+    transactions.push({ date, amount, description: descIdx >= 0 ? (cols[descIdx] || "").trim() : "", type: amount >= 0 ? "credit" : "debit" });
+  }
+  return transactions;
+}
+
+function parseBankStatement(fileName, text) {
+  if (/\.ofx$/i.test(fileName) || text.includes("<STMTTRN>")) return parseOFXStatement(text);
+  return parseCSVStatement(text);
+}
+
+function matchStatementToFinances(transactions, finances) {
+  const credits = transactions.filter((t) => t.type === "credit");
+  const pending = finances.filter((f) => f.status === "pendente");
+  const used = new Set();
+  return credits.map((t) => {
+    const candidate = pending.find((f) => !used.has(f.id) && Math.abs(Number(f.amount) - t.amount) < 0.01);
+    if (candidate) used.add(candidate.id);
+    return { transaction: t, match: candidate || null };
+  });
+}
+
 function computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month }) {
   const monthFinances = finances.filter((f) => f.referenceMonth === month);
   const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
@@ -3137,7 +3216,7 @@ function FinanceiroView({
   finances, bonuses, settings, clients, team, properties, fields,
   onAddFinance, onEditFinance, onDeleteFinance,
   onAddBonus, onEditBonus, onDeleteBonus,
-  onChangeRate, onChangeProjectRate,
+  onChangeRate, onChangeProjectRate, onReconcile,
 }) {
   const [tab, setTab] = useState("honorarios");
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -3193,7 +3272,8 @@ function FinanceiroView({
             <StatCard label="Recebido no mês" value={fmtCurrency(totalRecebido)} accent="#7BC142" />
             <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="#E3B455" />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
+            <GhostBtn onClick={onReconcile}><Wallet size={14} /> Conciliar extrato</GhostBtn>
             <PrimaryBtn onClick={onAddFinance}><Plus size={16} /> Novo honorário</PrimaryBtn>
           </div>
           {monthFinances.length === 0 ? (
@@ -3365,6 +3445,89 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTransaction, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [error, setError] = useState("");
+  const [confirmedIds, setConfirmedIds] = useState([]);
+  const fileInputRef = useRef(null);
+
+  async function handleFile(file) {
+    setError("");
+    try {
+      const text = await file.text();
+      const transactions = parseBankStatement(file.name, text);
+      if (transactions.length === 0) {
+        setError('Não consegui reconhecer nenhum lançamento nesse arquivo. Confira se é um extrato exportado como CSV ou OFX ("Open Financial Exchange") pelo internet banking.');
+        return;
+      }
+      setFileName(file.name);
+      setRows(matchStatementToFinances(transactions, finances));
+    } catch {
+      setError("Não foi possível ler o arquivo.");
+    }
+  }
+
+  function handleConfirm(match, transaction) {
+    onConfirmMatch(match, transaction);
+    setConfirmedIds((ids) => [...ids, match.id]);
+  }
+
+  return (
+    <Modal title="Conciliar extrato bancário" onClose={onClose}>
+      {!rows ? (
+        <>
+          <div style={{ fontSize: 10.5, color: "#9BA298", marginBottom: 14 }}>
+            Envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários com status "Pendente", algum com o mesmo valor de cada crédito do extrato.
+          </div>
+          <input ref={fileInputRef} type="file" accept=".csv,.ofx,.txt" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "#D6D3C7" }} />
+          {error && <div style={{ fontSize: 10.5, color: "#E38B84", marginTop: 10 }}>{error}</div>}
+        </>
+      ) : (
+        <div>
+          <div style={{ fontSize: 10, color: "#6B7268", marginBottom: 12 }}>{fileName} · {rows.length} crédito(s) encontrado(s)</div>
+          {rows.length === 0 ? (
+            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma entrada (crédito) encontrada no extrato.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
+              {rows.map((r, i) => {
+                const isConfirmed = r.match && confirmedIds.includes(r.match.id);
+                const client = r.match ? clients.find((c) => c.id === r.match.clientId) : null;
+                return (
+                  <div key={i} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#D6D3C7", marginBottom: 6 }}>
+                      <span>{fmtDate(r.transaction.date)} · {r.transaction.description || "—"}</span>
+                      <strong>{fmtCurrency(r.transaction.amount)}</strong>
+                    </div>
+                    {isConfirmed ? (
+                      <div style={{ fontSize: 9.5, color: "#7BC142" }}>Conciliado com {client?.name || "—"}</div>
+                    ) : r.match ? (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 9.5, color: "#7BC142" }}>
+                          Combina com: {client?.name || "—"} ({fmtCurrency(r.match.amount)}, {r.match.referenceMonth})
+                        </span>
+                        <GhostBtn onClick={() => handleConfirm(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 9.5, color: "#E3B455" }}>Nenhum honorário pendente com esse valor</span>
+                        <GhostBtn onClick={() => onCreateFromTransaction(r.transaction)}>Lançar honorário</GhostBtn>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <GhostBtn onClick={onClose}>Fechar</GhostBtn>
       </div>
     </Modal>
   );
