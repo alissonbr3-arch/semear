@@ -70,6 +70,24 @@ function StageProgress({ culture, stage }) {
   );
 }
 
+const VISIT_STATUS_META = {
+  ok: { label: "Em dia", bg: "#16301A", color: "#7BC142" },
+  late: { label: "Atrasado", bg: "#3A1414", color: "#E38B84" },
+  none: { label: "Sem visitas", bg: "#232B25", color: "#9BA298" },
+};
+
+function VisitStatusBadge({ status }) {
+  const meta = VISIT_STATUS_META[status] || VISIT_STATUS_META.none;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", padding: "3px 9px",
+      borderRadius: 20, background: meta.bg, color: meta.color, fontSize: 9.5, fontWeight: 600, whiteSpace: "nowrap"
+    }}>
+      {meta.label}
+    </span>
+  );
+}
+
 function CultureBadge({ culture }) {
   const meta = CULTURE_META[culture];
   if (!meta) return null;
@@ -467,6 +485,20 @@ export default function AgroTrackApp() {
     });
   }, [properties, clients, fields]);
 
+  const clientsWithMeta = useMemo(() => {
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    return clients.map((c) => {
+      const gestor = team.find((t) => t.id === c.gestorId) || null;
+      const clientPropertyIds = properties.filter((p) => p.clientId === c.id).map((p) => p.id);
+      const clientFieldIds = fields.filter((f) => clientPropertyIds.includes(f.propertyId)).map((f) => f.id);
+      const clientHarvestIds = harvests.filter((h) => clientFieldIds.includes(h.fieldId)).map((h) => h.id);
+      const clientVisits = visits.filter((v) => clientHarvestIds.includes(v.harvestId));
+      const lastVisitDate = clientVisits.reduce((latest, v) => (!latest || v.date > latest ? v.date : latest), null);
+      const visitStatus = !lastVisitDate ? "none" : lastVisitDate >= weekAgo ? "ok" : "late";
+      return { ...c, gestorName: gestor?.name || null, lastVisitDate, visitStatus };
+    });
+  }, [clients, team, properties, fields, harvests, visits]);
+
   const harvestsWithMeta = useMemo(() => {
     return harvests.map((h) => {
       const field = fields.find((f) => f.id === h.fieldId);
@@ -534,7 +566,7 @@ export default function AgroTrackApp() {
     });
   }, [visits, harvestsWithMeta]);
 
-  const filteredClients = clients.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredClients = clientsWithMeta.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
   const filteredProperties = propertiesWithMeta.filter((p) => (p.name + p.clientName).toLowerCase().includes(propSearch.toLowerCase()));
   const filteredFields = fieldsWithMeta.filter((f) => cultureFilter === "Todas" || f.activeHarvest?.culture === cultureFilter);
 
@@ -572,6 +604,10 @@ export default function AgroTrackApp() {
   }
   function openField(fieldId) {
     setSelectedFieldId(fieldId);
+  }
+  function openClientFromDashboard(clientId) {
+    setView("clientes");
+    setSelectedClientId(clientId);
   }
   function closeFieldDetail() {
     setSelectedFieldId(null);
@@ -667,7 +703,7 @@ export default function AgroTrackApp() {
       {/* Main content */}
       <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto" }}>
         {view === "dashboard" && (
-          <Dashboard totals={totals} recentVisits={recentVisits} clients={clients} properties={properties} fields={fieldsWithMeta} onOpenField={openField} />
+          <Dashboard totals={totals} recentVisits={recentVisits} clients={clientsWithMeta} properties={properties} fields={fieldsWithMeta} onOpenField={openField} onOpenClient={openClientFromDashboard} />
         )}
 
         {view === "clientes" && !selectedClientId && (
@@ -682,7 +718,7 @@ export default function AgroTrackApp() {
 
         {view === "clientes" && selectedClientId && !selectedPropertyId && (
           <ClientDetail
-            client={clients.find((c) => c.id === selectedClientId)}
+            client={clientsWithMeta.find((c) => c.id === selectedClientId)}
             properties={propertiesWithMeta.filter((p) => p.clientId === selectedClientId)}
             onBack={() => setSelectedClientId(null)}
             onAddProperty={() => setModal({ type: "property", data: { clientId: selectedClientId } })}
@@ -796,7 +832,7 @@ export default function AgroTrackApp() {
       </div>
 
       {modal?.type === "client" && (
-        <ClientModal data={modal.data} onSave={saveClient} onClose={() => setModal(null)} />
+        <ClientModal data={modal.data} team={team} onSave={saveClient} onClose={() => setModal(null)} />
       )}
       {modal?.type === "property" && (
         <PropertyModal data={modal.data} clients={clients} onSave={saveProperty} onClose={() => setModal(null)} />
@@ -848,8 +884,11 @@ function StatCard({ label, value, sub, accent }) {
   );
 }
 
-function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField }) {
+function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField, onOpenClient }) {
   const pctSoja = totals.areaPlantada ? Math.round((totals.areaSoja / totals.areaPlantada) * 100) : 0;
+  const lateClients = clients
+    .filter((c) => c.visitStatus === "late" || c.visitStatus === "none")
+    .sort((a, b) => (a.lastVisitDate || "").localeCompare(b.lastVisitDate || ""));
   return (
     <div>
       <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Painel geral</h2>
@@ -886,6 +925,32 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
                 </span>
               </div>
             </>
+          )}
+        </div>
+
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Visita semanal por gestor</div>
+          {lateClients.length === 0 ? (
+            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Todos os clientes estão em dia com a visita semanal.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {lateClients.map((c) => (
+                <div
+                  key={c.id}
+                  onClick={() => onOpenClient && onOpenClient(c.id)}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: onOpenClient ? "pointer" : "default" }}
+                >
+                  <div>
+                    <div style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{c.name}</div>
+                    <div style={{ fontSize: 9.5, color: "#6B7268" }}>
+                      {c.gestorName ? `Gestor: ${c.gestorName}` : "Sem gestor definido"}
+                      {c.lastVisitDate ? ` · última visita ${fmtDate(c.lastVisitDate)}` : ""}
+                    </div>
+                  </div>
+                  <VisitStatusBadge status={c.visitStatus} />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
@@ -1014,7 +1079,7 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
       ) : (
         <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
           <table>
-            <thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Propriedades</th><th></th></tr></thead>
+            <thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Propriedades</th><th>Gestor</th><th>Visita</th><th></th></tr></thead>
             <tbody>
               {clients.map((c) => {
                 const count = properties.filter((p) => p.clientId === c.id).length;
@@ -1024,6 +1089,8 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
                     <td>{c.phone || "—"}</td>
                     <td>{c.city || "—"}</td>
                     <td>{count}</td>
+                    <td>{c.gestorName || "—"}</td>
+                    <td><VisitStatusBadge status={c.visitStatus} /></td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                         <button onClick={() => onEdit(c)} style={iconBtnStyle}><Pencil size={14} /></button>
@@ -1052,9 +1119,13 @@ function ClientDetail({ client, properties, onBack, onAddProperty, onEditPropert
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
         <div>
           <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{client.name}</h2>
-          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298", marginBottom: 8 }}>
             {client.phone && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Phone size={13} /> {client.phone}</span>}
             {client.city && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {client.city}</span>}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10.5, color: "#9BA298" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}><UserCog size={13} /> {client.gestorName ? `Gestor: ${client.gestorName}` : "Sem gestor definido"}</span>
+            <VisitStatusBadge status={client.visitStatus} />
           </div>
         </div>
         <PrimaryBtn onClick={onAddProperty}><Plus size={16} /> Nova propriedade</PrimaryBtn>
@@ -1480,8 +1551,8 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
   );
 }
 
-function ClientModal({ data, onSave, onClose }) {
-  const [form, setForm] = useState(data || { name: "", phone: "", city: "" });
+function ClientModal({ data, team, onSave, onClose }) {
+  const [form, setForm] = useState(data || { name: "", phone: "", city: "", gestorId: "" });
   return (
     <Modal title={data ? "Editar cliente" : "Novo cliente"} onClose={onClose}>
       <Field label="Nome do produtor">
@@ -1493,6 +1564,21 @@ function ClientModal({ data, onSave, onClose }) {
       <Field label="Cidade / região">
         <input style={inputStyle} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ex: São Gabriel do Oeste, MS" />
       </Field>
+      <Field label="Gestor responsável">
+        {team.length === 0 ? (
+          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>
+            Nenhum colaborador cadastrado ainda. Cadastre em Equipe.
+          </div>
+        ) : (
+          <select style={inputStyle} value={form.gestorId || ""} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
+            <option value="">Sem gestor definido</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
+        O gestor é responsável pelo acompanhamento deste cliente, com visita semanal esperada.
+      </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
