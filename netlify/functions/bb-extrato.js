@@ -23,6 +23,7 @@
 //   BB_OAUTH_URL       - default: https://oauth.bb.com.br/oauth/token
 //   BB_API_BASE_URL    - default: https://api-extratos.bb.com.br
 import https from "node:https";
+import tls from "node:tls";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -57,6 +58,10 @@ async function getMtlsAgent(adminClient) {
   const passphrase = process.env.BB_CERT_PASSPHRASE;
   if (!pfx || !passphrase) return null;
   try {
+    // tls.createSecureContext valida/decodifica o PKCS12 na hora (o
+    // https.Agent, sozinho, só guarda os bytes e só tentaria abrir o
+    // certificado depois, na primeira conexão — escondendo o erro real).
+    tls.createSecureContext({ pfx: pfx.buffer, passphrase });
     return new https.Agent({ pfx: pfx.buffer, passphrase });
   } catch (e) {
     const prefix = pfx.buffer.subarray(0, 8).toString("hex");
