@@ -1,0 +1,2384 @@
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import {
+  LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
+  Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
+  ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
+  Bug, Microscope, Flower2
+} from "lucide-react";
+import { safeGet, safeSet } from "./lib/storage.js";
+
+const LOGO_SRC = "data:image/png;base64,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";
+
+const LOGO_MARK_SRC = "data:image/png;base64,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";
+
+const SOJA_STAGES = ["VE","VC","V1","V2","V3","V4","V5","V6","R1","R2","R3","R4","R5","R6","R7","R8"];
+const MILHO_STAGES = ["VE","V1","V2","V3","V4","V6","V8","V10","V12","V14","V16","V18","VT","R1","R2","R3","R4","R5","R6"];
+
+const CULTURE_META = {
+  Soja: { color: "#7BC142", bg: "#1C2E19", icon: Leaf, stages: SOJA_STAGES },
+  Milho: { color: "#D6A93A", bg: "#332811", icon: Wheat, stages: MILHO_STAGES },
+};
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function fmtDate(d) {
+  if (!d) return "—";
+  const dt = new Date(d + "T00:00:00");
+  return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function daysSince(d) {
+  if (!d) return null;
+  const dt = new Date(d + "T00:00:00");
+  const diff = Math.floor((Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+
+function StageProgress({ culture, stage }) {
+  const meta = CULTURE_META[culture];
+  if (!meta) return null;
+  const idx = meta.stages.indexOf(stage);
+  const pct = idx >= 0 ? (idx / (meta.stages.length - 1)) * 100 : 0;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 140 }}>
+      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "#26302A", position: "relative" }}>
+        <div style={{
+          position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 3,
+          width: pct + "%", background: meta.color, transition: "width .3s"
+        }} />
+      </div>
+      <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5, fontWeight: 600, color: meta.color, minWidth: 26 }}>
+        {stage || "—"}
+      </span>
+    </div>
+  );
+}
+
+function CultureBadge({ culture }) {
+  const meta = CULTURE_META[culture];
+  if (!meta) return null;
+  const Icon = meta.icon;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px",
+      borderRadius: 20, background: meta.bg, color: meta.color, fontSize: 9.5, fontWeight: 600
+    }}>
+      <Icon size={12} /> {culture}
+    </span>
+  );
+}
+
+function AffectedCultureBadge({ value }) {
+  if (!value) return <span style={{ color: "#6B7268", fontSize: 9.5 }}>—</span>;
+  if (value === "Ambas") {
+    return (
+      <span style={{ display: "inline-flex", gap: 5 }}>
+        <CultureBadge culture="Soja" />
+        <CultureBadge culture="Milho" />
+      </span>
+    );
+  }
+  return <CultureBadge culture={value} />;
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: "block", marginBottom: 14 }}>
+      <span style={{ display: "block", fontSize: 9.5, fontWeight: 600, color: "#8B9188", marginBottom: 5, textTransform: "uppercase", letterSpacing: ".03em" }}>
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputStyle = {
+  width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid #2E362F",
+  fontSize: 11, fontFamily: "inherit", background: "#10140F", color: "#EDEBE0", boxSizing: "border-box"
+};
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex",
+      alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20
+    }} onClick={onClose}>
+      <div style={{
+        background: "#161D19", borderRadius: 14, width: "100%", maxWidth: 460,
+        maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", border: "1px solid #232B25"
+      }} onClick={(e) => e.stopPropagation()}>
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          padding: "18px 22px", borderBottom: "1px solid #212922", position: "sticky", top: 0, background: "#161D19", borderRadius: "14px 14px 0 0"
+        }}>
+          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14.5, fontWeight: 700, color: "#F2F0E6" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7268", padding: 4 }}>
+            <X size={20} />
+          </button>
+        </div>
+        <div style={{ padding: 22 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PrimaryBtn({ children, ...props }) {
+  return (
+    <button {...props} style={{
+      background: "#3E7A3F", color: "#F5F2E8", border: "none", borderRadius: 8,
+      padding: "10px 18px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+      display: "inline-flex", alignItems: "center", gap: 6, ...props.style
+    }}>
+      {children}
+    </button>
+  );
+}
+
+function GhostBtn({ children, ...props }) {
+  return (
+    <button {...props} style={{
+      background: "transparent", color: "#D6D3C7", border: "1px solid #2E362F", borderRadius: 8,
+      padding: "9px 16px", fontSize: 11, fontWeight: 500, cursor: "pointer",
+      display: "inline-flex", alignItems: "center", gap: 6, ...props.style
+    }}>
+      {children}
+    </button>
+  );
+}
+
+const iconBtnStyle = { background: "none", border: "1px solid #232B25", borderRadius: 6, padding: 6, cursor: "pointer", color: "#8B9188" };
+
+export default function AgroTrackApp() {
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState("dashboard");
+  const [clients, setClients] = useState([]);
+  const [properties, setProperties] = useState([]);
+  const [fields, setFields] = useState([]);
+  const [harvests, setHarvests] = useState([]);
+  const [visits, setVisits] = useState([]);
+  const [varieties, setVarieties] = useState([]);
+  const [pesticides, setPesticides] = useState([]);
+  const [fertilizers, setFertilizers] = useState([]);
+  const [pests, setPests] = useState([]);
+  const [diseases, setDiseases] = useState([]);
+  const [weeds, setWeeds] = useState([]);
+  const [team, setTeam] = useState([]);
+  const [modal, setModal] = useState(null);
+  const [selectedClientId, setSelectedClientId] = useState(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState(null);
+  const [propertyBackTo, setPropertyBackTo] = useState("propriedades");
+  const [selectedFieldId, setSelectedFieldId] = useState(null);
+  const [selectedHarvestId, setSelectedHarvestId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [propSearch, setPropSearch] = useState("");
+  const [cultureFilter, setCultureFilter] = useState("Todas");
+
+  useEffect(() => {
+    (async () => {
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, tm] = await Promise.all([
+        safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
+        safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
+        safeGet("pests"), safeGet("diseases"), safeGet("weeds"), safeGet("team")
+      ]);
+      setClients(c || []);
+      setProperties(p || []);
+      setFields(f || []);
+      setHarvests(h || []);
+      setVisits(v || []);
+      setVarieties(vr || []);
+      setPesticides(pe || []);
+      setFertilizers(fe || []);
+      setPests(ps || []);
+      setDiseases(ds || []);
+      setWeeds(ws || []);
+      setTeam(tm || []);
+      setLoading(false);
+    })();
+  }, []);
+
+  async function persistClients(data) { setClients(data); await safeSet("clients", data); }
+  async function persistProperties(data) { setProperties(data); await safeSet("properties", data); }
+  async function persistFields(data) { setFields(data); await safeSet("fields", data); }
+  async function persistHarvests(data) { setHarvests(data); await safeSet("harvests", data); }
+  async function persistVisits(data) { setVisits(data); await safeSet("visits", data); }
+  async function persistVarieties(data) { setVarieties(data); await safeSet("varieties", data); }
+  async function persistPesticides(data) { setPesticides(data); await safeSet("pesticides", data); }
+  async function persistFertilizers(data) { setFertilizers(data); await safeSet("fertilizers", data); }
+  async function persistPests(data) { setPests(data); await safeSet("pests", data); }
+  async function persistDiseases(data) { setDiseases(data); await safeSet("diseases", data); }
+  async function persistWeeds(data) { setWeeds(data); await safeSet("weeds", data); }
+  async function persistTeam(data) { setTeam(data); await safeSet("team", data); }
+
+  function saveClient(form) {
+    if (form.id) {
+      persistClients(clients.map((c) => (c.id === form.id ? form : c)));
+    } else {
+      persistClients([...clients, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteClient(id) {
+    const propIds = properties.filter((p) => p.clientId === id).map((p) => p.id);
+    const fieldIds = fields.filter((f) => propIds.includes(f.propertyId)).map((f) => f.id);
+    const harvestIds = harvests.filter((h) => fieldIds.includes(h.fieldId)).map((h) => h.id);
+    persistVisits(visits.filter((v) => !harvestIds.includes(v.harvestId)));
+    persistHarvests(harvests.filter((h) => !fieldIds.includes(h.fieldId)));
+    persistFields(fields.filter((f) => !propIds.includes(f.propertyId)));
+    persistProperties(properties.filter((p) => p.clientId !== id));
+    persistClients(clients.filter((c) => c.id !== id));
+    if (selectedClientId === id) { setSelectedClientId(null); setSelectedPropertyId(null); setSelectedFieldId(null); setSelectedHarvestId(null); }
+  }
+
+  function saveProperty(form) {
+    if (form.id) {
+      persistProperties(properties.map((p) => (p.id === form.id ? form : p)));
+    } else {
+      persistProperties([...properties, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteProperty(id) {
+    const fieldIds = fields.filter((f) => f.propertyId === id).map((f) => f.id);
+    const harvestIds = harvests.filter((h) => fieldIds.includes(h.fieldId)).map((h) => h.id);
+    persistVisits(visits.filter((v) => !harvestIds.includes(v.harvestId)));
+    persistHarvests(harvests.filter((h) => !fieldIds.includes(h.fieldId)));
+    persistFields(fields.filter((f) => f.propertyId !== id));
+    persistProperties(properties.filter((p) => p.id !== id));
+    if (selectedPropertyId === id) { setSelectedPropertyId(null); setSelectedFieldId(null); setSelectedHarvestId(null); }
+  }
+
+  function saveField(form) {
+    if (form.id) {
+      persistFields(fields.map((f) => (f.id === form.id ? form : f)));
+    } else {
+      persistFields([...fields, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteField(id) {
+    const harvestIds = harvests.filter((h) => h.fieldId === id).map((h) => h.id);
+    persistVisits(visits.filter((v) => !harvestIds.includes(v.harvestId)));
+    persistHarvests(harvests.filter((h) => h.fieldId !== id));
+    persistFields(fields.filter((f) => f.id !== id));
+    if (selectedFieldId === id) { setSelectedFieldId(null); setSelectedHarvestId(null); }
+  }
+
+  function saveHarvest(form) {
+    if (form.id) {
+      persistHarvests(harvests.map((h) => (h.id === form.id ? form : h)));
+    } else {
+      persistHarvests([...harvests, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteHarvest(id) {
+    persistVisits(visits.filter((v) => v.harvestId !== id));
+    persistHarvests(harvests.filter((h) => h.id !== id));
+    if (selectedHarvestId === id) setSelectedHarvestId(null);
+  }
+
+  function saveVisit(form) {
+    if (form.id) {
+      persistVisits(visits.map((v) => (v.id === form.id ? form : v)));
+    } else {
+      persistVisits([...visits, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteVisit(id) {
+    persistVisits(visits.filter((v) => v.id !== id));
+  }
+
+  function saveVariety(form) {
+    if (form.id) {
+      persistVarieties(varieties.map((v) => (v.id === form.id ? form : v)));
+    } else {
+      persistVarieties([...varieties, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteVariety(id) {
+    persistVarieties(varieties.filter((v) => v.id !== id));
+  }
+
+  function savePesticide(form) {
+    if (form.id) {
+      persistPesticides(pesticides.map((p) => (p.id === form.id ? form : p)));
+    } else {
+      persistPesticides([...pesticides, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deletePesticide(id) {
+    persistPesticides(pesticides.filter((p) => p.id !== id));
+  }
+
+  function saveFertilizer(form) {
+    if (form.id) {
+      persistFertilizers(fertilizers.map((f) => (f.id === form.id ? form : f)));
+    } else {
+      persistFertilizers([...fertilizers, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteFertilizer(id) {
+    persistFertilizers(fertilizers.filter((f) => f.id !== id));
+  }
+
+  function savePest(form) {
+    if (form.id) {
+      persistPests(pests.map((p) => (p.id === form.id ? form : p)));
+    } else {
+      persistPests([...pests, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deletePest(id) {
+    persistPests(pests.filter((p) => p.id !== id));
+  }
+
+  function saveDisease(form) {
+    if (form.id) {
+      persistDiseases(diseases.map((d) => (d.id === form.id ? form : d)));
+    } else {
+      persistDiseases([...diseases, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteDisease(id) {
+    persistDiseases(diseases.filter((d) => d.id !== id));
+  }
+
+  function saveWeed(form) {
+    if (form.id) {
+      persistWeeds(weeds.map((w) => (w.id === form.id ? form : w)));
+    } else {
+      persistWeeds([...weeds, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteWeed(id) {
+    persistWeeds(weeds.filter((w) => w.id !== id));
+  }
+
+  function saveTeamMember(form) {
+    if (form.id) {
+      persistTeam(team.map((t) => (t.id === form.id ? form : t)));
+    } else {
+      persistTeam([...team, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteTeamMember(id) {
+    persistTeam(team.filter((t) => t.id !== id));
+  }
+
+  const propertiesWithMeta = useMemo(() => {
+    return properties.map((p) => {
+      const client = clients.find((c) => c.id === p.clientId);
+      const propFields = fields.filter((f) => f.propertyId === p.id);
+      const area = propFields.reduce((s, f) => s + Number(f.area || 0), 0);
+      return { ...p, clientName: client ? client.name : "—", fieldCount: propFields.length, areaTotal: area };
+    });
+  }, [properties, clients, fields]);
+
+  const harvestsWithMeta = useMemo(() => {
+    return harvests.map((h) => {
+      const field = fields.find((f) => f.id === h.fieldId);
+      const property = field ? properties.find((p) => p.id === field.propertyId) : null;
+      const client = property ? clients.find((c) => c.id === property.clientId) : null;
+      const harvestVisits = visits.filter((v) => v.harvestId === h.id).sort((a, b) => b.date.localeCompare(a.date));
+      const variety = varieties.find((vv) => vv.name === h.variety && vv.culture === h.culture);
+      const estimatedHarvestDate = h.plantingDate && variety?.cycle
+        ? new Date(new Date(h.plantingDate + "T00:00:00").getTime() + Number(variety.cycle) * 86400000).toISOString().slice(0, 10)
+        : null;
+      return {
+        ...h,
+        fieldName: field ? field.name : "—",
+        fieldArea: field ? Number(field.area || 0) : 0,
+        propertyName: property ? property.name : "—",
+        clientName: client ? client.name : "—",
+        status: h.harvestDate ? "Colhida" : "Em andamento",
+        estimatedHarvestDate,
+        lastVisit: harvestVisits[0] || null,
+        visitCount: harvestVisits.length,
+      };
+    });
+  }, [harvests, fields, properties, clients, visits, varieties]);
+
+  const fieldsWithMeta = useMemo(() => {
+    return fields.map((f) => {
+      const property = properties.find((p) => p.id === f.propertyId);
+      const client = property ? clients.find((c) => c.id === property.clientId) : null;
+      const fieldHarvests = harvestsWithMeta
+        .filter((h) => h.fieldId === f.id)
+        .sort((a, b) => (b.plantingDate || "").localeCompare(a.plantingDate || ""));
+      const activeHarvest = fieldHarvests.find((h) => h.status === "Em andamento") || null;
+      return {
+        ...f,
+        propertyName: property ? property.name : "—",
+        clientName: client ? client.name : "—",
+        harvests: fieldHarvests,
+        harvestCount: fieldHarvests.length,
+        activeHarvest,
+      };
+    });
+  }, [fields, properties, clients, harvestsWithMeta]);
+
+  const totals = useMemo(() => {
+    const activeHarvests = harvestsWithMeta.filter((h) => h.status === "Em andamento");
+    const areaSoja = activeHarvests.filter((h) => h.culture === "Soja").reduce((s, h) => s + h.fieldArea, 0);
+    const areaMilho = activeHarvests.filter((h) => h.culture === "Milho").reduce((s, h) => s + h.fieldArea, 0);
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const visitsWeek = visits.filter((v) => v.date >= weekAgo).length;
+    return { areaSoja, areaMilho, areaTotal: areaSoja + areaMilho, visitsWeek, activeHarvestCount: activeHarvests.length };
+  }, [harvestsWithMeta, visits]);
+
+  const recentVisits = useMemo(() => {
+    return [...visits].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6).map((v) => {
+      const harvest = harvestsWithMeta.find((h) => h.id === v.harvestId);
+      return {
+        ...v,
+        fieldName: harvest ? harvest.fieldName : "—",
+        culture: harvest ? harvest.culture : null,
+        clientName: harvest ? harvest.clientName : "—",
+        propertyName: harvest ? harvest.propertyName : "—",
+      };
+    });
+  }, [visits, harvestsWithMeta]);
+
+  const filteredClients = clients.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredProperties = propertiesWithMeta.filter((p) => (p.name + p.clientName).toLowerCase().includes(propSearch.toLowerCase()));
+  const filteredFields = fieldsWithMeta.filter((f) => cultureFilter === "Todas" || f.activeHarvest?.culture === cultureFilter);
+
+  const NAV = [
+    { id: "dashboard", label: "Painel", icon: LayoutDashboard },
+    { id: "clientes", label: "Clientes", icon: Users },
+    { id: "propriedades", label: "Propriedades", icon: Home },
+    { id: "talhoes", label: "Talhões", icon: Sprout },
+    { id: "visitas", label: "Visitas", icon: ClipboardList },
+    { id: "equipe", label: "Equipe", icon: UserCog },
+    { id: "configuracoes", label: "Configurações", icon: Settings },
+  ];
+
+  function goToView(id) {
+    setView(id);
+    setSelectedClientId(null);
+    setSelectedPropertyId(null);
+    setSelectedFieldId(null);
+    setSelectedHarvestId(null);
+  }
+
+  function openPropertyFromClient(propId) {
+    setPropertyBackTo("clientDetail");
+    setSelectedPropertyId(propId);
+  }
+  function openPropertyFromList(propId) {
+    setPropertyBackTo("propriedades");
+    setSelectedPropertyId(propId);
+  }
+  function closePropertyDetail() {
+    setSelectedPropertyId(null);
+    setSelectedFieldId(null);
+    setSelectedHarvestId(null);
+    if (propertyBackTo === "propriedades") setView("propriedades");
+  }
+  function openField(fieldId) {
+    setSelectedFieldId(fieldId);
+  }
+  function closeFieldDetail() {
+    setSelectedFieldId(null);
+    setSelectedHarvestId(null);
+  }
+  function closeHarvestDetail() {
+    setSelectedHarvestId(null);
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, fontFamily: "Inter, sans-serif", color: "#9BA298" }}>
+        Carregando dados…
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      fontFamily: "'Inter', -apple-system, sans-serif", display: "flex", minHeight: 640,
+      background: "#0E1310", borderRadius: 14, overflow: "hidden", border: "1px solid #232B25"
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+        * { box-sizing: border-box; }
+        button:hover { opacity: 0.92; }
+        table { border-collapse: collapse; width: 100%; }
+        th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6B7268; padding: 10px 12px; border-bottom: 1px solid #232B25; }
+        td { padding: 12px; border-bottom: 1px solid #212922; font-size: 10.5px; color: #D6D3C7; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        select option { background: #161D19; color: #EDEBE0; }
+        .at-sidebar { width: 60px; transition: width .18s ease; overflow: hidden; }
+        .at-sidebar:hover { width: 210px; }
+        .at-sidebar .nav-label { display: inline-block; max-width: 0; overflow: hidden; opacity: 0; white-space: nowrap; transition: max-width .18s ease, opacity .12s ease; }
+        .at-sidebar:hover .nav-label { max-width: 160px; opacity: 1; }
+        .at-sidebar .sidebar-footer-text { white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
+        .at-sidebar:hover .sidebar-footer-text { opacity: 1; }
+        .at-sidebar .logo-full { display: none; width: 100%; height: auto; }
+        .at-sidebar .logo-mark { display: block; height: 30px; width: auto; }
+        .at-sidebar:hover .logo-full { display: block; }
+        .at-sidebar:hover .logo-mark { display: none; }
+      `}</style>
+
+      {/* Sidebar */}
+      <div className="at-sidebar" style={{ background: "#0A1C0C", color: "#DAD7C9", padding: "22px 14px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <div style={{ padding: "6px 4px", margin: "0 0 22px" }}>
+          <img src={LOGO_MARK_SRC} alt="Semear" className="logo-mark" />
+          <img src={LOGO_SRC} alt="Semear Consultoria Agropecuária" className="logo-full" />
+        </div>
+        {NAV.map((n) => {
+          const Icon = n.icon;
+          const active = view === n.id;
+          return (
+            <button key={n.id} onClick={() => goToView(n.id)} style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px",
+              marginBottom: 4, borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
+              background: active ? "#1E4A20" : "transparent", color: active ? "#F5F2E8" : "#9BA298",
+              fontSize: 11, fontWeight: active ? 600 : 500, flexShrink: 0
+            }}>
+              <Icon size={17} style={{ flexShrink: 0 }} /> <span className="nav-label">{n.label}</span>
+            </button>
+          );
+        })}
+        <div className="sidebar-footer-text" style={{ marginTop: "auto", padding: "14px 8px 0", fontSize: 9.5, color: "#6F776C", borderTop: "1px solid #1E4A20" }}>
+          Dados compartilhados com sua equipe
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto" }}>
+        {view === "dashboard" && (
+          <Dashboard totals={totals} recentVisits={recentVisits} clients={clients} properties={properties} fields={fieldsWithMeta} onOpenField={openField} />
+        )}
+
+        {view === "clientes" && !selectedClientId && (
+          <ClientesView
+            clients={filteredClients} properties={properties} search={search} setSearch={setSearch}
+            onAdd={() => setModal({ type: "client", data: null })}
+            onEdit={(c) => setModal({ type: "client", data: c })}
+            onDelete={deleteClient}
+            onOpen={(id) => setSelectedClientId(id)}
+          />
+        )}
+
+        {view === "clientes" && selectedClientId && !selectedPropertyId && (
+          <ClientDetail
+            client={clients.find((c) => c.id === selectedClientId)}
+            properties={propertiesWithMeta.filter((p) => p.clientId === selectedClientId)}
+            onBack={() => setSelectedClientId(null)}
+            onAddProperty={() => setModal({ type: "property", data: { clientId: selectedClientId } })}
+            onEditProperty={(p) => setModal({ type: "property", data: p })}
+            onDeleteProperty={deleteProperty}
+            onOpenProperty={openPropertyFromClient}
+          />
+        )}
+
+        {selectedHarvestId && (
+          <HarvestDetail
+            harvest={harvestsWithMeta.find((h) => h.id === selectedHarvestId)}
+            visits={visits.filter((v) => v.harvestId === selectedHarvestId)}
+            onBack={closeHarvestDetail}
+            onEdit={() => setModal({ type: "harvest", data: harvests.find((h) => h.id === selectedHarvestId) })}
+            onAddVisit={() => setModal({ type: "visit", data: { harvestId: selectedHarvestId } })}
+            onEditVisit={(v) => setModal({ type: "visit", data: v })}
+            onDeleteVisit={deleteVisit}
+          />
+        )}
+
+        {selectedFieldId && !selectedHarvestId && (
+          <FieldDetail
+            field={fieldsWithMeta.find((f) => f.id === selectedFieldId)}
+            onBack={closeFieldDetail}
+            onAddHarvest={() => setModal({ type: "harvest", data: { fieldId: selectedFieldId } })}
+            onEditHarvest={(h) => setModal({ type: "harvest", data: h })}
+            onDeleteHarvest={deleteHarvest}
+            onOpenHarvest={(id) => setSelectedHarvestId(id)}
+          />
+        )}
+
+        {selectedPropertyId && !selectedFieldId && (
+          <PropertyDetail
+            property={propertiesWithMeta.find((p) => p.id === selectedPropertyId)}
+            fields={fieldsWithMeta.filter((f) => f.propertyId === selectedPropertyId)}
+            onBack={closePropertyDetail}
+            onAddField={() => setModal({ type: "field", data: { propertyId: selectedPropertyId } })}
+            onEditField={(f) => setModal({ type: "field", data: f })}
+            onDeleteField={deleteField}
+            onOpenField={openField}
+          />
+        )}
+
+        {view === "propriedades" && !selectedPropertyId && (
+          <PropriedadesView
+            properties={filteredProperties} clients={clients} search={propSearch} setSearch={setPropSearch}
+            onAdd={() => setModal({ type: "property", data: null })}
+            onEdit={(p) => setModal({ type: "property", data: p })}
+            onDelete={deleteProperty}
+            onOpen={openPropertyFromList}
+            hasClients={clients.length > 0}
+          />
+        )}
+
+        {view === "talhoes" && !selectedFieldId && (
+          <TalhoesView
+            fields={filteredFields} cultureFilter={cultureFilter} setCultureFilter={setCultureFilter}
+            onAdd={() => setModal({ type: "field", data: null })}
+            onEdit={(f) => setModal({ type: "field", data: f })}
+            onDelete={deleteField}
+            onOpen={openField}
+            hasProperties={properties.length > 0}
+          />
+        )}
+
+        {view === "visitas" && (
+          <VisitasView
+            visits={visits} harvests={harvestsWithMeta}
+            onAdd={() => setModal({ type: "visit", data: null })}
+            onEdit={(v) => setModal({ type: "visit", data: v })}
+            onDelete={deleteVisit}
+            hasHarvests={harvests.length > 0}
+          />
+        )}
+
+        {view === "equipe" && (
+          <EquipeView
+            team={team}
+            onAdd={() => setModal({ type: "team", data: null })}
+            onEdit={(t) => setModal({ type: "team", data: t })}
+            onDelete={deleteTeamMember}
+          />
+        )}
+
+        {view === "configuracoes" && (
+          <ConfiguracoesView
+            varieties={varieties} pesticides={pesticides} fertilizers={fertilizers}
+            pests={pests} diseases={diseases} weeds={weeds}
+            onAddVariety={() => setModal({ type: "variety", data: null })}
+            onEditVariety={(v) => setModal({ type: "variety", data: v })}
+            onDeleteVariety={deleteVariety}
+            onAddPesticide={() => setModal({ type: "pesticide", data: null })}
+            onEditPesticide={(p) => setModal({ type: "pesticide", data: p })}
+            onDeletePesticide={deletePesticide}
+            onAddFertilizer={() => setModal({ type: "fertilizer", data: null })}
+            onEditFertilizer={(f) => setModal({ type: "fertilizer", data: f })}
+            onDeleteFertilizer={deleteFertilizer}
+            onAddPest={() => setModal({ type: "pest", data: null })}
+            onEditPest={(p) => setModal({ type: "pest", data: p })}
+            onDeletePest={deletePest}
+            onAddDisease={() => setModal({ type: "disease", data: null })}
+            onEditDisease={(d) => setModal({ type: "disease", data: d })}
+            onDeleteDisease={deleteDisease}
+            onAddWeed={() => setModal({ type: "weed", data: null })}
+            onEditWeed={(w) => setModal({ type: "weed", data: w })}
+            onDeleteWeed={deleteWeed}
+          />
+        )}
+      </div>
+
+      {modal?.type === "client" && (
+        <ClientModal data={modal.data} onSave={saveClient} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "property" && (
+        <PropertyModal data={modal.data} clients={clients} onSave={saveProperty} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "field" && (
+        <FieldModal data={modal.data} properties={properties} clients={clients} onSave={saveField} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "harvest" && (
+        <HarvestModal data={modal.data} fields={fields} properties={properties} clients={clients} varieties={varieties} onSave={saveHarvest} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "visit" && (
+        <VisitModal data={modal.data} harvests={harvestsWithMeta} team={team} onSave={saveVisit} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "variety" && (
+        <VarietyModal data={modal.data} onSave={saveVariety} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "pesticide" && (
+        <PesticideModal data={modal.data} onSave={savePesticide} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "fertilizer" && (
+        <FertilizerModal data={modal.data} onSave={saveFertilizer} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "pest" && (
+        <PestModal data={modal.data} onSave={savePest} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "disease" && (
+        <DiseaseModal data={modal.data} onSave={saveDisease} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "weed" && (
+        <WeedModal data={modal.data} onSave={saveWeed} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "team" && (
+        <TeamMemberModal data={modal.data} onSave={saveTeamMember} onClose={() => setModal(null)} />
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, accent }) {
+  return (
+    <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px", flex: 1, minWidth: 140 }}>
+      <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
+      <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 19, fontWeight: 800, color: accent || "#F2F0E6" }}>{value}</div>
+      {sub && <div style={{ fontSize: 9.5, color: "#9BA298", marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField }) {
+  const pctSoja = totals.areaTotal ? Math.round((totals.areaSoja / totals.areaTotal) * 100) : 0;
+  return (
+    <div>
+      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Painel geral</h2>
+      <p style={{ color: "#9BA298", fontSize: 11, margin: "0 0 22px" }}>Visão geral das lavouras acompanhadas</p>
+
+      <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
+        <StatCard label="Clientes" value={clients.length} />
+        <StatCard label="Propriedades" value={properties.length} />
+        <StatCard label="Talhões" value={fields.length} />
+        <StatCard label="Safras ativas" value={totals.activeHarvestCount} accent="#7BC142" />
+        <StatCard label="Área total" value={totals.areaTotal.toLocaleString("pt-BR") + " ha"} />
+        <StatCard label="Visitas · 7 dias" value={totals.visitsWeek} />
+      </div>
+
+      <div style={{ display: "flex", gap: 18, alignItems: "stretch", marginBottom: 24, flexWrap: "wrap" }}>
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Área por cultura</div>
+          {totals.areaTotal === 0 ? (
+            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma safra em andamento ainda.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", marginBottom: 10 }}>
+                <div style={{ width: pctSoja + "%", background: CULTURE_META.Soja.color }} />
+                <div style={{ width: (100 - pctSoja) + "%", background: CULTURE_META.Milho.color }} />
+              </div>
+              <div style={{ display: "flex", gap: 18, fontSize: 10.5 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#D6D3C7" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: CULTURE_META.Soja.color, display: "inline-block" }} />
+                  Soja — {totals.areaSoja.toLocaleString("pt-BR")} ha
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#D6D3C7" }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 3, background: CULTURE_META.Milho.color, display: "inline-block" }} />
+                  Milho — {totals.areaMilho.toLocaleString("pt-BR")} ha
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <FieldsOverviewMap fields={fields} onOpenField={onOpenField} />
+
+      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Visitas recentes</div>
+        {recentVisits.length === 0 ? (
+          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Data</th><th>Cliente / Propriedade / Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th></tr></thead>
+            <tbody>
+              {recentVisits.map((v) => (
+                <tr key={v.id}>
+                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(v.date)}</td>
+                  <td>{v.clientName} <span style={{ color: "#6B7268" }}>· {v.propertyName} · {v.fieldName}</span></td>
+                  <td>{v.culture && <CultureBadge culture={v.culture} />}</td>
+                  <td>{v.culture && <StageProgress culture={v.culture} stage={v.stage} />}</td>
+                  <td>{v.technician}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function projectMultiField(fieldsWithKml, width, height, padding) {
+  const allPoints = fieldsWithKml.flatMap((f) => f.fieldMap.points.map(([lat, lng]) => ({ lat, lng })));
+  const lats = allPoints.map((p) => p.lat);
+  const lngs = allPoints.map((p) => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const avgLat = (minLat + maxLat) / 2;
+  const cosLat = Math.cos((avgLat * Math.PI) / 180) || 1;
+  const spanX = (maxLng - minLng) * cosLat || 0.0001;
+  const spanY = maxLat - minLat || 0.0001;
+  const scale = Math.min((width - 2 * padding) / spanX, (height - 2 * padding) / spanY);
+  return fieldsWithKml.map((f) => ({
+    ...f,
+    screenPoints: f.fieldMap.points.map(([lat, lng]) => ({
+      x: padding + (lng - minLng) * cosLat * scale,
+      y: height - padding - (lat - minLat) * scale,
+    })),
+  }));
+}
+
+function FieldsOverviewMap({ fields, onOpenField }) {
+  const [hovered, setHovered] = useState(null);
+  const geoFields = fields.filter((f) => f.fieldMap?.mode === "kml" && f.fieldMap.points?.length >= 3);
+  const imageFields = fields.filter((f) => f.fieldMap?.mode === "image" && f.fieldMap.points?.length >= 3);
+  const width = 700, height = 380, padding = 30;
+  const projected = geoFields.length > 0 ? projectMultiField(geoFields, width, height, padding) : [];
+
+  return (
+    <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>Mapa dos talhões</div>
+      <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 12 }}>
+        Só mostra talhões com área definida por KML — coordenadas reais, então dá pra combinar todos num mapa só.
+      </div>
+      {geoFields.length === 0 ? (
+        <div style={{ color: "#6B7268", fontSize: 10.5 }}>
+          Nenhum talhão com KML importado ainda. Defina a área de um talhão usando KML para ele aparecer aqui.
+        </div>
+      ) : (
+        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ background: "#0E1310", borderRadius: 8, border: "1px solid #232B25" }}>
+          {projected.map((f) => {
+            const points = f.screenPoints.map((p) => `${p.x},${p.y}`).join(" ");
+            const cx = f.screenPoints.reduce((s, p) => s + p.x, 0) / f.screenPoints.length;
+            const cy = f.screenPoints.reduce((s, p) => s + p.y, 0) / f.screenPoints.length;
+            const color = f.activeHarvest ? CULTURE_META[f.activeHarvest.culture]?.color || "#7BC142" : "#6B7268";
+            const isHovered = hovered === f.id;
+            return (
+              <g
+                key={f.id}
+                onClick={() => onOpenField && onOpenField(f.id)}
+                onMouseEnter={() => setHovered(f.id)}
+                onMouseLeave={() => setHovered(null)}
+                style={{ cursor: onOpenField ? "pointer" : "default" }}
+              >
+                <polygon points={points} fill={color} fillOpacity={isHovered ? 0.45 : 0.28} stroke={color} strokeWidth={isHovered ? 2.5 : 1.5} />
+                <text x={cx} y={cy} textAnchor="middle" fontSize="10" fill="#F2F0E6" fontFamily="'IBM Plex Mono', monospace" style={{ pointerEvents: "none" }}>
+                  {f.name}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      )}
+      {imageFields.length > 0 && (
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 10 }}>
+          {imageFields.length} talhão(ões) com área definida por imagem não {imageFields.length > 1 ? "entram" : "entra"} neste mapa (sem coordenadas reais) — abra cada um para visualizar.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, sub, action }) {
+  return (
+    <div style={{ textAlign: "center", padding: "60px 20px", color: "#9BA298" }}>
+      <Icon size={30} style={{ marginBottom: 10, opacity: 0.5 }} />
+      <div style={{ fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 10.5, marginBottom: 16 }}>{sub}</div>
+      {action}
+    </div>
+  );
+}
+
+function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, onDelete, onOpen }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Clientes</h2>
+        </div>
+        <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo cliente</PrimaryBtn>
+      </div>
+      <div style={{ position: "relative", maxWidth: 320, marginBottom: 16 }}>
+        <Search size={15} style={{ position: "absolute", left: 10, top: 10, color: "#6B7268" }} />
+        <input placeholder="Buscar cliente…" value={search} onChange={(e) => setSearch(e.target.value)}
+          style={{ ...inputStyle, paddingLeft: 32 }} />
+      </div>
+      {clients.length === 0 ? (
+        <EmptyState icon={Users} title="Nenhum cliente cadastrado" sub="Cadastre o primeiro produtor para começar a acompanhar as lavouras."
+          action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo cliente</PrimaryBtn>} />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Propriedades</th><th></th></tr></thead>
+            <tbody>
+              {clients.map((c) => {
+                const count = properties.filter((p) => p.clientId === c.id).length;
+                return (
+                  <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => onOpen(c.id)}>
+                    <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{c.name}</td>
+                    <td>{c.phone || "—"}</td>
+                    <td>{c.city || "—"}</td>
+                    <td>{count}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button onClick={() => onEdit(c)} style={iconBtnStyle}><Pencil size={14} /></button>
+                        <button onClick={() => { if (confirm(`Remover ${c.name} e todas as propriedades/talhões/visitas vinculados?`)) onDelete(c.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                        <ChevronRight size={16} color="#6B7268" />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClientDetail({ client, properties, onBack, onAddProperty, onEditProperty, onDeleteProperty, onOpenProperty }) {
+  if (!client) return null;
+  return (
+    <div>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+        <ArrowLeft size={14} /> Todos os clientes
+      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{client.name}</h2>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
+            {client.phone && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Phone size={13} /> {client.phone}</span>}
+            {client.city && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {client.city}</span>}
+          </div>
+        </div>
+        <PrimaryBtn onClick={onAddProperty}><Plus size={16} /> Nova propriedade</PrimaryBtn>
+      </div>
+
+      {properties.length === 0 ? (
+        <EmptyState icon={Home} title="Nenhuma propriedade cadastrada" sub="Cadastre as propriedades deste cliente para depois adicionar os talhões." />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+          {properties.map((p) => (
+            <div key={p.id} onClick={() => onOpenProperty(p.id)} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5 }}>{p.name}</div>
+                <ChevronRight size={16} color="#6B7268" />
+              </div>
+              {p.location && (
+                <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                  <MapPin size={12} /> {p.location}
+                </div>
+              )}
+              <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 12 }}>
+                {p.fieldCount} talhão(ões) · {p.areaTotal.toLocaleString("pt-BR")} ha
+              </div>
+              <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => onEditProperty(p)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
+                <button onClick={() => { if (confirm(`Remover propriedade ${p.name} e seus talhões/visitas?`)) onDeleteProperty(p.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FieldDetail({ field, onBack, onAddHarvest, onEditHarvest, onDeleteHarvest, onOpenHarvest }) {
+  if (!field) return null;
+  const sorted = [...field.harvests].sort((a, b) => {
+    if (a.status !== b.status) return a.status === "Em andamento" ? -1 : 1;
+    return (b.plantingDate || "").localeCompare(a.plantingDate || "");
+  });
+  return (
+    <div>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+        <ArrowLeft size={14} /> Voltar
+      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px", display: "flex", alignItems: "center", gap: 7 }}>
+            {field.name}
+            {field.fieldMap && <MapPin size={14} color="#7BC142" />}
+          </h2>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
+            <span>{field.clientName} · {field.propertyName}</span>
+            <span>{field.area} ha</span>
+          </div>
+        </div>
+        <PrimaryBtn onClick={onAddHarvest}><Plus size={16} /> Nova safra</PrimaryBtn>
+      </div>
+
+      {sorted.length === 0 ? (
+        <EmptyState icon={Wheat} title="Nenhuma safra cadastrada" sub="Registre o primeiro plantio (soja ou milho) deste talhão." />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+          {sorted.map((h) => (
+            <div key={h.id} onClick={() => onOpenHarvest(h.id)} style={{
+              background: "#161D19", border: "1px solid " + (h.status === "Em andamento" ? "#3E7A3F" : "#232B25"),
+              borderRadius: 12, padding: 16, cursor: "pointer"
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 12.5 }}>{h.name}</div>
+                <CultureBadge culture={h.culture} />
+              </div>
+              <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 8 }}>
+                {h.variety || "cultivar não informado"}
+              </div>
+              <div style={{ fontSize: 9.5, color: h.status === "Em andamento" ? "#7BC142" : "#9BA298", fontWeight: 600, marginBottom: 8 }}>
+                {h.status}
+              </div>
+              <div style={{ fontSize: 9.5, color: "#6B7268", lineHeight: 1.6 }}>
+                <div>Plantio: {fmtDate(h.plantingDate)}</div>
+                {h.status === "Em andamento" && h.estimatedHarvestDate && <div>Colheita estimada: {fmtDate(h.estimatedHarvestDate)}</div>}
+                {h.harvestDate && <div>Colhida em: {fmtDate(h.harvestDate)}</div>}
+              </div>
+              {h.lastVisit && (
+                <div style={{ marginTop: 10 }}>
+                  <StageProgress culture={h.culture} stage={h.lastVisit.stage} />
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => onEditHarvest(h)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
+                <button onClick={() => { if (confirm(`Remover a safra ${h.name}?`)) onDeleteHarvest(h.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisit, onDeleteVisit }) {
+  if (!harvest) return null;
+  const sortedVisits = [...visits].sort((a, b) => b.date.localeCompare(a.date));
+  return (
+    <div>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+        <ArrowLeft size={14} /> Voltar
+      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>{harvest.name}</h2>
+            <CultureBadge culture={harvest.culture} />
+          </div>
+          <div style={{ fontSize: 10.5, color: "#9BA298" }}>
+            {harvest.clientName} · {harvest.propertyName} · {harvest.fieldName}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <GhostBtn onClick={onEdit}><Pencil size={14} /> Editar safra</GhostBtn>
+          <PrimaryBtn onClick={onAddVisit}><Plus size={16} /> Registrar visita</PrimaryBtn>
+        </div>
+      </div>
+
+      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, marginBottom: 20, display: "flex", gap: 24, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>Cultivar</div>
+          <div style={{ fontSize: 11.5, color: "#D6D3C7" }}>{harvest.variety || "—"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>Plantio</div>
+          <div style={{ fontSize: 11.5, color: "#D6D3C7" }}>{fmtDate(harvest.plantingDate)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>
+            {harvest.status === "Em andamento" ? "Colheita estimada" : "Colhida em"}
+          </div>
+          <div style={{ fontSize: 11.5, color: harvest.status === "Em andamento" ? "#7BC142" : "#D6D3C7" }}>
+            {harvest.status === "Em andamento" ? (harvest.estimatedHarvestDate ? fmtDate(harvest.estimatedHarvestDate) : "—") : fmtDate(harvest.harvestDate)}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>Status</div>
+          <div style={{ fontSize: 11.5, color: harvest.status === "Em andamento" ? "#7BC142" : "#D6D3C7", fontWeight: 600 }}>{harvest.status}</div>
+        </div>
+      </div>
+
+      {sortedVisits.length === 0 ? (
+        <EmptyState icon={ClipboardList} title="Nenhuma visita registrada" sub="Registre a primeira visita técnica desta safra." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {sortedVisits.map((v) => (
+            <div key={v.id} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                <div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "#9BA298" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Calendar size={12} /> {fmtDate(v.date)}</span>
+                    <span>Técnico: {v.technician}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => onEditVisit(v)} style={iconBtnStyle}><Pencil size={14} /></button>
+                  <button onClick={() => { if (confirm("Remover esta visita?")) onDeleteVisit(v.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                </div>
+              </div>
+              <div style={{ marginBottom: 10 }}>
+                <StageProgress culture={harvest.culture} stage={v.stage} />
+              </div>
+              {v.pests && (
+                <div style={{ fontSize: 10.5, color: "#D6D3C7", marginBottom: 4 }}><strong>Pragas/doenças:</strong> {v.pests}</div>
+              )}
+              {v.recommendations && (
+                <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>Recomendações:</strong> {v.recommendations}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PropriedadesView({ properties, clients, search, setSearch, onAdd, onEdit, onDelete, onOpen, hasClients }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Propriedades</h2>
+        <PrimaryBtn onClick={onAdd} disabled={!hasClients} style={!hasClients ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+          <Plus size={16} /> Nova propriedade
+        </PrimaryBtn>
+      </div>
+      {!hasClients && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+          <AlertTriangle size={15} /> Cadastre um cliente antes de adicionar propriedades.
+        </div>
+      )}
+      <div style={{ position: "relative", maxWidth: 320, marginBottom: 16 }}>
+        <Search size={15} style={{ position: "absolute", left: 10, top: 10, color: "#6B7268" }} />
+        <input placeholder="Buscar propriedade ou cliente…" value={search} onChange={(e) => setSearch(e.target.value)}
+          style={{ ...inputStyle, paddingLeft: 32 }} />
+      </div>
+      {properties.length === 0 ? (
+        <EmptyState icon={Home} title="Nenhuma propriedade encontrada" sub="Cadastre a primeira propriedade vinculada a um cliente." />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead><tr><th>Propriedade</th><th>Cliente</th><th>Localização</th><th>Talhões</th><th>Área</th><th></th></tr></thead>
+            <tbody>
+              {properties.map((p) => (
+                <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => onOpen(p.id)}>
+                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{p.name}</td>
+                  <td>{p.clientName}</td>
+                  <td>{p.location || "—"}</td>
+                  <td>{p.fieldCount}</td>
+                  <td>{p.areaTotal.toLocaleString("pt-BR")} ha</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => onEdit(p)} style={iconBtnStyle}><Pencil size={14} /></button>
+                      <button onClick={() => { if (confirm(`Remover propriedade ${p.name}?`)) onDelete(p.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                      <ChevronRight size={16} color="#6B7268" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PropertyDetail({ property, fields, onBack, onAddField, onEditField, onDeleteField, onOpenField }) {
+  if (!property) return null;
+  return (
+    <div>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+        <ArrowLeft size={14} /> Voltar
+      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{property.name}</h2>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
+            <span>{property.clientName}</span>
+            {property.location && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {property.location}</span>}
+          </div>
+        </div>
+        <PrimaryBtn onClick={onAddField}><Plus size={16} /> Novo talhão</PrimaryBtn>
+      </div>
+
+      {fields.length === 0 ? (
+        <EmptyState icon={Sprout} title="Nenhum talhão cadastrado" sub="Adicione as áreas físicas desta propriedade — depois é só lançar as safras de cada uma." />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+          {fields.map((f) => (
+            <div key={f.id} onClick={() => onOpenField(f.id)} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5, display: "flex", alignItems: "center", gap: 5 }}>
+                  {f.name}
+                  {f.fieldMap && <MapPin size={11} color="#7BC142" />}
+                </div>
+                {f.activeHarvest ? <CultureBadge culture={f.activeHarvest.culture} /> : <ChevronRight size={16} color="#6B7268" />}
+              </div>
+              <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 10 }}>
+                {f.area} ha · {f.harvestCount} safra(s) registrada(s)
+              </div>
+              {f.activeHarvest ? (
+                <StageProgress culture={f.activeHarvest.culture} stage={f.activeHarvest.lastVisit?.stage} />
+              ) : (
+                <div style={{ fontSize: 9.5, color: "#7BC142", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                  <Plus size={11} /> Adicionar safra
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 6, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => onEditField(f)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
+                <button onClick={() => { if (confirm(`Remover talhão ${f.name} e todas as safras/visitas vinculadas?`)) onDeleteField(f.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, onDelete, onOpen, hasProperties }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Talhões</h2>
+        <PrimaryBtn onClick={onAdd} disabled={!hasProperties} style={!hasProperties ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+          <Plus size={16} /> Novo talhão
+        </PrimaryBtn>
+      </div>
+      {!hasProperties && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+          <AlertTriangle size={15} /> Cadastre uma propriedade antes de adicionar talhões.
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {["Todas", "Soja", "Milho"].map((c) => (
+          <button key={c} onClick={() => setCultureFilter(c)} style={{
+            padding: "7px 14px", borderRadius: 20, border: "1px solid " + (cultureFilter === c ? "#1E4A20" : "#232B25"),
+            background: cultureFilter === c ? "#1E4A20" : "#161D19", color: cultureFilter === c ? "#F5F2E8" : "#D6D3C7",
+            fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+          }}>{c}</button>
+        ))}
+      </div>
+      {fields.length === 0 ? (
+        <EmptyState icon={Sprout} title="Nenhum talhão encontrado" sub="Ajuste o filtro ou cadastre um novo talhão." />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead><tr><th>Talhão</th><th>Propriedade</th><th>Cliente</th><th>Área</th><th>Safra atual</th><th>Estágio</th><th></th></tr></thead>
+            <tbody>
+              {fields.map((f) => (
+                <tr key={f.id} style={{ cursor: "pointer" }} onClick={() => onOpen(f.id)}>
+                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      {f.name}
+                      {f.fieldMap && <MapPin size={11} color="#7BC142" />}
+                    </span>
+                  </td>
+                  <td>{f.propertyName}</td>
+                  <td>{f.clientName}</td>
+                  <td>{f.area} ha</td>
+                  <td>
+                    {f.activeHarvest ? (
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <CultureBadge culture={f.activeHarvest.culture} />
+                        <span style={{ fontSize: 9.5, color: "#9BA298" }}>{f.activeHarvest.variety}</span>
+                      </span>
+                    ) : (
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9.5, color: "#7BC142", fontWeight: 600 }}>
+                        <Plus size={11} /> Adicionar safra
+                      </span>
+                    )}
+                  </td>
+                  <td>{f.activeHarvest ? <StageProgress culture={f.activeHarvest.culture} stage={f.activeHarvest.lastVisit?.stage} /> : <span style={{ color: "#6B7268", fontSize: 9.5 }}>—</span>}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
+                      <button onClick={() => onEdit(f)} style={iconBtnStyle}><Pencil size={14} /></button>
+                      <button onClick={() => { if (confirm(`Remover talhão ${f.name}?`)) onDelete(f.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                      <ChevronRight size={16} color="#6B7268" />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests }) {
+  const list = useMemo(() => {
+    return [...visits].sort((a, b) => b.date.localeCompare(a.date)).map((v) => {
+      const harvest = harvests.find((h) => h.id === v.harvestId);
+      return {
+        ...v,
+        fieldName: harvest ? harvest.fieldName : "(safra removida)",
+        culture: harvest ? harvest.culture : null,
+        clientName: harvest ? harvest.clientName : "—",
+        propertyName: harvest ? harvest.propertyName : "—",
+      };
+    });
+  }, [visits, harvests]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Visitas técnicas</h2>
+        <PrimaryBtn onClick={onAdd} disabled={!hasHarvests} style={!hasHarvests ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+          <Plus size={16} /> Registrar visita
+        </PrimaryBtn>
+      </div>
+      {!hasHarvests && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+          <AlertTriangle size={15} /> Cadastre uma safra antes de registrar visitas.
+        </div>
+      )}
+      {list.length === 0 ? (
+        <EmptyState icon={ClipboardList} title="Nenhuma visita registrada" sub="Registre a primeira visita técnica para começar o histórico." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {list.map((v) => (
+            <div key={v.id} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5, marginBottom: 2 }}>
+                    {v.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {v.propertyName} · {v.fieldName}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "#9BA298" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Calendar size={12} /> {fmtDate(v.date)}</span>
+                    <span>Técnico: {v.technician}</span>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => onEdit(v)} style={iconBtnStyle}><Pencil size={14} /></button>
+                  <button onClick={() => { if (confirm("Remover esta visita?")) onDelete(v.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                </div>
+              </div>
+              {v.culture && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                  <CultureBadge culture={v.culture} />
+                  <StageProgress culture={v.culture} stage={v.stage} />
+                </div>
+              )}
+              {v.pests && (
+                <div style={{ fontSize: 10.5, color: "#D6D3C7", marginBottom: 4 }}><strong>Pragas/doenças:</strong> {v.pests}</div>
+              )}
+              {v.recommendations && (
+                <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>Recomendações:</strong> {v.recommendations}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClientModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState(data || { name: "", phone: "", city: "" });
+  return (
+    <Modal title={data ? "Editar cliente" : "Novo cliente"} onClose={onClose}>
+      <Field label="Nome do produtor">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: João da Silva" />
+      </Field>
+      <Field label="Telefone">
+        <input style={inputStyle} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(00) 00000-0000" />
+      </Field>
+      <Field label="Cidade / região">
+        <input style={inputStyle} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ex: São Gabriel do Oeste, MS" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function PropertyModal({ data, clients, onSave, onClose }) {
+  const [form, setForm] = useState({ clientId: clients[0]?.id || "", name: "", location: "", totalArea: "", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar propriedade" : "Nova propriedade"} onClose={onClose}>
+      <Field label="Cliente">
+        <select style={inputStyle} value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+          <option value="">Selecione…</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Nome da propriedade">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Fazenda Boa Esperança" />
+      </Field>
+      <Field label="Localização / município">
+        <input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Ex: São Gabriel do Oeste, MS" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && form.clientId && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function FieldModal({ data, properties, clients, onSave, onClose }) {
+  const [form, setForm] = useState({ propertyId: properties[0]?.id || "", name: "", area: "", fieldMap: null, ...(data || {}) });
+  const [showMap, setShowMap] = useState(false);
+  return (
+    <Modal title={data?.id ? "Editar talhão" : "Novo talhão"} onClose={onClose}>
+      <Field label="Propriedade">
+        <select style={inputStyle} value={form.propertyId} onChange={(e) => setForm({ ...form, propertyId: e.target.value })}>
+          <option value="">Selecione…</option>
+          {properties.map((p) => {
+            const client = clients.find((c) => c.id === p.clientId);
+            return <option key={p.id} value={p.id}>{client?.name} · {p.name}</option>;
+          })}
+        </select>
+      </Field>
+      <Field label="Nome do talhão">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Talhão 3 - Fundos" />
+      </Field>
+      <Field label="Área (hectares)">
+        <input type="number" style={inputStyle} value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} placeholder="Ex: 45" />
+      </Field>
+      <Field label="Localização do talhão">
+        <GhostBtn type="button" onClick={() => setShowMap(true)} style={{ width: "100%", justifyContent: "center" }}>
+          <MapPin size={14} /> {form.fieldMap ? "Editar área do talhão" : "Definir área (imagem ou KML)"}
+        </GhostBtn>
+        {form.fieldMap && (
+          <div style={{ fontSize: 10.5, color: "#7BC142", marginTop: 6 }}>
+            Polígono salvo · {form.fieldMap.points.length} pontos{form.fieldMap.areaHa ? ` · ${form.fieldMap.areaHa.toFixed(2)} ha` : ""}
+          </div>
+        )}
+      </Field>
+      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
+        Cultura, cultivar e data de plantio agora ficam na Safra — cadastre a primeira safra assim que salvar o talhão.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && form.propertyId && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+      {showMap && (
+        <FieldMapModal
+          initialData={form.fieldMap}
+          onSave={(mapData) => {
+            setForm({ ...form, fieldMap: mapData, area: mapData.areaHa ? mapData.areaHa.toFixed(2) : form.area });
+            setShowMap(false);
+          }}
+          onClose={() => setShowMap(false)}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function suggestSeasonName(plantingDate) {
+  if (!plantingDate) return "";
+  const d = new Date(plantingDate + "T00:00:00");
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  if (month >= 7) return `${year}/${year + 1}`;
+  return `${year - 1}/${year}`;
+}
+
+function currentSeasonStartYear() {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  return month >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+function generateSeasonOptions() {
+  const current = currentSeasonStartYear();
+  const options = [];
+  for (let startYear = current - 2; startYear <= current + 4; startYear++) {
+    options.push({
+      value: `${startYear}/${startYear + 1}`,
+      isCurrent: startYear === current,
+    });
+  }
+  return options;
+}
+
+function HarvestModal({ data, fields, properties, clients, varieties, onSave, onClose }) {
+  const [form, setForm] = useState({
+    fieldId: fields[0]?.id || "",
+    culture: "Soja",
+    variety: "",
+    plantingDate: "",
+    harvestDate: "",
+    name: "",
+    ...(data || {}),
+  });
+  const [nameEdited, setNameEdited] = useState(!!data?.name);
+  const cultureVarieties = varieties.filter((v) => v.culture === form.culture);
+  const selectedVariety = varieties.find((v) => v.name === form.variety && v.culture === form.culture);
+  const estimatedHarvest =
+    form.plantingDate && selectedVariety?.cycle
+      ? new Date(new Date(form.plantingDate + "T00:00:00").getTime() + Number(selectedVariety.cycle) * 86400000)
+          .toISOString()
+          .slice(0, 10)
+      : null;
+  const seasonOptions = generateSeasonOptions();
+  const hasCustomName = form.name && !seasonOptions.some((s) => s.value === form.name);
+
+  function handlePlantingDateChange(value) {
+    const next = { ...form, plantingDate: value };
+    if (!nameEdited) next.name = suggestSeasonName(value);
+    setForm(next);
+  }
+
+  return (
+    <Modal title={data?.id ? "Editar safra" : "Nova safra"} onClose={onClose}>
+      <Field label="Talhão">
+        <select style={inputStyle} value={form.fieldId} onChange={(e) => setForm({ ...form, fieldId: e.target.value })}>
+          <option value="">Selecione…</option>
+          {fields.map((f) => {
+            const property = properties.find((p) => p.id === f.propertyId);
+            const client = property ? clients.find((c) => c.id === property.clientId) : null;
+            return <option key={f.id} value={f.id}>{client?.name} · {property?.name} · {f.name}</option>;
+          })}
+        </select>
+      </Field>
+      <Field label="Safra (ciclo)">
+        <select
+          style={inputStyle}
+          value={form.name}
+          onChange={(e) => { setNameEdited(true); setForm({ ...form, name: e.target.value }); }}
+        >
+          <option value="">Selecione…</option>
+          {hasCustomName && <option value={form.name}>{form.name}</option>}
+          {seasonOptions.map((s) => (
+            <option key={s.value} value={s.value}>{s.value}{s.isCurrent ? " (atual)" : ""}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Cultura">
+        <select style={inputStyle} value={form.culture} onChange={(e) => setForm({ ...form, culture: e.target.value, variety: "" })}>
+          <option value="Soja">Soja</option>
+          <option value="Milho">Milho</option>
+        </select>
+      </Field>
+      <Field label="Cultivar / híbrido">
+        {cultureVarieties.length === 0 ? (
+          <div style={{ fontSize: 10, color: "#6B7268", padding: "8px 0" }}>
+            Nenhum cultivar de {form.culture} cadastrado ainda. Cadastre em Configurações → Cultivares.
+          </div>
+        ) : (
+          <select style={inputStyle} value={form.variety} onChange={(e) => setForm({ ...form, variety: e.target.value })}>
+            <option value="">Selecione…</option>
+            {cultureVarieties.map((v) => <option key={v.id} value={v.name}>{v.name}{v.cycle ? ` (${v.cycle}d)` : ""}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Data de plantio">
+        <input type="date" style={inputStyle} value={form.plantingDate} onChange={(e) => handlePlantingDateChange(e.target.value)} />
+      </Field>
+      {estimatedHarvest && (
+        <div style={{ fontSize: 10.5, color: "#7BC142", marginTop: -8, marginBottom: 14 }}>
+          Colheita estimada: {fmtDate(estimatedHarvest)} (ciclo de {selectedVariety.cycle} dias)
+        </div>
+      )}
+      <Field label="Data de colheita (preencha ao colher)">
+        <input type="date" style={inputStyle} value={form.harvestDate} onChange={(e) => setForm({ ...form, harvestDate: e.target.value })} />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.fieldId && form.plantingDate && onSave({ ...form, name: form.name || suggestSeasonName(form.plantingDate) })}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function VisitModal({ data, harvests, team, onSave, onClose }) {
+  const [form, setForm] = useState({ harvestId: harvests[0]?.id || "", date: new Date().toISOString().slice(0, 10), technician: "", stage: "", pests: "", recommendations: "", ...(data || {}) });
+  const selectedHarvest = harvests.find((h) => h.id === form.harvestId);
+  const stages = selectedHarvest ? CULTURE_META[selectedHarvest.culture]?.stages || [] : [];
+
+  return (
+    <Modal title={data?.id ? "Editar visita" : "Registrar visita"} onClose={onClose}>
+      <Field label="Safra">
+        <select style={inputStyle} value={form.harvestId} onChange={(e) => setForm({ ...form, harvestId: e.target.value, stage: "" })}>
+          <option value="">Selecione…</option>
+          {harvests.map((h) => (
+            <option key={h.id} value={h.id}>{h.clientName} · {h.propertyName} · {h.fieldName} · {h.name} ({h.culture})</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Data da visita">
+        <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      </Field>
+      <Field label="Técnico responsável">
+        {team.length === 0 ? (
+          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>
+            Nenhum colaborador cadastrado ainda. Cadastre em Equipe.
+          </div>
+        ) : (
+          <select style={inputStyle} value={form.technician} onChange={(e) => setForm({ ...form, technician: e.target.value })}>
+            <option value="">Selecione…</option>
+            {team.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Estágio fenológico">
+        <select style={inputStyle} value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value })} disabled={!selectedHarvest}>
+          <option value="">Selecione…</option>
+          {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </Field>
+      <Field label="Pragas / doenças observadas">
+        <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.pests} onChange={(e) => setForm({ ...form, pests: e.target.value })} placeholder="Ex: lagarta-do-cartucho em baixa intensidade" />
+      </Field>
+      <Field label="Recomendações">
+        <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.recommendations} onChange={(e) => setForm({ ...form, recommendations: e.target.value })} placeholder="Ex: monitorar em 7 dias, sem necessidade de controle" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.harvestId && form.date && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+const PESTICIDE_TYPES = ["Herbicida", "Fungicida", "Inseticida", "Acaricida", "Outro"];
+
+function ConfiguracoesView({
+  varieties, pesticides, fertilizers, pests, diseases, weeds,
+  onAddVariety, onEditVariety, onDeleteVariety,
+  onAddPesticide, onEditPesticide, onDeletePesticide,
+  onAddFertilizer, onEditFertilizer, onDeleteFertilizer,
+  onAddPest, onEditPest, onDeletePest,
+  onAddDisease, onEditDisease, onDeleteDisease,
+  onAddWeed, onEditWeed, onDeleteWeed
+}) {
+  const [tab, setTab] = useState("variedades");
+  const TABS = [
+    { id: "variedades", label: "Cultivares", icon: Wheat },
+    { id: "defensivos", label: "Defensivos", icon: FlaskConical },
+    { id: "fertilizantes", label: "Fertilizantes", icon: Package },
+    { id: "pragas", label: "Pragas", icon: Bug },
+    { id: "doencas", label: "Doenças", icon: Microscope },
+    { id: "daninhas", label: "Daninhas", icon: Flower2 },
+  ];
+
+  return (
+    <div>
+      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Configurações</h2>
+      <p style={{ color: "#9BA298", fontSize: 11, margin: "0 0 22px" }}>Catálogos usados para preencher os dados dos talhões</p>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+              border: "1px solid " + (active ? "#1E4A20" : "#232B25"),
+              background: active ? "#1E4A20" : "#161D19", color: active ? "#F5F2E8" : "#D6D3C7",
+              fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+            }}>
+              <Icon size={15} /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "variedades" && (
+        <CatalogTable
+          icon={Wheat}
+          items={varieties}
+          columns={[
+            { key: "name", label: "Cultivar / híbrido" },
+            { key: "culture", label: "Cultura", render: (v) => <CultureBadge culture={v.culture} /> },
+            { key: "cycle", label: "Ciclo médio", render: (v) => v.cycle ? `${v.cycle} dias` : "—" },
+          ]}
+          emptyTitle="Nenhum cultivar cadastrado"
+          emptySub="Cadastre os cultivares de soja e híbridos de milho que você utiliza."
+          addLabel="Novo cultivar"
+          onAdd={onAddVariety}
+          onEdit={onEditVariety}
+          onDelete={(item) => { if (confirm(`Remover o cultivar ${item.name}?`)) onDeleteVariety(item.id); }}
+        />
+      )}
+
+      {tab === "defensivos" && (
+        <CatalogTable
+          icon={FlaskConical}
+          items={pesticides}
+          columns={[
+            { key: "name", label: "Nome comercial" },
+            { key: "type", label: "Tipo" },
+            { key: "activeIngredient", label: "Princípio ativo" },
+          ]}
+          emptyTitle="Nenhum defensivo cadastrado"
+          emptySub="Cadastre os herbicidas, fungicidas e inseticidas que você costuma recomendar."
+          addLabel="Novo defensivo"
+          onAdd={onAddPesticide}
+          onEdit={onEditPesticide}
+          onDelete={(item) => { if (confirm(`Remover o defensivo ${item.name}?`)) onDeletePesticide(item.id); }}
+        />
+      )}
+
+      {tab === "fertilizantes" && (
+        <CatalogTable
+          icon={Package}
+          items={fertilizers}
+          columns={[
+            { key: "name", label: "Nome" },
+            { key: "type", label: "Formulação" },
+          ]}
+          emptyTitle="Nenhum fertilizante cadastrado"
+          emptySub="Cadastre os adubos e fertilizantes que você costuma recomendar."
+          addLabel="Novo fertilizante"
+          onAdd={onAddFertilizer}
+          onEdit={onEditFertilizer}
+          onDelete={(item) => { if (confirm(`Remover o fertilizante ${item.name}?`)) onDeleteFertilizer(item.id); }}
+        />
+      )}
+
+      {tab === "pragas" && (
+        <CatalogTable
+          icon={Bug}
+          items={pests}
+          columns={[
+            { key: "name", label: "Nome popular" },
+            { key: "scientificName", label: "Nome científico" },
+            { key: "culture", label: "Cultura afetada", render: (p) => <AffectedCultureBadge value={p.culture} /> },
+          ]}
+          emptyTitle="Nenhuma praga cadastrada"
+          emptySub="Cadastre as pragas que você costuma monitorar nas lavouras."
+          addLabel="Nova praga"
+          onAdd={onAddPest}
+          onEdit={onEditPest}
+          onDelete={(item) => { if (confirm(`Remover a praga ${item.name}?`)) onDeletePest(item.id); }}
+        />
+      )}
+
+      {tab === "doencas" && (
+        <CatalogTable
+          icon={Microscope}
+          items={diseases}
+          columns={[
+            { key: "name", label: "Nome" },
+            { key: "agent", label: "Agente causador" },
+            { key: "culture", label: "Cultura afetada", render: (d) => <AffectedCultureBadge value={d.culture} /> },
+          ]}
+          emptyTitle="Nenhuma doença cadastrada"
+          emptySub="Cadastre as doenças que você costuma monitorar nas lavouras."
+          addLabel="Nova doença"
+          onAdd={onAddDisease}
+          onEdit={onEditDisease}
+          onDelete={(item) => { if (confirm(`Remover a doença ${item.name}?`)) onDeleteDisease(item.id); }}
+        />
+      )}
+
+      {tab === "daninhas" && (
+        <CatalogTable
+          icon={Flower2}
+          items={weeds}
+          columns={[
+            { key: "name", label: "Nome popular" },
+            { key: "type", label: "Classificação" },
+          ]}
+          emptyTitle="Nenhuma daninha cadastrada"
+          emptySub="Cadastre as plantas daninhas que você costuma monitorar nas lavouras."
+          addLabel="Nova daninha"
+          onAdd={onAddWeed}
+          onEdit={onEditWeed}
+          onDelete={(item) => { if (confirm(`Remover a daninha ${item.name}?`)) onDeleteWeed(item.id); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CatalogTable({ icon, items, columns, emptyTitle, emptySub, addLabel, onAdd, onEdit, onDelete }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <PrimaryBtn onClick={onAdd}><Plus size={16} /> {addLabel}</PrimaryBtn>
+      </div>
+      {items.length === 0 ? (
+        <EmptyState icon={icon} title={emptyTitle} sub={emptySub} action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> {addLabel}</PrimaryBtn>} />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead>
+              <tr>
+                {columns.map((col) => <th key={col.key}>{col.label}</th>)}
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id}>
+                  {columns.map((col, i) => (
+                    <td key={col.key} style={i === 0 ? { fontWeight: 600, color: "#F2F0E6" } : undefined}>
+                      {col.render ? col.render(item) : (item[col.key] || "—")}
+                    </td>
+                  ))}
+                  <td>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => onEdit(item)} style={iconBtnStyle}><Pencil size={14} /></button>
+                      <button onClick={() => onDelete(item)} style={iconBtnStyle}><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VarietyModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState(data || { name: "", culture: "Soja", cycle: "" });
+  return (
+    <Modal title={data?.id ? "Editar cultivar" : "Novo cultivar"} onClose={onClose}>
+      <Field label="Nome do cultivar / híbrido">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: TMG 7062" />
+      </Field>
+      <Field label="Cultura">
+        <select style={inputStyle} value={form.culture} onChange={(e) => setForm({ ...form, culture: e.target.value })}>
+          <option value="Soja">Soja</option>
+          <option value="Milho">Milho</option>
+        </select>
+      </Field>
+      <Field label="Ciclo médio (dias)">
+        <input type="number" style={inputStyle} value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })} placeholder="Ex: 110" />
+      </Field>
+      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
+        Obrigatório — é o que permite estimar a data de colheita nas safras.
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && form.cycle && Number(form.cycle) > 0 && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function PesticideModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState(data || { name: "", type: "Herbicida", activeIngredient: "" });
+  return (
+    <Modal title={data?.id ? "Editar defensivo" : "Novo defensivo"} onClose={onClose}>
+      <Field label="Nome comercial">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Fox Xpro" />
+      </Field>
+      <Field label="Tipo">
+        <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          {PESTICIDE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </Field>
+      <Field label="Princípio ativo">
+        <input style={inputStyle} value={form.activeIngredient} onChange={(e) => setForm({ ...form, activeIngredient: e.target.value })} placeholder="Ex: Bixafem + Protioconazol + Trifloxistrobina" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function FertilizerModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState(data || { name: "", type: "" });
+  return (
+    <Modal title={data?.id ? "Editar fertilizante" : "Novo fertilizante"} onClose={onClose}>
+      <Field label="Nome">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: MAP" />
+      </Field>
+      <Field label="Formulação (opcional)">
+        <input style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="Ex: 10-52-00" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+const AFFECTED_CULTURE_OPTIONS = ["Soja", "Milho", "Ambas"];
+const DISEASE_AGENTS = ["Fungo", "Bactéria", "Vírus", "Nematoide", "Outro"];
+const WEED_TYPES = ["Folha larga", "Gramínea", "Ciperácea", "Outro"];
+
+function PestModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", scientificName: "", culture: "Ambas", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar praga" : "Nova praga"} onClose={onClose}>
+      <Field label="Nome popular">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Lagarta-do-cartucho" />
+      </Field>
+      <Field label="Nome científico (opcional)">
+        <input style={inputStyle} value={form.scientificName} onChange={(e) => setForm({ ...form, scientificName: e.target.value })} placeholder="Ex: Spodoptera frugiperda" />
+      </Field>
+      <Field label="Cultura afetada">
+        <select style={inputStyle} value={form.culture} onChange={(e) => setForm({ ...form, culture: e.target.value })}>
+          {AFFECTED_CULTURE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function DiseaseModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", agent: "Fungo", culture: "Ambas", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar doença" : "Nova doença"} onClose={onClose}>
+      <Field label="Nome">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Ferrugem-asiática" />
+      </Field>
+      <Field label="Agente causador">
+        <select style={inputStyle} value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })}>
+          {DISEASE_AGENTS.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </Field>
+      <Field label="Cultura afetada">
+        <select style={inputStyle} value={form.culture} onChange={(e) => setForm({ ...form, culture: e.target.value })}>
+          {AFFECTED_CULTURE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function WeedModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", type: "Folha larga", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar daninha" : "Nova daninha"} onClose={onClose}>
+      <Field label="Nome popular">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Buva" />
+      </Field>
+      <Field label="Classificação">
+        <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          {WEED_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+const TEAM_ROLES = ["Técnico agrícola", "Agrônomo", "Administrativo", "Proprietário", "Outro"];
+
+function EquipeView({ team, onAdd, onEdit, onDelete }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 19, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Equipe</h2>
+          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Colaboradores que acompanham as visitas técnicas</p>
+        </div>
+        <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo colaborador</PrimaryBtn>
+      </div>
+
+      {team.length === 0 ? (
+        <EmptyState icon={UserCog} title="Nenhum colaborador cadastrado" sub="Cadastre sua equipe para atribuir as visitas técnicas a cada um."
+          action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo colaborador</PrimaryBtn>} />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead><tr><th>Nome</th><th>Função</th><th>Telefone</th><th>E-mail</th><th></th></tr></thead>
+            <tbody>
+              {team.map((t) => (
+                <tr key={t.id}>
+                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{t.name}</td>
+                  <td>{t.role || "—"}</td>
+                  <td>{t.phone || "—"}</td>
+                  <td>{t.email || "—"}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => onEdit(t)} style={iconBtnStyle}><Pencil size={14} /></button>
+                      <button onClick={() => { if (confirm(`Remover ${t.name} da equipe?`)) onDelete(t.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginTop: 16, lineHeight: 1.5 }}>
+        <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>Este cadastro identifica quem é responsável por cada visita, mas não cria login individual: todos que abrem este link acessam os mesmos dados, sem senha por pessoa.</span>
+      </div>
+    </div>
+  );
+}
+
+function TeamMemberModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState(data || { name: "", role: "Técnico agrícola", phone: "", email: "" });
+  return (
+    <Modal title={data?.id ? "Editar colaborador" : "Novo colaborador"} onClose={onClose}>
+      <Field label="Nome">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Carlos Mendes" />
+      </Field>
+      <Field label="Função">
+        <select style={inputStyle} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+          {TEAM_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </Field>
+      <Field label="Telefone">
+        <input style={inputStyle} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(00) 00000-0000" />
+      </Field>
+      <Field label="E-mail">
+        <input type="email" style={inputStyle} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="nome@exemplo.com" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function shoelaceAreaHa(points, metersPerPixel) {
+  if (points.length < 3 || !metersPerPixel) return 0;
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % points.length];
+    sum += p1.x * p2.y - p2.x * p1.y;
+  }
+  const areaPx2 = Math.abs(sum) / 2;
+  const areaM2 = areaPx2 * metersPerPixel * metersPerPixel;
+  return areaM2 / 10000;
+}
+
+function geodesicAreaHa(latlngPoints) {
+  if (latlngPoints.length < 3) return 0;
+  const R = 6378137;
+  const d2r = Math.PI / 180;
+  let area = 0;
+  for (let i = 0; i < latlngPoints.length; i++) {
+    const p1 = latlngPoints[i];
+    const p2 = latlngPoints[(i + 1) % latlngPoints.length];
+    area += (p2.lng - p1.lng) * d2r * (2 + Math.sin(p1.lat * d2r) + Math.sin(p2.lat * d2r));
+  }
+  area = (Math.abs(area) * R * R) / 2;
+  return area / 10000;
+}
+
+function parseKmlPolygon(kmlText) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(kmlText, "text/xml");
+  if (xml.querySelector("parsererror")) throw new Error("Arquivo KML inválido.");
+  const coordsEl = xml.querySelector("Polygon coordinates") || xml.querySelector("coordinates");
+  if (!coordsEl || !coordsEl.textContent.trim()) throw new Error("Nenhum polígono encontrado no arquivo.");
+  const tuples = coordsEl.textContent.trim().split(/\s+/).filter(Boolean);
+  let points = tuples
+    .map((t) => {
+      const parts = t.split(",");
+      return { lng: parseFloat(parts[0]), lat: parseFloat(parts[1]) };
+    })
+    .filter((p) => !isNaN(p.lat) && !isNaN(p.lng));
+  if (points.length > 1) {
+    const first = points[0];
+    const last = points[points.length - 1];
+    if (Math.abs(first.lat - last.lat) < 1e-9 && Math.abs(first.lng - last.lng) < 1e-9) {
+      points = points.slice(0, -1);
+    }
+  }
+  if (points.length < 3) throw new Error("O polígono do KML precisa de pelo menos 3 pontos.");
+  return points;
+}
+
+function projectLatLngForPreview(points, width, height, padding) {
+  const lats = points.map((p) => p.lat);
+  const lngs = points.map((p) => p.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const avgLat = (minLat + maxLat) / 2;
+  const cosLat = Math.cos((avgLat * Math.PI) / 180) || 1;
+  const spanX = (maxLng - minLng) * cosLat || 0.0001;
+  const spanY = maxLat - minLat || 0.0001;
+  const scale = Math.min((width - 2 * padding) / spanX, (height - 2 * padding) / spanY);
+  return points.map((p) => ({
+    x: padding + (p.lng - minLng) * cosLat * scale,
+    y: height - padding - (p.lat - minLat) * scale,
+  }));
+}
+
+function FieldMapModal({ initialData, onSave, onClose }) {
+  const imgRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const kmlInputRef = useRef(null);
+
+  const [mode, setMode] = useState(initialData?.mode || "image");
+
+  // image mode state
+  const [imageDataUrl, setImageDataUrl] = useState(initialData?.mode === "image" ? initialData.imageDataUrl : null);
+  const [naturalSize, setNaturalSize] = useState(initialData?.mode === "image" ? { width: initialData.width, height: initialData.height } : { width: 0, height: 0 });
+  const [displaySize, setDisplaySize] = useState({ width: 0, height: 0 });
+  const [imgPoints, setImgPoints] = useState(initialData?.mode === "image" && initialData.points ? initialData.points.map(([x, y]) => ({ x, y })) : []);
+  const [realWidth, setRealWidth] = useState(initialData?.mode === "image" && initialData.realWidthMeters ? String(initialData.realWidthMeters) : "");
+
+  // kml mode state
+  const [kmlPoints, setKmlPoints] = useState(initialData?.mode === "kml" && initialData.points ? initialData.points.map(([lat, lng]) => ({ lat, lng })) : []);
+  const [kmlFileName, setKmlFileName] = useState(initialData?.mode === "kml" ? initialData.sourceName || "" : "");
+  const [kmlError, setKmlError] = useState("");
+
+  useEffect(() => {
+    function measure() {
+      if (imgRef.current) {
+        setDisplaySize({ width: imgRef.current.clientWidth, height: imgRef.current.clientHeight });
+      }
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [imageDataUrl]);
+
+  function handleFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setImageDataUrl(e.target.result);
+      setImgPoints([]);
+      const img = new Image();
+      img.onload = () => setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleKmlFile(file) {
+    if (!file) return;
+    setKmlError("");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = parseKmlPolygon(e.target.result);
+        setKmlPoints(parsed);
+        setKmlFileName(file.name);
+      } catch (err) {
+        setKmlError(err.message || "Não foi possível ler este arquivo KML.");
+        setKmlPoints([]);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  const metersPerPixel = naturalSize.width && realWidth ? Number(realWidth) / naturalSize.width : 0;
+  const imgAreaHa = shoelaceAreaHa(imgPoints, metersPerPixel);
+  const kmlAreaHa = geodesicAreaHa(kmlPoints);
+
+  function toDisplay(p) {
+    if (!naturalSize.width || !displaySize.width) return { x: 0, y: 0 };
+    const ratio = displaySize.width / naturalSize.width;
+    return { x: p.x * ratio, y: p.y * ratio };
+  }
+
+  function handleContainerClick(e) {
+    if (!imgRef.current || !naturalSize.width) return;
+    const rect = imgRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    if (clickX < 0 || clickY < 0 || clickX > rect.width || clickY > rect.height) return;
+    const ratio = naturalSize.width / rect.width;
+    setImgPoints((prev) => [...prev, { x: clickX * ratio, y: clickY * ratio }]);
+  }
+
+  function handleUndo() { setImgPoints((prev) => prev.slice(0, -1)); }
+  function handleClear() { setImgPoints([]); }
+  function handleChangeImage() {
+    setImageDataUrl(null);
+    setImgPoints([]);
+    setNaturalSize({ width: 0, height: 0 });
+  }
+  function handleClearKml() {
+    setKmlPoints([]);
+    setKmlFileName("");
+    setKmlError("");
+  }
+
+  function handleSave() {
+    if (mode === "image") {
+      if (imgPoints.length < 3) return;
+      onSave({
+        mode: "image",
+        imageDataUrl,
+        points: imgPoints.map((p) => [p.x, p.y]),
+        width: naturalSize.width,
+        height: naturalSize.height,
+        realWidthMeters: realWidth ? Number(realWidth) : null,
+        areaHa: metersPerPixel ? imgAreaHa : null,
+      });
+    } else {
+      if (kmlPoints.length < 3) return;
+      onSave({
+        mode: "kml",
+        points: kmlPoints.map((p) => [p.lat, p.lng]),
+        sourceName: kmlFileName,
+        areaHa: kmlAreaHa,
+      });
+    }
+  }
+
+  const screenPoints = imgPoints.map(toDisplay);
+  const polyStr = screenPoints.map((p) => `${p.x},${p.y}`).join(" ");
+  const kmlPreviewPoints = kmlPoints.length >= 3 ? projectLatLngForPreview(kmlPoints, 700, 360, 30) : [];
+  const kmlPolyStr = kmlPreviewPoints.map((p) => `${p.x},${p.y}`).join(" ");
+
+  const canSave = mode === "image" ? imgPoints.length >= 3 : kmlPoints.length >= 3;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div style={{ background: "#161D19", borderRadius: 14, width: "100%", maxWidth: 780, border: "1px solid #232B25", overflow: "hidden", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #212922" }}>
+          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14.5, fontWeight: 700, color: "#F2F0E6" }}>Definir área do talhão</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7268" }}><X size={18} /></button>
+        </div>
+
+        <div style={{ padding: "14px 18px 0", display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => setMode("image")} style={{
+            flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: "1px solid " + (mode === "image" ? "#1E4A20" : "#232B25"),
+            background: mode === "image" ? "#1E4A20" : "#10140F", color: mode === "image" ? "#F5F2E8" : "#D6D3C7"
+          }}>Enviar imagem</button>
+          <button type="button" onClick={() => setMode("kml")} style={{
+            flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: "1px solid " + (mode === "kml" ? "#1E4A20" : "#232B25"),
+            background: mode === "kml" ? "#1E4A20" : "#10140F", color: mode === "kml" ? "#F5F2E8" : "#D6D3C7"
+          }}>Importar KML</button>
+        </div>
+
+        {mode === "image" && (
+          !imageDataUrl ? (
+            <div style={{ padding: 22 }}>
+              <div style={{ fontSize: 11, color: "#9BA298", marginBottom: 14, lineHeight: 1.6 }}>
+                Este ambiente não permite carregar mapas de serviços externos direto aqui dentro. Envie um print de satélite da propriedade:
+                <br />1. Abra o Google Maps ou Google Earth no seu celular ou computador.
+                <br />2. Mude para visualização de satélite e aproxime até enquadrar o talhão.
+                <br />3. Tire um print e envie a imagem abaixo.
+              </div>
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
+                style={{ border: "1.5px dashed #2E362F", borderRadius: 10, padding: "40px 20px", textAlign: "center", cursor: "pointer", color: "#9BA298" }}
+              >
+                <MapPin size={22} style={{ marginBottom: 8, opacity: 0.6 }} />
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>Clique para enviar ou arraste a imagem aqui</div>
+                <div style={{ fontSize: 10.5 }}>PNG ou JPG</div>
+                <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files[0])} />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: "10px 18px 0", fontSize: 10.5, color: "#6B7268" }}>
+                Clique sobre a imagem para marcar cada vértice do talhão — o polígono fecha sozinho a partir de 3 pontos.
+              </div>
+              <div style={{ padding: "10px 18px", position: "relative" }}>
+                <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }} onClick={handleContainerClick}>
+                  <img
+                    ref={imgRef}
+                    src={imageDataUrl}
+                    alt=""
+                    draggable={false}
+                    style={{ display: "block", width: "100%", maxHeight: 440, objectFit: "contain", borderRadius: 8, userSelect: "none", cursor: "crosshair" }}
+                  />
+                  <svg width={displaySize.width} height={displaySize.height} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none" }}>
+                    {imgPoints.length >= 2 && (
+                      <polygon points={polyStr} fill={imgPoints.length >= 3 ? "rgba(123,193,66,0.28)" : "none"} stroke="#7BC142" strokeWidth="2" />
+                    )}
+                    {screenPoints.map((p, i) => (
+                      <circle key={i} cx={p.x} cy={p.y} r={5} fill="#7BC142" stroke="#0E1310" strokeWidth="1.5" />
+                    ))}
+                  </svg>
+                </div>
+              </div>
+              <div style={{ padding: "0 18px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <GhostBtn type="button" onClick={handleUndo}>Desfazer ponto</GhostBtn>
+                <GhostBtn type="button" onClick={handleClear}>Limpar pontos</GhostBtn>
+                <GhostBtn type="button" onClick={handleChangeImage}>Trocar imagem</GhostBtn>
+              </div>
+              <div style={{ padding: "16px 18px 0" }}>
+                <Field label="Largura real da imagem (metros, aproximado)">
+                  <input type="number" style={inputStyle} value={realWidth} onChange={(e) => setRealWidth(e.target.value)} placeholder="Ex: 500" />
+                </Field>
+                <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 4 }}>
+                  Usado só para calcular a área em hectares. Veja a escala/régua do Google Maps na imagem para estimar essa distância.
+                </div>
+              </div>
+            </>
+          )
+        )}
+
+        {mode === "kml" && (
+          kmlPoints.length === 0 ? (
+            <div style={{ padding: 22 }}>
+              <div style={{ fontSize: 11, color: "#9BA298", marginBottom: 14, lineHeight: 1.6 }}>
+                Se você já tem o contorno do talhão em algum software (John Deere Operations Center, Climate FieldView, drone, etc.), exporte como <strong>KML</strong> (arquivo .kml, não .kmz) e envie aqui. A área é calculada com as coordenadas exatas do arquivo, sem precisar de mapa.
+              </div>
+              <div
+                onClick={() => kmlInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); handleKmlFile(e.dataTransfer.files[0]); }}
+                style={{ border: "1.5px dashed #2E362F", borderRadius: 10, padding: "40px 20px", textAlign: "center", cursor: "pointer", color: "#9BA298" }}
+              >
+                <ClipboardList size={22} style={{ marginBottom: 8, opacity: 0.6 }} />
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>Clique para enviar ou arraste o arquivo .kml aqui</div>
+                <div style={{ fontSize: 10.5 }}>Arquivo KML (não KMZ)</div>
+                <input ref={kmlInputRef} type="file" accept=".kml" style={{ display: "none" }} onChange={(e) => handleKmlFile(e.target.files[0])} />
+              </div>
+              {kmlError && <div style={{ fontSize: 11, color: "#E3B455", marginTop: 10 }}>{kmlError}</div>}
+            </div>
+          ) : (
+            <>
+              <div style={{ padding: "10px 18px 0", fontSize: 10.5, color: "#6B7268" }}>
+                Polígono importado de <strong>{kmlFileName}</strong> — pré-visualização (sem imagem de fundo, escala aproximada):
+              </div>
+              <div style={{ padding: "10px 18px" }}>
+                <svg width="100%" height="360" viewBox="0 0 700 360" style={{ background: "#0E1310", borderRadius: 8, border: "1px solid #232B25" }}>
+                  <polygon points={kmlPolyStr} fill="rgba(123,193,66,0.28)" stroke="#7BC142" strokeWidth="2" />
+                  {kmlPreviewPoints.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={4} fill="#7BC142" stroke="#0E1310" strokeWidth="1.5" />
+                  ))}
+                </svg>
+              </div>
+              <div style={{ padding: "0 18px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <GhostBtn type="button" onClick={handleClearKml}>Enviar outro arquivo</GhostBtn>
+              </div>
+            </>
+          )
+        )}
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid #212922", marginTop: 8 }}>
+          <span style={{ fontSize: 11, color: "#9BA298" }}>
+            {mode === "image"
+              ? imgPoints.length >= 3
+                ? metersPerPixel
+                  ? `Área do polígono: ${imgAreaHa.toFixed(2)} ha (${imgPoints.length} pontos)`
+                  : `${imgPoints.length} pontos marcados — informe a largura real para calcular a área`
+                : imgPoints.length > 0
+                ? `Marque pelo menos 3 pontos (${imgPoints.length} até agora)`
+                : imageDataUrl
+                ? "Clique na imagem para começar a marcar o talhão"
+                : ""
+              : kmlPoints.length >= 3
+              ? `Área do polígono: ${kmlAreaHa.toFixed(2)} ha (${kmlPoints.length} pontos, coordenadas exatas)`
+              : "Envie um arquivo KML com o contorno do talhão"}
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <GhostBtn type="button" onClick={onClose}>Cancelar</GhostBtn>
+            <PrimaryBtn type="button" onClick={handleSave} style={!canSave ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+              Usar este polígono
+            </PrimaryBtn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
