@@ -132,6 +132,15 @@ async function fetchExtrato(agent, token, dataInicio, dataFim) {
   return res.body;
 }
 
+function formatCpfCnpj(raw) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.length > 11) {
+    return digits.padStart(14, "0").replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  }
+  return digits.padStart(11, "0").replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+}
+
 function normalizeTransactions(raw) {
   const list = raw?.listaLancamento || raw?.lancamentos || [];
   return list
@@ -146,10 +155,16 @@ function normalizeTransactions(raw) {
       const amount = Math.abs(Number(item.valorLancamento ?? 0));
       const day = String(item.dataLancamento ?? "").padStart(8, "0");
       const date = day.length === 8 ? `${day.slice(4, 8)}-${day.slice(2, 4)}-${day.slice(0, 2)}` : null;
+      // A API não devolve o nome da contrapartida separado — o BB costuma
+      // embutir esse nome dentro de textoInformacaoComplementar (ex.: "PIX
+      // ENVIADO ... NOME DA PESSOA"), por isso juntamos os dois campos.
+      const parts = [item.textoDescricaoSubHistorico, item.textoInformacaoComplementar]
+        .map((s) => (s || "").trim()).filter(Boolean);
       return {
         date,
         amount,
-        description: item.textoDescricaoSubHistorico || item.textoInformacaoComplementar || "",
+        description: parts.join(" — "),
+        counterpartyDoc: formatCpfCnpj(item.numeroCadastroPessoaFisicaCadastroNacPessoasJuridicasContrapartida),
         type: item.indicadorSinalLancamento === "C" ? "credit" : "debit",
       };
     })

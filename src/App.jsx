@@ -219,14 +219,14 @@ const inputStyle = {
   fontSize: 11, fontFamily: "inherit", background: "#10140F", color: "#EDEBE0", boxSizing: "border-box"
 };
 
-function Modal({ title, onClose, children }) {
+function Modal({ title, onClose, children, maxWidth = 460 }) {
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex",
       alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20
     }} onClick={onClose}>
       <div style={{
-        background: "#161D19", borderRadius: 14, width: "100%", maxWidth: 460,
+        background: "#161D19", borderRadius: 14, width: "100%", maxWidth,
         maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", border: "1px solid #232B25"
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{
@@ -3819,7 +3819,7 @@ function ReconciliationModal({
   const categorySuggestions = Array.from(new Set([...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})]));
 
   return (
-    <Modal title="Conciliar extrato bancário" onClose={onClose}>
+    <Modal title="Conciliar extrato bancário" onClose={onClose} maxWidth={760}>
       {!rows ? (
         <>
           <div style={{ fontSize: 10.5, color: "#9BA298", marginBottom: 14 }}>
@@ -3838,7 +3838,7 @@ function ReconciliationModal({
           {rows.length === 0 ? (
             <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum lançamento encontrado no extrato.</div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 560, overflowY: "auto" }}>
               {rows.map((r, i) => {
                 const isConfirmed = r.match && confirmedIds.includes(r.match.id);
                 const isCredit = r.kind === "credit";
@@ -3846,7 +3846,7 @@ function ReconciliationModal({
                 const draftCategory = categoryDrafts[i] ?? r.suggestedCategory ?? "";
                 return (
                   <div key={i} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#D6D3C7", marginBottom: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#D6D3C7", marginBottom: 2 }}>
                       <span>
                         <span style={{
                           display: "inline-block", fontSize: 8.5, fontWeight: 700, textTransform: "uppercase",
@@ -3858,6 +3858,11 @@ function ReconciliationModal({
                       </span>
                       <strong>{fmtCurrency(r.transaction.amount)}</strong>
                     </div>
+                    {r.transaction.counterpartyDoc && (
+                      <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 6 }}>
+                        CPF/CNPJ da contraparte: {r.transaction.counterpartyDoc}
+                      </div>
+                    )}
 
                     {isConfirmed ? (
                       <div style={{ fontSize: 9.5, color: "#7BC142" }}>
