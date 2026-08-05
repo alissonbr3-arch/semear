@@ -27,6 +27,13 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+function fieldAreaHa(f) {
+  const manual = Number(f?.area);
+  if (manual > 0) return manual;
+  const mapped = Number(f?.fieldMap?.areaHa);
+  return mapped > 0 ? mapped : 0;
+}
+
 function fmtDate(d) {
   if (!d) return "—";
   const dt = new Date(d + "T00:00:00");
@@ -453,7 +460,7 @@ export default function AgroTrackApp() {
     return properties.map((p) => {
       const client = clients.find((c) => c.id === p.clientId);
       const propFields = fields.filter((f) => f.propertyId === p.id);
-      const area = propFields.reduce((s, f) => s + Number(f.area || 0), 0);
+      const area = propFields.reduce((s, f) => s + fieldAreaHa(f), 0);
       return { ...p, clientName: client ? client.name : "—", fieldCount: propFields.length, areaTotal: area };
     });
   }, [properties, clients, fields]);
@@ -471,7 +478,7 @@ export default function AgroTrackApp() {
       return {
         ...h,
         fieldName: field ? field.name : "—",
-        fieldArea: field ? Number(field.area || 0) : 0,
+        fieldArea: field ? fieldAreaHa(field) : 0,
         propertyName: property ? property.name : "—",
         clientName: client ? client.name : "—",
         status: h.harvestDate ? "Colhida" : "Em andamento",
@@ -505,10 +512,12 @@ export default function AgroTrackApp() {
     const activeHarvests = harvestsWithMeta.filter((h) => h.status === "Em andamento");
     const areaSoja = activeHarvests.filter((h) => h.culture === "Soja").reduce((s, h) => s + h.fieldArea, 0);
     const areaMilho = activeHarvests.filter((h) => h.culture === "Milho").reduce((s, h) => s + h.fieldArea, 0);
+    const areaPlantada = areaSoja + areaMilho;
+    const areaFisicaTotal = fields.reduce((s, f) => s + fieldAreaHa(f), 0);
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
     const visitsWeek = visits.filter((v) => v.date >= weekAgo).length;
-    return { areaSoja, areaMilho, areaTotal: areaSoja + areaMilho, visitsWeek, activeHarvestCount: activeHarvests.length };
-  }, [harvestsWithMeta, visits]);
+    return { areaSoja, areaMilho, areaPlantada, areaTotal: areaFisicaTotal, visitsWeek, activeHarvestCount: activeHarvests.length };
+  }, [harvestsWithMeta, visits, fields]);
 
   const recentVisits = useMemo(() => {
     return [...visits].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6).map((v) => {
@@ -829,7 +838,7 @@ function StatCard({ label, value, sub, accent }) {
 }
 
 function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField }) {
-  const pctSoja = totals.areaTotal ? Math.round((totals.areaSoja / totals.areaTotal) * 100) : 0;
+  const pctSoja = totals.areaPlantada ? Math.round((totals.areaSoja / totals.areaPlantada) * 100) : 0;
   return (
     <div>
       <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Painel geral</h2>
@@ -840,14 +849,14 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
         <StatCard label="Propriedades" value={properties.length} />
         <StatCard label="Talhões" value={fields.length} />
         <StatCard label="Safras ativas" value={totals.activeHarvestCount} accent="#7BC142" />
-        <StatCard label="Área total" value={totals.areaTotal.toLocaleString("pt-BR") + " ha"} />
+        <StatCard label="Área total" value={totals.areaTotal.toLocaleString("pt-BR") + " ha"} sub={totals.areaPlantada > 0 ? `${totals.areaPlantada.toLocaleString("pt-BR")} ha plantados` : "nenhuma área plantada ainda"} />
         <StatCard label="Visitas · 7 dias" value={totals.visitsWeek} />
       </div>
 
       <div style={{ display: "flex", gap: 18, alignItems: "stretch", marginBottom: 24, flexWrap: "wrap" }}>
         <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
           <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Área por cultura</div>
-          {totals.areaTotal === 0 ? (
+          {totals.areaPlantada === 0 ? (
             <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma safra em andamento ainda.</div>
           ) : (
             <>
@@ -1094,7 +1103,7 @@ function FieldDetail({ field, onBack, onAddHarvest, onEditHarvest, onDeleteHarve
           </h2>
           <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
             <span>{field.clientName} · {field.propertyName}</span>
-            <span>{field.area} ha</span>
+            <span>{fieldAreaHa(field).toLocaleString("pt-BR")} ha</span>
           </div>
         </div>
         <PrimaryBtn onClick={onAddHarvest}><Plus size={16} /> Nova safra</PrimaryBtn>
@@ -1305,7 +1314,7 @@ function PropertyDetail({ property, fields, onBack, onAddField, onEditField, onD
                 {f.activeHarvest ? <CultureBadge culture={f.activeHarvest.culture} /> : <ChevronRight size={16} color="#6B7268" />}
               </div>
               <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 10 }}>
-                {f.area} ha · {f.harvestCount} safra(s) registrada(s)
+                {fieldAreaHa(f).toLocaleString("pt-BR")} ha · {f.harvestCount} safra(s) registrada(s)
               </div>
               {f.activeHarvest ? (
                 <StageProgress culture={f.activeHarvest.culture} stage={f.activeHarvest.lastVisit?.stage} />
@@ -1366,7 +1375,7 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
                   </td>
                   <td>{f.propertyName}</td>
                   <td>{f.clientName}</td>
-                  <td>{f.area} ha</td>
+                  <td>{fieldAreaHa(f).toLocaleString("pt-BR")} ha</td>
                   <td>
                     {f.activeHarvest ? (
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1511,7 +1520,11 @@ function PropertyModal({ data, clients, onSave, onClose }) {
 }
 
 function FieldModal({ data, properties, clients, onSave, onClose }) {
-  const [form, setForm] = useState({ propertyId: properties[0]?.id || "", name: "", area: "", fieldMap: null, ...(data || {}) });
+  const [form, setForm] = useState({
+    propertyId: properties[0]?.id || "", name: "", area: "", fieldMap: null,
+    ...(data || {}),
+    area: data?.area || (data?.fieldMap?.areaHa ? data.fieldMap.areaHa.toFixed(2) : ""),
+  });
   const [showMap, setShowMap] = useState(false);
   return (
     <Modal title={data?.id ? "Editar talhão" : "Novo talhão"} onClose={onClose}>
