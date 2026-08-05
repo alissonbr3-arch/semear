@@ -849,6 +849,12 @@ export default function AgroTrackApp() {
   const isFinance = profile?.role === "master" || profile?.role === "administrador";
   const isMaster = profile?.role === "master";
 
+  const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
+  const monthFinanceSummary = useMemo(() => {
+    if (!isFinance) return null;
+    return computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month: currentMonth });
+  }, [isFinance, finances, bonuses, settings, clients, team, properties, fields, currentMonth]);
+
   const NAV = [
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
     { id: "clientes", label: "Clientes", icon: Users },
@@ -989,7 +995,7 @@ export default function AgroTrackApp() {
       {/* Main content */}
       <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto" }}>
         {view === "dashboard" && (
-          <Dashboard totals={totals} recentVisits={recentVisits} clients={clientsWithMeta} properties={properties} fields={fieldsWithMeta} onOpenField={openField} onOpenClient={openClientFromDashboard} />
+          <Dashboard totals={totals} recentVisits={recentVisits} clients={clientsWithMeta} properties={properties} fields={fieldsWithMeta} onOpenField={openField} onOpenClient={openClientFromDashboard} isFinance={isFinance} monthFinanceSummary={monthFinanceSummary} />
         )}
 
         {view === "clientes" && !selectedClientId && (
@@ -1227,11 +1233,12 @@ function StatCard({ label, value, sub, accent }) {
   );
 }
 
-function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField, onOpenClient }) {
+function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField, onOpenClient, isFinance, monthFinanceSummary }) {
   const pctSoja = totals.areaPlantada ? Math.round((totals.areaSoja / totals.areaPlantada) * 100) : 0;
   const lateClients = clients
     .filter((c) => c.visitStatus === "late" || c.visitStatus === "none")
     .sort((a, b) => (a.lastVisitDate || "").localeCompare(b.lastVisitDate || ""));
+  const monthLabel = new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   return (
     <div>
       <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Painel geral</h2>
@@ -1245,6 +1252,14 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
         <StatCard label="Área total" value={totals.areaTotal.toLocaleString("pt-BR") + " ha"} sub={totals.areaPlantada > 0 ? `${totals.areaPlantada.toLocaleString("pt-BR")} ha plantados` : "nenhuma área plantada ainda"} />
         <StatCard label="Visitas · 7 dias" value={totals.visitsWeek} />
       </div>
+
+      {isFinance && monthFinanceSummary && (
+        <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
+          <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="#7BC142"
+            sub={monthFinanceSummary.totalPendente > 0 ? `${fmtCurrency(monthFinanceSummary.totalPendente)} pendente` : "tudo recebido"} />
+          <StatCard label={`Saídas previstas (pró-labore) · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalProLabore)} accent="#E3B455" />
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 18, alignItems: "stretch", marginBottom: 24, flexWrap: "wrap" }}>
         <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
@@ -3077,6 +3092,47 @@ function fmtCurrency(n) {
 const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo" };
 const FINANCE_TYPES_WITH_SHARE = ["projeto", "analise_solo"];
 
+function computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month }) {
+  const monthFinances = finances.filter((f) => f.referenceMonth === month);
+  const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
+  const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
+
+  const gestorByClientId = {};
+  clients.forEach((c) => { if (c.gestorId) gestorByClientId[c.id] = c.gestorId; });
+
+  const areaByGestor = {};
+  fields.forEach((f) => {
+    const property = properties.find((p) => p.id === f.propertyId);
+    if (!property) return;
+    const client = clients.find((c) => c.id === property.clientId);
+    if (!client?.gestorId) return;
+    areaByGestor[client.gestorId] = (areaByGestor[client.gestorId] || 0) + fieldAreaHa(f);
+  });
+
+  const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month);
+
+  const projectShareByGestor = {};
+  monthFinances
+    .filter((f) => FINANCE_TYPES_WITH_SHARE.includes(f.type) && f.status === "pago")
+    .forEach((f) => {
+      const gestorId = f.responsibleGestorId || gestorByClientId[f.clientId];
+      if (!gestorId) return;
+      projectShareByGestor[gestorId] = (projectShareByGestor[gestorId] || 0) + Number(f.amount) * (Number(settings.projectShareRate || 0) / 100);
+    });
+
+  const proLaboreRows = team.map((t) => {
+    const areaHa = areaByGestor[t.id] || 0;
+    const base = areaHa * (Number(settings.commissionRatePerHaYear || 0) / 12);
+    const projectShare = projectShareByGestor[t.id] || 0;
+    const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
+    return { gestor: t, areaHa, base, projectShare, bonusTotal, total: base + projectShare + bonusTotal };
+  });
+
+  const totalProLabore = proLaboreRows.reduce((s, r) => s + r.total, 0);
+
+  return { monthFinances, totalRecebido, totalPendente, proLaboreRows, totalProLabore };
+}
+
 function FinanceiroView({
   finances, bonuses, settings, clients, team, properties, fields,
   onAddFinance, onEditFinance, onDeleteFinance,
@@ -3088,54 +3144,19 @@ function FinanceiroView({
   const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHaYear ?? 30));
   const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
 
-  const monthFinances = finances.filter((f) => f.referenceMonth === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
-  const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
-
-  const gestorByClientId = useMemo(() => {
-    const map = {};
-    clients.forEach((c) => { if (c.gestorId) map[c.id] = c.gestorId; });
-    return map;
-  }, [clients]);
-
-  const areaByGestor = useMemo(() => {
-    const map = {};
-    fields.forEach((f) => {
-      const property = properties.find((p) => p.id === f.propertyId);
-      if (!property) return;
-      const client = clients.find((c) => c.id === property.clientId);
-      if (!client?.gestorId) return;
-      map[client.gestorId] = (map[client.gestorId] || 0) + fieldAreaHa(f);
-    });
-    return map;
-  }, [fields, properties, clients]);
-
+  const summary = useMemo(
+    () => computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month }),
+    [finances, bonuses, settings, clients, team, properties, fields, month]
+  );
+  const monthFinances = [...summary.monthFinances].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const { totalRecebido, totalPendente } = summary;
   const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-  const projectShareByGestor = useMemo(() => {
-    const map = {};
-    monthFinances
-      .filter((f) => FINANCE_TYPES_WITH_SHARE.includes(f.type) && f.status === "pago")
-      .forEach((f) => {
-        const gestorId = f.responsibleGestorId || gestorByClientId[f.clientId];
-        if (!gestorId) return;
-        map[gestorId] = (map[gestorId] || 0) + Number(f.amount) * (Number(settings.projectShareRate || 0) / 100);
-      });
-    return map;
-  }, [monthFinances, gestorByClientId, settings.projectShareRate]);
-
-  const commissionRows = team
-    .map((t) => {
-      const areaHa = areaByGestor[t.id] || 0;
-      const base = areaHa * (Number(settings.commissionRatePerHaYear || 0) / 12);
-      const projectShare = projectShareByGestor[t.id] || 0;
-      const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
-      return { gestor: t, areaHa, base, projectShare, bonusTotal, total: base + projectShare + bonusTotal };
-    })
+  const commissionRows = summary.proLaboreRows
     .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal > 0)
     .sort((a, b) => b.total - a.total);
 
-  const totalComissoes = commissionRows.reduce((s, r) => s + r.total, 0);
+  const totalComissoes = summary.totalProLabore;
 
   return (
     <div>
