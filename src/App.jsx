@@ -593,7 +593,10 @@ export default function AgroTrackApp() {
   }
 
   async function uploadDocument({ clientId, file, title }) {
-    const path = `${clientId}/${uid()}-${file.name}`;
+    const safeName = file.name
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const path = `${clientId}/${uid()}-${safeName}`;
     const { error: uploadError } = await supabase.storage.from("documents").upload(path, file);
     if (uploadError) return { error: uploadError.message };
     const { data: pub } = supabase.storage.from("documents").getPublicUrl(path);
