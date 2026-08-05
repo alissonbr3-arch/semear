@@ -30,8 +30,22 @@ function json(body, statusCode = 200) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
+function getPfxBase64() {
+  // Netlify limita cada variável a 5000 caracteres, então o certificado pode
+  // vir inteiro em BB_CERT_PFX_BASE64 (se couber) ou dividido em
+  // BB_CERT_PFX_BASE64_1, BB_CERT_PFX_BASE64_2, ... (nessa ordem).
+  if (process.env.BB_CERT_PFX_BASE64) return process.env.BB_CERT_PFX_BASE64;
+  const parts = [];
+  let i = 1;
+  while (process.env[`BB_CERT_PFX_BASE64_${i}`]) {
+    parts.push(process.env[`BB_CERT_PFX_BASE64_${i}`]);
+    i++;
+  }
+  return parts.length > 0 ? parts.join("") : null;
+}
+
 function getMtlsAgent() {
-  const pfxBase64 = process.env.BB_CERT_PFX_BASE64;
+  const pfxBase64 = getPfxBase64();
   const passphrase = process.env.BB_CERT_PASSPHRASE;
   if (!pfxBase64 || !passphrase) return null;
   return new https.Agent({ pfx: Buffer.from(pfxBase64, "base64"), passphrase });
@@ -117,8 +131,9 @@ function normalizeTransactions(raw) {
 export const handler = async (event) => {
   if (event.httpMethod !== "GET") return json({ error: "Método não permitido." }, 405);
 
-  const missing = ["BB_CLIENT_ID", "BB_CLIENT_SECRET", "BB_APP_KEY", "BB_CERT_PFX_BASE64", "BB_CERT_PASSPHRASE", "BB_AGENCIA", "BB_CONTA"]
+  const missing = ["BB_CLIENT_ID", "BB_CLIENT_SECRET", "BB_APP_KEY", "BB_CERT_PASSPHRASE", "BB_AGENCIA", "BB_CONTA"]
     .filter((k) => !process.env[k]);
+  if (!getPfxBase64()) missing.push("BB_CERT_PFX_BASE64 (ou BB_CERT_PFX_BASE64_1, _2, ...)");
   if (!supabaseUrl || !anonKey || !serviceRoleKey || missing.length > 0) {
     return json({ error: `Configuração do servidor incompleta. Faltando: ${missing.join(", ") || "variáveis do Supabase"}.` }, 500);
   }
