@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -65,6 +65,22 @@ function pad2(n) {
 function toISODateLocal(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
+
+function addMonthsToISODate(dateStr, months) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, m - 1 + months, d);
+  return toISODateLocal(date);
+}
+
+function addMonthsToReferenceMonth(monthStr, months) {
+  const [y, m] = monthStr.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  return `${ny}-${pad2(nm)}`;
+}
+
+const RECURRING_MONTHS_AHEAD = 12;
 
 function startOfWeekMonday(d) {
   const day = d.getDay();
@@ -325,6 +341,7 @@ export default function AgroTrackApp() {
   const [activityLog, setActivityLog] = useState([]);
   const [finances, setFinances] = useState([]);
   const [bonuses, setBonuses] = useState([]);
+  const [bills, setBills] = useState([]);
   const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -368,12 +385,12 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st, bl] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
-        safeGet("finances"), safeGet("bonuses"), safeGet("settings")
+        safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -395,6 +412,7 @@ export default function AgroTrackApp() {
       setFinances(fn || []);
       setBonuses(bn || []);
       setSettings({ commissionRatePerHaYear: 30, projectShareRate: 20, ...(st || {}) });
+      setBills(bl || []);
       setLoading(false);
     })();
   }, [session, profile]);
@@ -432,13 +450,34 @@ export default function AgroTrackApp() {
   async function persistFinances(data) { setFinances(data); await safeSet("finances", data); }
   async function persistBonuses(data) { setBonuses(data); await safeSet("bonuses", data); }
   async function persistSettings(data) { setSettings(data); await safeSet("settings", data); }
+  async function persistBills(data) { setBills(data); await safeSet("bills", data); }
+
+  function generateRecurringEntries(baseForm) {
+    const entries = [];
+    for (let i = 0; i < RECURRING_MONTHS_AHEAD; i++) {
+      entries.push({
+        ...baseForm,
+        id: uid(),
+        date: baseForm.date ? addMonthsToISODate(baseForm.date, i) : baseForm.date,
+        referenceMonth: baseForm.referenceMonth ? addMonthsToReferenceMonth(baseForm.referenceMonth, i) : baseForm.referenceMonth,
+        status: i === 0 ? baseForm.status : "pendente",
+        recurring: true,
+      });
+    }
+    return entries;
+  }
 
   function saveFinance(form) {
     const client = clients.find((c) => c.id === form.clientId);
-    logActivity(makeLogEntry(form.id ? "update" : "create", "finance", client?.name, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
     if (form.id) {
+      logActivity(makeLogEntry("update", "finance", client?.name, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
       persistFinances(finances.map((fEntry) => (fEntry.id === form.id ? form : fEntry)));
+    } else if (form.recurring) {
+      const entries = generateRecurringEntries(form);
+      logActivity(makeLogEntry("create", "finance", client?.name, `Recorrente · ${entries.length} meses lançados`));
+      persistFinances([...finances, ...entries]);
     } else {
+      logActivity(makeLogEntry("create", "finance", client?.name, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
       persistFinances([...finances, { ...form, id: uid() }]);
     }
     setModal(null);
@@ -453,6 +492,26 @@ export default function AgroTrackApp() {
     const client = clients.find((c) => c.id === entry.clientId);
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
     persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date } : f)));
+  }
+
+  function saveBill(form) {
+    if (form.id) {
+      logActivity(makeLogEntry("update", "bill", form.description, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
+      persistBills(bills.map((b) => (b.id === form.id ? form : b)));
+    } else if (form.recurring) {
+      const entries = generateRecurringEntries(form);
+      logActivity(makeLogEntry("create", "bill", form.description, `Recorrente · ${entries.length} meses lançados`));
+      persistBills([...bills, ...entries]);
+    } else {
+      logActivity(makeLogEntry("create", "bill", form.description, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
+      persistBills([...bills, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteBill(id) {
+    const bill = bills.find((b) => b.id === id);
+    logActivity(makeLogEntry("delete", "bill", bill?.description));
+    persistBills(bills.filter((b) => b.id !== id));
   }
 
   function saveBonus(form) {
@@ -857,8 +916,8 @@ export default function AgroTrackApp() {
   const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const monthFinanceSummary = useMemo(() => {
     if (!isFinance) return null;
-    return computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month: currentMonth });
-  }, [isFinance, finances, bonuses, settings, clients, team, properties, fields, currentMonth]);
+    return computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month: currentMonth });
+  }, [isFinance, finances, bonuses, bills, settings, clients, team, properties, fields, currentMonth]);
 
   const NAV = [
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
@@ -1128,7 +1187,7 @@ export default function AgroTrackApp() {
 
         {view === "financeiro" && isFinance && (
           <FinanceiroView
-            finances={finances} bonuses={bonuses} settings={settings}
+            finances={finances} bonuses={bonuses} bills={bills} settings={settings}
             clients={clients} team={team} properties={properties} fields={fields}
             onAddFinance={() => setModal({ type: "finance", data: null })}
             onEditFinance={(f) => setModal({ type: "finance", data: f })}
@@ -1136,6 +1195,9 @@ export default function AgroTrackApp() {
             onAddBonus={() => setModal({ type: "bonus", data: null })}
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
             onDeleteBonus={deleteBonus}
+            onAddBill={() => setModal({ type: "bill", data: null })}
+            onEditBill={(b) => setModal({ type: "bill", data: b })}
+            onDeleteBill={deleteBill}
             onChangeRate={updateCommissionRate}
             onChangeProjectRate={updateProjectShareRate}
             onReconcile={() => setModal({ type: "reconcile", data: null })}
@@ -1225,6 +1287,9 @@ export default function AgroTrackApp() {
       {modal?.type === "bonus" && (
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
       )}
+      {modal?.type === "bill" && (
+        <BillModal data={modal.data} onSave={saveBill} onClose={() => setModal(null)} />
+      )}
       {modal?.type === "reconcile" && (
         <ReconciliationModal
           finances={finances} clients={clients}
@@ -1271,7 +1336,8 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
         <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
           <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="#7BC142"
             sub={monthFinanceSummary.totalPendente > 0 ? `${fmtCurrency(monthFinanceSummary.totalPendente)} pendente` : "tudo recebido"} />
-          <StatCard label={`Saídas previstas (pró-labore) · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalProLabore)} accent="#E3B455" />
+          <StatCard label={`Saídas previstas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalSaidasPrevistas)} accent="#E3B455"
+            sub={`Pró-labore ${fmtCurrency(monthFinanceSummary.totalProLabore)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasPendentes)}`} />
         </div>
       )}
 
@@ -3047,6 +3113,7 @@ const ACTIVITY_ENTITY_LABELS = {
   visit: "a visita", task: "o item da agenda", document: "o documento",
   team: "o colaborador", clientAccess: "o acesso do cliente",
   finance: "o honorário de", bonus: "a bonificação de", settings: "a configuração",
+  bill: "a despesa",
 };
 
 function ActivityLogView({ log }) {
@@ -3171,10 +3238,14 @@ function matchStatementToFinances(transactions, finances) {
   });
 }
 
-function computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month }) {
+function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month }) {
   const monthFinances = finances.filter((f) => f.referenceMonth === month);
   const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
   const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
+
+  const monthBills = (bills || []).filter((b) => b.referenceMonth === month);
+  const totalDespesasPagas = monthBills.filter((b) => b.status === "pago").reduce((s, b) => s + Number(b.amount), 0);
+  const totalDespesasPendentes = monthBills.filter((b) => b.status === "pendente").reduce((s, b) => s + Number(b.amount), 0);
 
   const gestorByClientId = {};
   clients.forEach((c) => { if (c.gestorId) gestorByClientId[c.id] = c.gestorId; });
@@ -3208,14 +3279,19 @@ function computeMonthFinanceSummary({ finances, bonuses, settings, clients, team
   });
 
   const totalProLabore = proLaboreRows.reduce((s, r) => s + r.total, 0);
+  const totalSaidasPrevistas = totalProLabore + totalDespesasPendentes;
 
-  return { monthFinances, totalRecebido, totalPendente, proLaboreRows, totalProLabore };
+  return {
+    monthFinances, totalRecebido, totalPendente, proLaboreRows, totalProLabore,
+    monthBills, totalDespesasPagas, totalDespesasPendentes, totalSaidasPrevistas,
+  };
 }
 
 function FinanceiroView({
-  finances, bonuses, settings, clients, team, properties, fields,
+  finances, bonuses, bills, settings, clients, team, properties, fields,
   onAddFinance, onEditFinance, onDeleteFinance,
   onAddBonus, onEditBonus, onDeleteBonus,
+  onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile,
 }) {
   const [tab, setTab] = useState("honorarios");
@@ -3224,12 +3300,14 @@ function FinanceiroView({
   const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
 
   const summary = useMemo(
-    () => computeMonthFinanceSummary({ finances, bonuses, settings, clients, team, properties, fields, month }),
-    [finances, bonuses, settings, clients, team, properties, fields, month]
+    () => computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month }),
+    [finances, bonuses, bills, settings, clients, team, properties, fields, month]
   );
   const monthFinances = [...summary.monthFinances].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const { totalRecebido, totalPendente } = summary;
   const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const monthBillsSorted = [...summary.monthBills].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const { totalDespesasPagas, totalDespesasPendentes } = summary;
 
   const commissionRows = summary.proLaboreRows
     .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal > 0)
@@ -3264,6 +3342,14 @@ function FinanceiroView({
         }}>
           <UserCog size={15} /> Pró-labore
         </button>
+        <button onClick={() => setTab("despesas")} style={{
+          display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+          border: "1px solid " + (tab === "despesas" ? "#1E4A20" : "#232B25"),
+          background: tab === "despesas" ? "#1E4A20" : "#161D19", color: tab === "despesas" ? "#F5F2E8" : "#D6D3C7",
+          fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+        }}>
+          <Receipt size={15} /> Despesas
+        </button>
       </div>
 
       {tab === "honorarios" && (
@@ -3288,7 +3374,12 @@ function FinanceiroView({
                     const responsible = team.find((t) => t.id === f.responsibleGestorId);
                     return (
                       <tr key={f.id}>
-                        <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{client?.name || "—"}</td>
+                        <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            {f.recurring && <Repeat size={12} color="#6B7268" />}
+                            {client?.name || "—"}
+                          </div>
+                        </td>
                         <td>{FINANCE_TYPE_LABELS[f.type] || "Mensalidade"}</td>
                         <td>{responsible?.name || "—"}</td>
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(f.date)}</td>
@@ -3387,15 +3478,59 @@ function FinanceiroView({
           )}
         </div>
       )}
+
+      {tab === "despesas" && (
+        <div>
+          <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatCard label="Pago no mês" value={fmtCurrency(totalDespesasPagas)} accent="#E38B84" />
+            <StatCard label="Pendente no mês" value={fmtCurrency(totalDespesasPendentes)} accent="#E3B455" />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <PrimaryBtn onClick={onAddBill}><Plus size={16} /> Nova despesa</PrimaryBtn>
+          </div>
+          {monthBillsSorted.length === 0 ? (
+            <EmptyState icon={Receipt} title="Nenhuma despesa lançada neste mês" sub="Registre os custos do escritório: salários, energia, manutenção, etc." />
+          ) : (
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+              <table>
+                <thead><tr><th>Descrição</th><th>Categoria</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {monthBillsSorted.map((b) => (
+                    <tr key={b.id}>
+                      <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {b.recurring && <Repeat size={12} color="#6B7268" />}
+                          {b.description}
+                        </div>
+                      </td>
+                      <td>{b.category || "—"}</td>
+                      <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(b.date)}</td>
+                      <td>{fmtCurrency(b.amount)}</td>
+                      <td><FinanceStatusBadge status={b.status} /></td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          <button onClick={() => onEditBill(b)} style={iconBtnStyle}><Pencil size={14} /></button>
+                          <button onClick={() => { if (confirm("Remover esta despesa?")) onDeleteBill(b.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function FinanceModal({ data, clients, team, onSave, onClose }) {
+  const isEdit = !!data?.id;
   const [form, setForm] = useState({
     clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
     referenceMonth: new Date().toISOString().slice(0, 7), status: "pago", type: "mensalidade",
-    responsibleGestorId: "",
+    responsibleGestorId: "", recurring: false,
     ...(data || {}),
   });
   const canSave = form.clientId && Number(form.amount) > 0 && form.date
@@ -3442,6 +3577,14 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
           <option value="pendente">Pendente</option>
         </select>
       </Field>
+      {!isEdit && (
+        <Field label="Recorrência">
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "#D6D3C7", cursor: "pointer" }}>
+            <input type="checkbox" checked={form.recurring} onChange={(e) => setForm({ ...form, recurring: e.target.checked })} />
+            Repetir todo mês (lança automaticamente os próximos {RECURRING_MONTHS_AHEAD} meses, como pendente)
+          </label>
+        </Field>
+      )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
@@ -3566,6 +3709,58 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
       <Field label="Data">
         <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
       </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+const BILL_CATEGORY_SUGGESTIONS = ["Salários", "Energia Elétrica", "Água", "Aluguel", "Manutenção de Máquinas e Equipamentos", "Combustível", "Internet/Telefone", "Material de Escritório", "Impostos", "Outros"];
+
+function BillModal({ data, onSave, onClose }) {
+  const isEdit = !!data?.id;
+  const [form, setForm] = useState({
+    description: "", category: "", amount: "", date: new Date().toISOString().slice(0, 10),
+    referenceMonth: new Date().toISOString().slice(0, 7), status: "pendente", recurring: false,
+    ...(data || {}),
+  });
+  const canSave = form.description.trim() && Number(form.amount) > 0 && form.date;
+  return (
+    <Modal title={isEdit ? "Editar despesa" : "Nova despesa"} onClose={onClose}>
+      <Field label="Descrição">
+        <input style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex: Energia elétrica — sede" />
+      </Field>
+      <Field label="Categoria">
+        <input style={inputStyle} list="bill-categories" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Ex: Energia Elétrica" />
+        <datalist id="bill-categories">
+          {BILL_CATEGORY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
+        </datalist>
+      </Field>
+      <Field label="Valor (R$)">
+        <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 350" />
+      </Field>
+      <Field label="Data (vencimento ou pagamento)">
+        <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      </Field>
+      <Field label="Competência (mês de referência)">
+        <input type="month" style={inputStyle} value={form.referenceMonth} onChange={(e) => setForm({ ...form, referenceMonth: e.target.value })} />
+      </Field>
+      <Field label="Status">
+        <select style={inputStyle} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+          <option value="pago">Pago</option>
+          <option value="pendente">Pendente</option>
+        </select>
+      </Field>
+      {!isEdit && (
+        <Field label="Recorrência">
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "#D6D3C7", cursor: "pointer" }}>
+            <input type="checkbox" checked={form.recurring} onChange={(e) => setForm({ ...form, recurring: e.target.checked })} />
+            Repetir todo mês (lança automaticamente os próximos {RECURRING_MONTHS_AHEAD} meses, como pendente)
+          </label>
+        </Field>
+      )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
