@@ -325,7 +325,7 @@ export default function AgroTrackApp() {
   const [activityLog, setActivityLog] = useState([]);
   const [finances, setFinances] = useState([]);
   const [bonuses, setBonuses] = useState([]);
-  const [settings, setSettings] = useState({ commissionRatePerHa: 30, projectShareRate: 20 });
+  const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
@@ -394,7 +394,7 @@ export default function AgroTrackApp() {
       setActivityLog(al || []);
       setFinances(fn || []);
       setBonuses(bn || []);
-      setSettings({ commissionRatePerHa: 30, projectShareRate: 20, ...(st || {}) });
+      setSettings({ commissionRatePerHaYear: 30, projectShareRate: 20, ...(st || {}) });
       setLoading(false);
     })();
   }, [session, profile]);
@@ -468,8 +468,8 @@ export default function AgroTrackApp() {
   }
 
   function updateCommissionRate(rate) {
-    logActivity(makeLogEntry("update", "settings", "Pró-labore por hectare", `R$ ${rate}/ha/mês`));
-    persistSettings({ ...settings, commissionRatePerHa: rate });
+    logActivity(makeLogEntry("update", "settings", "Pró-labore por hectare", `R$ ${rate}/ha/ano`));
+    persistSettings({ ...settings, commissionRatePerHaYear: rate });
   }
   function updateProjectShareRate(rate) {
     logActivity(makeLogEntry("update", "settings", "Pró-labore de projetos", `${rate}% dos honorários de projeto`));
@@ -3084,7 +3084,7 @@ function FinanceiroView({
 }) {
   const [tab, setTab] = useState("honorarios");
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHa ?? 30));
+  const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHaYear ?? 30));
   const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
 
   const monthFinances = finances.filter((f) => f.referenceMonth === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -3126,7 +3126,7 @@ function FinanceiroView({
   const commissionRows = team
     .map((t) => {
       const areaHa = areaByGestor[t.id] || 0;
-      const base = areaHa * Number(settings.commissionRatePerHa || 0);
+      const base = areaHa * (Number(settings.commissionRatePerHaYear || 0) / 12);
       const projectShare = projectShareByGestor[t.id] || 0;
       const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
       return { gestor: t, areaHa, base, projectShare, bonusTotal, total: base + projectShare + bonusTotal };
@@ -3211,11 +3211,12 @@ function FinanceiroView({
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
             <StatCard label="Total de pró-labore no mês" value={fmtCurrency(totalComissoes)} accent="#7BC142" />
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
-              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Por hectare (R$/ha/mês)</div>
+              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Por hectare (R$/ha/ano)</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input type="number" style={{ ...inputStyle, width: 100 }} value={rateInput} onChange={(e) => setRateInput(e.target.value)} />
                 <GhostBtn onClick={() => onChangeRate(Number(rateInput) || 0)}>Salvar</GhostBtn>
               </div>
+              <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 6 }}>= {fmtCurrency((Number(rateInput) || 0) / 12)}/ha/mês</div>
             </div>
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
               <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>De projetos (% dos honorários pagos)</div>
