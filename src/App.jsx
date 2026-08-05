@@ -5,6 +5,8 @@ import {
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2
 } from "lucide-react";
+import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import { safeGet, safeSet } from "./lib/storage.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
@@ -623,6 +625,15 @@ export default function AgroTrackApp() {
         .at-sidebar .logo-mark { display: block; height: 24px; width: 24px; object-fit: contain; }
         .at-sidebar:hover .logo-full { display: block; }
         .at-sidebar:hover .logo-mark { display: none; }
+        .leaflet-container { background: #0E1310; font-family: 'IBM Plex Mono', monospace; }
+        .leaflet-control-layers { background: #161D19 !important; border: 1px solid #232B25 !important; color: #D6D3C7; }
+        .leaflet-control-layers-toggle { filter: invert(1); }
+        .leaflet-control-layers label { color: #D6D3C7; font-size: 11px; }
+        .leaflet-control-zoom a { background: #161D19 !important; color: #D6D3C7 !important; border-color: #232B25 !important; }
+        .leaflet-control-attribution { background: rgba(14,19,16,0.75) !important; color: #6B7268 !important; }
+        .leaflet-control-attribution a { color: #9BA298 !important; }
+        .field-map-label { background: rgba(14,19,16,0.85) !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 10px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px !important; }
+        .field-map-label::before { display: none !important; }
       `}</style>
 
       {/* Sidebar */}
@@ -906,32 +917,11 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
   );
 }
 
-function projectMultiField(fieldsWithKml, width, height, padding) {
-  const allPoints = fieldsWithKml.flatMap((f) => f.fieldMap.points.map(([lat, lng]) => ({ lat, lng })));
-  const lats = allPoints.map((p) => p.lat);
-  const lngs = allPoints.map((p) => p.lng);
-  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-  const avgLat = (minLat + maxLat) / 2;
-  const cosLat = Math.cos((avgLat * Math.PI) / 180) || 1;
-  const spanX = (maxLng - minLng) * cosLat || 0.0001;
-  const spanY = maxLat - minLat || 0.0001;
-  const scale = Math.min((width - 2 * padding) / spanX, (height - 2 * padding) / spanY);
-  return fieldsWithKml.map((f) => ({
-    ...f,
-    screenPoints: f.fieldMap.points.map(([lat, lng]) => ({
-      x: padding + (lng - minLng) * cosLat * scale,
-      y: height - padding - (lat - minLat) * scale,
-    })),
-  }));
-}
-
 function FieldsOverviewMap({ fields, onOpenField }) {
   const [hovered, setHovered] = useState(null);
   const geoFields = fields.filter((f) => f.fieldMap?.mode === "kml" && f.fieldMap.points?.length >= 3);
   const imageFields = fields.filter((f) => f.fieldMap?.mode === "image" && f.fieldMap.points?.length >= 3);
-  const width = 700, height = 380, padding = 30;
-  const projected = geoFields.length > 0 ? projectMultiField(geoFields, width, height, padding) : [];
+  const bounds = geoFields.flatMap((f) => f.fieldMap.points.map(([lat, lng]) => [lat, lng]));
 
   return (
     <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18 }}>
@@ -944,29 +934,45 @@ function FieldsOverviewMap({ fields, onOpenField }) {
           Nenhum talhão com KML importado ainda. Defina a área de um talhão usando KML para ele aparecer aqui.
         </div>
       ) : (
-        <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} style={{ background: "#0E1310", borderRadius: 8, border: "1px solid #232B25" }}>
-          {projected.map((f) => {
-            const points = f.screenPoints.map((p) => `${p.x},${p.y}`).join(" ");
-            const cx = f.screenPoints.reduce((s, p) => s + p.x, 0) / f.screenPoints.length;
-            const cy = f.screenPoints.reduce((s, p) => s + p.y, 0) / f.screenPoints.length;
-            const color = f.activeHarvest ? CULTURE_META[f.activeHarvest.culture]?.color || "#7BC142" : "#6B7268";
-            const isHovered = hovered === f.id;
-            return (
-              <g
-                key={f.id}
-                onClick={() => onOpenField && onOpenField(f.id)}
-                onMouseEnter={() => setHovered(f.id)}
-                onMouseLeave={() => setHovered(null)}
-                style={{ cursor: onOpenField ? "pointer" : "default" }}
-              >
-                <polygon points={points} fill={color} fillOpacity={isHovered ? 0.45 : 0.28} stroke={color} strokeWidth={isHovered ? 2.5 : 1.5} />
-                <text x={cx} y={cy} textAnchor="middle" fontSize="10" fill="#F2F0E6" fontFamily="'IBM Plex Mono', monospace" style={{ pointerEvents: "none" }}>
-                  {f.name}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
+        <div style={{ height: 380, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25" }}>
+          <MapContainer bounds={bounds} boundsOptions={{ padding: [24, 24] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+            <LayersControl position="topright">
+              <LayersControl.BaseLayer checked name="Satélite">
+                <TileLayer
+                  attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
+                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                  maxZoom={19}
+                />
+              </LayersControl.BaseLayer>
+              <LayersControl.BaseLayer name="Ruas">
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  maxZoom={19}
+                />
+              </LayersControl.BaseLayer>
+            </LayersControl>
+            {geoFields.map((f) => {
+              const positions = f.fieldMap.points.map(([lat, lng]) => [lat, lng]);
+              const color = f.activeHarvest ? CULTURE_META[f.activeHarvest.culture]?.color || "#7BC142" : "#9BA298";
+              const isHovered = hovered === f.id;
+              return (
+                <Polygon
+                  key={f.id}
+                  positions={positions}
+                  pathOptions={{ color, weight: isHovered ? 2.5 : 1.5, fillColor: color, fillOpacity: isHovered ? 0.45 : 0.28 }}
+                  eventHandlers={{
+                    click: () => onOpenField && onOpenField(f.id),
+                    mouseover: () => setHovered(f.id),
+                    mouseout: () => setHovered(null),
+                  }}
+                >
+                  <Tooltip permanent direction="center" className="field-map-label">{f.name}</Tooltip>
+                </Polygon>
+              );
+            })}
+          </MapContainer>
+        </div>
       )}
       {imageFields.length > 0 && (
         <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 10 }}>
