@@ -30,7 +30,7 @@
 //   BB_CONTA           - número da conta corrente (com dígito, se houver)
 // Opcionais (só se o host padrão abaixo não funcionar, ajustar sem precisar mexer no código):
 //   BB_OAUTH_URL       - default: https://oauth.bb.com.br/oauth/token
-//   BB_API_BASE_URL    - default: https://api-extratos.bb.com.br
+//   BB_API_BASE_URL    - default: https://extratos.mtls.api.bb.com.br/v2
 import https from "node:https";
 import tls from "node:tls";
 import { createClient } from "@supabase/supabase-js";
@@ -40,7 +40,7 @@ const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const BB_OAUTH_URL = process.env.BB_OAUTH_URL || "https://oauth.bb.com.br/oauth/token";
-const BB_API_BASE_URL = process.env.BB_API_BASE_URL || "https://api-extratos.bb.com.br";
+const BB_API_BASE_URL = process.env.BB_API_BASE_URL || "https://extratos.mtls.api.bb.com.br/v2";
 
 function json(body, statusCode = 200) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
@@ -118,7 +118,7 @@ async function fetchExtrato(agent, token, dataInicio, dataFim) {
   const agencia = process.env.BB_AGENCIA;
   const conta = process.env.BB_CONTA;
   const appKey = process.env.BB_APP_KEY;
-  const path = `/extratos/v2/conta-corrente/agencia/${agencia}/conta/${conta}`
+  const path = `/conta-corrente/agencia/${agencia}/conta/${conta}`
     + `?gw-dev-app-key=${encodeURIComponent(appKey)}`
     + `&dataInicioSolicitacao=${ddmmyyyy(dataInicio)}&dataFimSolicitacao=${ddmmyyyy(dataFim)}`;
   const res = await httpsRequestJson(`${BB_API_BASE_URL}${path}`, {
@@ -134,18 +134,26 @@ async function fetchExtrato(agent, token, dataInicio, dataFim) {
 
 function normalizeTransactions(raw) {
   const list = raw?.listaLancamento || raw?.lancamentos || [];
-  return list.map((item) => {
-    const amount = Number(item.valorLancamento ?? item.valor ?? 0);
-    const isCredit = (item.indicadorSinalLancamento || item.tipoLancamento) === "C" || amount > 0;
-    const day = String(item.data ?? item.dataLancamento ?? "").padStart(8, "0");
-    const date = day.length === 8 ? `${day.slice(4, 8)}-${day.slice(2, 4)}-${day.slice(0, 2)}` : null;
-    return {
-      date,
-      amount: Math.abs(amount),
-      description: item.textoDescricaoHistorico || item.descricao || "",
-      type: isCredit ? "credit" : "debit",
-    };
-  }).filter((t) => t.date);
+  return list
+    .filter((item) => {
+      // indicadorTipoLancamento: 1=contabilizado, 2=futuro, 3=em processamento —
+      // os demais códigos (SA, SD, LD, LC, LU, RA, LE...) são linhas de
+      // saldo/limite, não lançamentos de fato, e o "*" é valor bloqueado.
+      const tipo = String(item.indicadorTipoLancamento ?? "");
+      return ["1", "2", "3"].includes(tipo) && item.indicadorSinalLancamento !== "*";
+    })
+    .map((item) => {
+      const amount = Math.abs(Number(item.valorLancamento ?? 0));
+      const day = String(item.dataLancamento ?? "").padStart(8, "0");
+      const date = day.length === 8 ? `${day.slice(4, 8)}-${day.slice(2, 4)}-${day.slice(0, 2)}` : null;
+      return {
+        date,
+        amount,
+        description: item.textoDescricaoSubHistorico || item.textoInformacaoComplementar || "",
+        type: item.indicadorSinalLancamento === "C" ? "credit" : "debit",
+      };
+    })
+    .filter((t) => t.date && t.amount > 0);
 }
 
 export const handler = async (event) => {
