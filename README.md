@@ -90,11 +90,11 @@ repositório do GitHub:
 
 ## Coisas importantes para saber
 
-- **Dados compartilhados, sem login por pessoa** — continua igual ao que
-  era no Claude: qualquer um com o link do site acessa e edita os mesmos
-  dados. Se você quiser login individual por colaborador, é o próximo passo
-  natural (Supabase já tem esse recurso pronto — é só eu integrar quando
-  você quiser).
+- **Login por pessoa** — cada colaborador tem seu próprio e-mail/senha
+  (Supabase Auth). Só quem tem a conta marcada como "master" pode criar,
+  editar ou remover logins de colaboradores, na tela **Equipe** do app. Veja
+  `supabase_schema_auth.sql` e `supabase_bootstrap_master.sql` pra detalhes
+  de como isso foi configurado.
 - **Imagens de satélite (prints enviados no cadastro de talhão)** ficam
   guardadas dentro do banco de dados como estão hoje. Isso funciona, mas
   prints muito grandes vão ocupar espaço rápido no plano gratuito do
