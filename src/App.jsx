@@ -12,7 +12,7 @@ import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole
+  setTeamRole, fetchBBExtrato
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 
@@ -3598,6 +3598,7 @@ function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTr
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
   const [confirmedIds, setConfirmedIds] = useState([]);
+  const [fetchingBank, setFetchingBank] = useState(false);
   const fileInputRef = useRef(null);
 
   async function handleFile(file) {
@@ -3616,6 +3617,21 @@ function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTr
     }
   }
 
+  async function handleFetchBank() {
+    setError("");
+    setFetchingBank(true);
+    const r = await fetchBBExtrato({});
+    setFetchingBank(false);
+    if (r.error) { setError(r.error); return; }
+    const transactions = r.data?.transactions || [];
+    if (transactions.length === 0) {
+      setError("A busca no banco não retornou nenhum lançamento pro período (mês atual).");
+      return;
+    }
+    setFileName("Banco do Brasil — busca automática");
+    setRows(matchStatementToFinances(transactions, finances));
+  }
+
   function handleConfirm(match, transaction) {
     onConfirmMatch(match, transaction);
     setConfirmedIds((ids) => [...ids, match.id]);
@@ -3626,8 +3642,12 @@ function ReconciliationModal({ finances, clients, onConfirmMatch, onCreateFromTr
       {!rows ? (
         <>
           <div style={{ fontSize: 10.5, color: "#9BA298", marginBottom: 14 }}>
-            Envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários com status "Pendente", algum com o mesmo valor de cada crédito do extrato.
+            Busque automaticamente do Banco do Brasil, ou envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários com status "Pendente", algum com o mesmo valor de cada crédito.
           </div>
+          <PrimaryBtn onClick={handleFetchBank} disabled={fetchingBank} style={{ marginBottom: 14 }}>
+            {fetchingBank ? "Buscando…" : "Buscar automaticamente (Banco do Brasil)"}
+          </PrimaryBtn>
+          <div style={{ fontSize: 10, color: "#6B7268", marginBottom: 8 }}>ou envie um arquivo:</div>
           <input ref={fileInputRef} type="file" accept=".csv,.ofx,.txt" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "#D6D3C7" }} />
           {error && <div style={{ fontSize: 10.5, color: "#E38B84", marginTop: 10 }}>{error}</div>}
         </>

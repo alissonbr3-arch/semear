@@ -112,3 +112,11 @@ export async function setTeamRole({ id, role }) {
     body: JSON.stringify({ id, role }),
   });
 }
+
+export async function fetchBBExtrato({ dataInicio, dataFim } = {}) {
+  const params = new URLSearchParams();
+  if (dataInicio) params.set("dataInicio", dataInicio);
+  if (dataFim) params.set("dataFim", dataFim);
+  const qs = params.toString();
+  return callNetlifyFunction(`bb-extrato${qs ? `?${qs}` : ""}`, { method: "GET" });
+}
