@@ -38,19 +38,30 @@ function json(body, statusCode = 200) {
 
 async function getPfxBuffer(adminClient) {
   const { data: files, error: listError } = await adminClient.storage.from("secrets").list();
-  if (listError || !files || files.length === 0) return null;
+  if (listError) throw new Error(`Falha ao listar o bucket secrets: ${listError.message}`);
+  if (!files || files.length === 0) return null;
   const fileName = files[0].name;
   const { data: blob, error: downloadError } = await adminClient.storage.from("secrets").download(fileName);
-  if (downloadError || !blob) return null;
+  if (downloadError) throw new Error(`Falha ao baixar "${fileName}" do bucket secrets: ${downloadError.message}`);
+  if (!blob) return null;
   const arrayBuffer = await blob.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const buffer = Buffer.from(arrayBuffer);
+  if (buffer.length < 500) {
+    throw new Error(`Arquivo "${fileName}" baixado com só ${buffer.length} bytes — muito pequeno pra ser um certificado .pfx válido. Confira o arquivo no Supabase.`);
+  }
+  return { buffer, fileName };
 }
 
 async function getMtlsAgent(adminClient) {
   const pfx = await getPfxBuffer(adminClient);
   const passphrase = process.env.BB_CERT_PASSPHRASE;
   if (!pfx || !passphrase) return null;
-  return new https.Agent({ pfx, passphrase });
+  try {
+    return new https.Agent({ pfx: pfx.buffer, passphrase });
+  } catch (e) {
+    const prefix = pfx.buffer.subarray(0, 8).toString("hex");
+    throw new Error(`Certificado "${pfx.fileName}" inválido (${pfx.buffer.length} bytes, começa com ${prefix}): ${e.message}`);
+  }
 }
 
 function httpsRequestJson(url, { method = "GET", headers = {}, body = null, agent }) {
