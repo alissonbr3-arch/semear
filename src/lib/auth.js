@@ -105,3 +105,10 @@ export async function deleteClientAccess(id) {
 export async function fetchClientPortalData() {
   return callNetlifyFunction("client-portal-data", { method: "GET" });
 }
+
+export async function setTeamRole({ id, role }) {
+  return callNetlifyFunction("manage-team-role", {
+    method: "POST",
+    body: JSON.stringify({ id, role }),
+  });
+}

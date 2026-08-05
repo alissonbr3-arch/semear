@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History
+  Bug, Microscope, Flower2, History, Wallet
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -11,7 +11,8 @@ import { safeGet, safeSet } from "./lib/storage.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
-  createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData
+  createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
+  setTeamRole
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 
@@ -322,6 +323,9 @@ export default function AgroTrackApp() {
   const [tasks, setTasks] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [activityLog, setActivityLog] = useState([]);
+  const [finances, setFinances] = useState([]);
+  const [bonuses, setBonuses] = useState([]);
+  const [settings, setSettings] = useState({ commissionRatePerHa: 30 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
@@ -364,11 +368,12 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles(),
-        safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog")
+        safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
+        safeGet("finances"), safeGet("bonuses"), safeGet("settings")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -387,6 +392,9 @@ export default function AgroTrackApp() {
       setTasks(tk || []);
       setDocuments(dc || []);
       setActivityLog(al || []);
+      setFinances(fn || []);
+      setBonuses(bn || []);
+      setSettings(st || { commissionRatePerHa: 30 });
       setLoading(false);
     })();
   }, [session, profile]);
@@ -419,6 +427,64 @@ export default function AgroTrackApp() {
   function logActivity(entries) {
     const list = Array.isArray(entries) ? entries : [entries];
     persistActivityLog([...activityLog, ...list]);
+  }
+
+  async function persistFinances(data) { setFinances(data); await safeSet("finances", data); }
+  async function persistBonuses(data) { setBonuses(data); await safeSet("bonuses", data); }
+  async function persistSettings(data) { setSettings(data); await safeSet("settings", data); }
+
+  function saveFinance(form) {
+    const client = clients.find((c) => c.id === form.clientId);
+    logActivity(makeLogEntry(form.id ? "update" : "create", "finance", client?.name, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
+    if (form.id) {
+      persistFinances(finances.map((fEntry) => (fEntry.id === form.id ? form : fEntry)));
+    } else {
+      persistFinances([...finances, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteFinance(id) {
+    const entry = finances.find((f) => f.id === id);
+    const client = clients.find((c) => c.id === entry?.clientId);
+    logActivity(makeLogEntry("delete", "finance", client?.name));
+    persistFinances(finances.filter((f) => f.id !== id));
+  }
+
+  function saveBonus(form) {
+    const gestor = team.find((t) => t.id === form.gestorId);
+    logActivity(makeLogEntry(form.id ? "update" : "create", "bonus", gestor?.name, `${form.description} · R$ ${Number(form.amount).toLocaleString("pt-BR")}`));
+    if (form.id) {
+      persistBonuses(bonuses.map((b) => (b.id === form.id ? form : b)));
+    } else {
+      persistBonuses([...bonuses, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteBonus(id) {
+    const bonus = bonuses.find((b) => b.id === id);
+    const gestor = team.find((t) => t.id === bonus?.gestorId);
+    logActivity(makeLogEntry("delete", "bonus", gestor?.name, bonus?.description));
+    persistBonuses(bonuses.filter((b) => b.id !== id));
+  }
+
+  function updateCommissionRate(rate) {
+    logActivity(makeLogEntry("update", "settings", "Taxa de comissão", `R$ ${rate}/ha/mês`));
+    persistSettings({ ...settings, commissionRatePerHa: rate });
+  }
+
+  async function promoteToAdmin(id) {
+    const r = await setTeamRole({ id, role: "administrador" });
+    if (r.error) { alert(r.error); return; }
+    const member = team.find((t) => t.id === id);
+    logActivity(makeLogEntry("update", "team", member?.name, "Promovido a Administrador"));
+    await refreshTeam();
+  }
+  async function demoteToTecnico(id) {
+    const r = await setTeamRole({ id, role: "colaborador" });
+    if (r.error) { alert(r.error); return; }
+    const member = team.find((t) => t.id === id);
+    logActivity(makeLogEntry("update", "team", member?.name, "Rebaixado a Técnico"));
+    await refreshTeam();
   }
 
   function saveClient(form) {
@@ -776,6 +842,9 @@ export default function AgroTrackApp() {
   const filteredProperties = propertiesWithMeta.filter((p) => (p.name + p.clientName).toLowerCase().includes(propSearch.toLowerCase()));
   const filteredFields = fieldsWithMeta.filter((f) => cultureFilter === "Todas" || f.activeHarvest?.culture === cultureFilter);
 
+  const isFinance = profile?.role === "master" || profile?.role === "administrador";
+  const isMaster = profile?.role === "master";
+
   const NAV = [
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
     { id: "clientes", label: "Clientes", icon: Users },
@@ -785,6 +854,7 @@ export default function AgroTrackApp() {
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "equipe", label: "Equipe", icon: UserCog },
     { id: "atividade", label: "Atividade", icon: History },
+    ...(isFinance ? [{ id: "financeiro", label: "Financeiro", icon: Wallet }] : []),
     { id: "configuracoes", label: "Configurações", icon: Settings },
   ];
 
@@ -1028,15 +1098,31 @@ export default function AgroTrackApp() {
           <EquipeView
             team={team}
             teamAvatars={teamAvatars}
-            isMaster={profile?.role === "master"}
+            isMaster={isMaster}
             onAdd={() => { setTeamError(""); setModal({ type: "team", data: null }); }}
             onEdit={(t) => { setTeamError(""); setModal({ type: "team", data: t }); }}
             onDelete={deleteTeamMember}
+            onPromote={promoteToAdmin}
+            onDemote={demoteToTecnico}
           />
         )}
 
         {view === "atividade" && (
           <ActivityLogView log={activityLog} />
+        )}
+
+        {view === "financeiro" && isFinance && (
+          <FinanceiroView
+            finances={finances} bonuses={bonuses} settings={settings}
+            clients={clients} team={team} properties={properties} fields={fields}
+            onAddFinance={() => setModal({ type: "finance", data: null })}
+            onEditFinance={(f) => setModal({ type: "finance", data: f })}
+            onDeleteFinance={deleteFinance}
+            onAddBonus={() => setModal({ type: "bonus", data: null })}
+            onEditBonus={(b) => setModal({ type: "bonus", data: b })}
+            onDeleteBonus={deleteBonus}
+            onChangeRate={updateCommissionRate}
+          />
         )}
 
         {view === "configuracoes" && (
@@ -1115,6 +1201,12 @@ export default function AgroTrackApp() {
           onSave={saveClientAccess}
           onClose={() => setModal(null)}
         />
+      )}
+      {modal?.type === "finance" && (
+        <FinanceModal data={modal.data} clients={clients} onSave={saveFinance} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "bonus" && (
+        <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
       )}
     </div>
   );
@@ -2856,7 +2948,9 @@ function WeedModal({ data, onSave, onClose }) {
 
 const TEAM_ROLES = ["Técnico agrícola", "Agrônomo", "Administrativo", "Proprietário", "Outro"];
 
-function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete }) {
+const ROLE_LABELS = { master: "Master", administrador: "Administrador", colaborador: "Técnico" };
+
+function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete, onPromote, onDemote }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
@@ -2873,7 +2967,7 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete }) {
       ) : (
         <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
           <table>
-            <thead><tr><th>Nome</th><th>Função</th><th>Telefone</th><th>E-mail</th>{isMaster && <th></th>}</tr></thead>
+            <thead><tr><th>Nome</th><th>Função</th><th>Papel</th><th>Telefone</th><th>E-mail</th>{isMaster && <th></th>}</tr></thead>
             <tbody>
               {team.map((t) => (
                 <tr key={t.id}>
@@ -2883,12 +2977,19 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete }) {
                       {t.name}
                     </div>
                   </td>
-                  <td>{t.title || (t.role === "master" ? "Master" : "—")}</td>
+                  <td>{t.title || "—"}</td>
+                  <td>{ROLE_LABELS[t.role] || t.role}</td>
                   <td>{t.phone || "—"}</td>
                   <td>{t.email || "—"}</td>
                   {isMaster && (
                     <td>
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        {t.role === "colaborador" && (
+                          <button onClick={() => { if (confirm(`Promover ${t.name} a Administrador? Ele passa a ver o módulo Financeiro.`)) onPromote(t.id); }} style={iconBtnStyle} title="Promover a Administrador"><Wallet size={14} /></button>
+                        )}
+                        {t.role === "administrador" && (
+                          <button onClick={() => { if (confirm(`Rebaixar ${t.name} a Técnico? Ele deixa de ver o módulo Financeiro.`)) onDemote(t.id); }} style={iconBtnStyle} title="Rebaixar a Técnico"><Wallet size={14} color="#E3B455" /></button>
+                        )}
                         <button onClick={() => onEdit(t)} style={iconBtnStyle}><Pencil size={14} /></button>
                         {t.role !== "master" && (
                           <button onClick={() => { if (confirm(`Remover ${t.name} da equipe?`)) onDelete(t.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
@@ -2911,6 +3012,7 @@ const ACTIVITY_ENTITY_LABELS = {
   client: "o cliente", property: "a propriedade", field: "o talhão", harvest: "a safra",
   visit: "a visita", task: "o item da agenda", document: "o documento",
   team: "o colaborador", clientAccess: "o acesso do cliente",
+  finance: "o honorário de", bonus: "a bonificação de", settings: "a configuração",
 };
 
 function ActivityLogView({ log }) {
@@ -2943,6 +3045,284 @@ function ActivityLogView({ log }) {
         </div>
       )}
     </div>
+  );
+}
+
+const FINANCE_STATUS_META = {
+  pago: { label: "Pago", bg: "#16301A", color: "#7BC142" },
+  pendente: { label: "Pendente", bg: "#332811", color: "#E3B455" },
+};
+
+function FinanceStatusBadge({ status }) {
+  const meta = FINANCE_STATUS_META[status] || FINANCE_STATUS_META.pendente;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", padding: "3px 9px",
+      borderRadius: 20, background: meta.bg, color: meta.color, fontSize: 9.5, fontWeight: 600, whiteSpace: "nowrap"
+    }}>
+      {meta.label}
+    </span>
+  );
+}
+
+function fmtCurrency(n) {
+  return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function FinanceiroView({
+  finances, bonuses, settings, clients, team, properties, fields,
+  onAddFinance, onEditFinance, onDeleteFinance,
+  onAddBonus, onEditBonus, onDeleteBonus,
+  onChangeRate,
+}) {
+  const [tab, setTab] = useState("honorarios");
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHa ?? 30));
+
+  const monthFinances = finances.filter((f) => f.referenceMonth === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
+  const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
+
+  const areaByGestor = useMemo(() => {
+    const map = {};
+    fields.forEach((f) => {
+      const property = properties.find((p) => p.id === f.propertyId);
+      if (!property) return;
+      const client = clients.find((c) => c.id === property.clientId);
+      if (!client?.gestorId) return;
+      map[client.gestorId] = (map[client.gestorId] || 0) + fieldAreaHa(f);
+    });
+    return map;
+  }, [fields, properties, clients]);
+
+  const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  const commissionRows = team
+    .map((t) => {
+      const areaHa = areaByGestor[t.id] || 0;
+      const base = areaHa * Number(settings.commissionRatePerHa || 0);
+      const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
+      return { gestor: t, areaHa, base, bonusTotal, total: base + bonusTotal };
+    })
+    .filter((r) => r.areaHa > 0 || r.bonusTotal > 0)
+    .sort((a, b) => b.total - a.total);
+
+  const totalComissoes = commissionRows.reduce((s, r) => s + r.total, 0);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Financeiro</h2>
+          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Honorários recebidos e comissão dos gestores</p>
+        </div>
+        <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <button onClick={() => setTab("honorarios")} style={{
+          display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+          border: "1px solid " + (tab === "honorarios" ? "#1E4A20" : "#232B25"),
+          background: tab === "honorarios" ? "#1E4A20" : "#161D19", color: tab === "honorarios" ? "#F5F2E8" : "#D6D3C7",
+          fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+        }}>
+          <Wallet size={15} /> Honorários
+        </button>
+        <button onClick={() => setTab("comissoes")} style={{
+          display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+          border: "1px solid " + (tab === "comissoes" ? "#1E4A20" : "#232B25"),
+          background: tab === "comissoes" ? "#1E4A20" : "#161D19", color: tab === "comissoes" ? "#F5F2E8" : "#D6D3C7",
+          fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+        }}>
+          <UserCog size={15} /> Comissões
+        </button>
+      </div>
+
+      {tab === "honorarios" && (
+        <div>
+          <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatCard label="Recebido no mês" value={fmtCurrency(totalRecebido)} accent="#7BC142" />
+            <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="#E3B455" />
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <PrimaryBtn onClick={onAddFinance}><Plus size={16} /> Novo honorário</PrimaryBtn>
+          </div>
+          {monthFinances.length === 0 ? (
+            <EmptyState icon={Wallet} title="Nenhum honorário lançado neste mês" sub="Registre os pagamentos recebidos dos clientes." />
+          ) : (
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+              <table>
+                <thead><tr><th>Cliente</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {monthFinances.map((f) => {
+                    const client = clients.find((c) => c.id === f.clientId);
+                    return (
+                      <tr key={f.id}>
+                        <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{client?.name || "—"}</td>
+                        <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(f.date)}</td>
+                        <td>{fmtCurrency(f.amount)}</td>
+                        <td><FinanceStatusBadge status={f.status} /></td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <button onClick={() => onEditFinance(f)} style={iconBtnStyle}><Pencil size={14} /></button>
+                            <button onClick={() => { if (confirm("Remover este lançamento?")) onDeleteFinance(f.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "comissoes" && (
+        <div>
+          <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
+            <StatCard label="Total de comissões no mês" value={fmtCurrency(totalComissoes)} accent="#7BC142" />
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Taxa por hectare (R$/ha/mês)</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="number" style={{ ...inputStyle, width: 100 }} value={rateInput} onChange={(e) => setRateInput(e.target.value)} />
+                <GhostBtn onClick={() => onChangeRate(Number(rateInput) || 0)}>Salvar</GhostBtn>
+              </div>
+            </div>
+          </div>
+
+          {commissionRows.length === 0 ? (
+            <div style={{ color: "#6B7268", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos ou bonificação neste mês.</div>
+          ) : (
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden", marginBottom: 24 }}>
+              <table>
+                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Comissão base</th><th>Bonificações</th><th>Total</th></tr></thead>
+                <tbody>
+                  {commissionRows.map((r) => (
+                    <tr key={r.gestor.id}>
+                      <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{r.gestor.name}</td>
+                      <td>{r.areaHa.toLocaleString("pt-BR")} ha</td>
+                      <td>{fmtCurrency(r.base)}</td>
+                      <td>{fmtCurrency(r.bonusTotal)}</td>
+                      <td style={{ fontWeight: 600, color: "#7BC142" }}>{fmtCurrency(r.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Bonificações do mês</div>
+            <PrimaryBtn onClick={onAddBonus}><Plus size={16} /> Nova bonificação</PrimaryBtn>
+          </div>
+          {monthBonuses.length === 0 ? (
+            <EmptyState icon={Wallet} title="Nenhuma bonificação lançada neste mês" sub="Lance bonificações avulsas por projeto elaborado." />
+          ) : (
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+              <table>
+                <thead><tr><th>Gestor</th><th>Descrição</th><th>Data</th><th>Valor</th><th></th></tr></thead>
+                <tbody>
+                  {monthBonuses.map((b) => {
+                    const gestor = team.find((t) => t.id === b.gestorId);
+                    return (
+                      <tr key={b.id}>
+                        <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{gestor?.name || "—"}</td>
+                        <td>{b.description}</td>
+                        <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(b.date)}</td>
+                        <td>{fmtCurrency(b.amount)}</td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <button onClick={() => onEditBonus(b)} style={iconBtnStyle}><Pencil size={14} /></button>
+                            <button onClick={() => { if (confirm("Remover esta bonificação?")) onDeleteBonus(b.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FinanceModal({ data, clients, onSave, onClose }) {
+  const [form, setForm] = useState({
+    clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
+    referenceMonth: new Date().toISOString().slice(0, 7), status: "pago",
+    ...(data || {}),
+  });
+  const canSave = form.clientId && Number(form.amount) > 0 && form.date;
+  return (
+    <Modal title={data?.id ? "Editar honorário" : "Novo honorário"} onClose={onClose}>
+      <Field label="Cliente">
+        <select style={inputStyle} value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+          <option value="">Selecione…</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Valor (R$)">
+        <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 1500" />
+      </Field>
+      <Field label="Data do pagamento">
+        <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      </Field>
+      <Field label="Competência (mês de referência)">
+        <input type="month" style={inputStyle} value={form.referenceMonth} onChange={(e) => setForm({ ...form, referenceMonth: e.target.value })} />
+      </Field>
+      <Field label="Status">
+        <select style={inputStyle} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+          <option value="pago">Pago</option>
+          <option value="pendente">Pendente</option>
+        </select>
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function BonusModal({ data, team, clients, onSave, onClose }) {
+  const [form, setForm] = useState({
+    gestorId: team[0]?.id || "", clientId: "", description: "", amount: "",
+    date: new Date().toISOString().slice(0, 10),
+    ...(data || {}),
+  });
+  const canSave = form.gestorId && form.description.trim() && Number(form.amount) > 0 && form.date;
+  return (
+    <Modal title={data?.id ? "Editar bonificação" : "Nova bonificação"} onClose={onClose}>
+      <Field label="Gestor">
+        <select style={inputStyle} value={form.gestorId} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
+          <option value="">Selecione…</option>
+          {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Cliente relacionado (opcional)">
+        <select style={inputStyle} value={form.clientId || ""} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+          <option value="">Sem cliente vinculado</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Descrição (projeto elaborado)">
+        <input style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex: Projeto de correção de solo — Fazenda Bom Sucesso" />
+      </Field>
+      <Field label="Valor (R$)">
+        <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 500" />
+      </Field>
+      <Field label="Data">
+        <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
   );
 }
 
