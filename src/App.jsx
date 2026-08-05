@@ -49,6 +49,69 @@ function daysSince(d) {
   return diff;
 }
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toISODateLocal(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function startOfWeekMonday(d) {
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const s = new Date(d);
+  s.setDate(s.getDate() + diff);
+  s.setHours(0, 0, 0, 0);
+  return s;
+}
+
+function addDays(d, days) {
+  const next = new Date(d);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function resizeImageToDataUrl(file, size = 160) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Arquivo de imagem inválido."));
+      img.onload = () => {
+        const scale = Math.max(size / img.width, size / img.height);
+        const sw = size / scale, sh = size / scale;
+        const sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, size, size);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function Avatar({ name, url, size = 28 }) {
+  const initials = (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
+  if (url) {
+    return <img src={url} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />;
+  }
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", background: "#232B25", color: "#9BA298",
+      display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.38,
+      fontWeight: 700, fontFamily: "'Manrope', sans-serif", flexShrink: 0
+    }}>
+      {initials}
+    </div>
+  );
+}
+
 
 function StageProgress({ culture, stage }) {
   const meta = CULTURE_META[culture];
@@ -244,6 +307,8 @@ export default function AgroTrackApp() {
   const [diseases, setDiseases] = useState([]);
   const [weeds, setWeeds] = useState([]);
   const [team, setTeam] = useState([]);
+  const [teamAvatars, setTeamAvatars] = useState({});
+  const [tasks, setTasks] = useState([]);
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
@@ -272,10 +337,11 @@ export default function AgroTrackApp() {
   useEffect(() => {
     if (!session) return;
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, tm] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, tm, ta, tk] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
-        safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles()
+        safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles(),
+        safeGet("teamAvatars"), safeGet("tasks")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -289,6 +355,8 @@ export default function AgroTrackApp() {
       setDiseases(ds || []);
       setWeeds(ws || []);
       setTeam(tm || []);
+      setTeamAvatars(ta || {});
+      setTasks(tk || []);
       setLoading(false);
     })();
   }, [session]);
@@ -304,6 +372,8 @@ export default function AgroTrackApp() {
   async function persistPests(data) { setPests(data); await safeSet("pests", data); }
   async function persistDiseases(data) { setDiseases(data); await safeSet("diseases", data); }
   async function persistWeeds(data) { setWeeds(data); await safeSet("weeds", data); }
+  async function persistTeamAvatars(data) { setTeamAvatars(data); await safeSet("teamAvatars", data); }
+  async function persistTasks(data) { setTasks(data); await safeSet("tasks", data); }
 
   function saveClient(form) {
     if (form.id) {
@@ -461,11 +531,13 @@ export default function AgroTrackApp() {
     if (form.id) {
       const r = await updateColaborador({ id: form.id, name: form.name, phone: form.phone, title: form.title });
       if (r.error) { setTeamError(r.error); return; }
+      if (form.avatarDataUrl !== undefined) await saveTeamAvatar(form.id, form.avatarDataUrl);
       await refreshTeam();
       setModal(null);
     } else {
       const r = await createColaborador({ name: form.name, email: form.email, phone: form.phone, title: form.title, password: form.password });
       if (r.error) { setTeamError(r.error); return; }
+      if (form.avatarDataUrl && r.data?.id) await saveTeamAvatar(r.data.id, form.avatarDataUrl);
       await refreshTeam();
       setModal({ type: "teamCreated", data: { name: form.name, email: form.email, password: form.password } });
     }
@@ -473,7 +545,28 @@ export default function AgroTrackApp() {
   async function deleteTeamMember(id) {
     const r = await deleteColaborador(id);
     if (r.error) { alert(r.error); return; }
+    if (teamAvatars[id]) await saveTeamAvatar(id, null);
     await refreshTeam();
+  }
+  async function saveTeamAvatar(id, dataUrl) {
+    const next = { ...teamAvatars };
+    if (dataUrl) next[id] = dataUrl; else delete next[id];
+    await persistTeamAvatars(next);
+  }
+
+  function saveTask(form) {
+    if (form.id) {
+      persistTasks(tasks.map((t) => (t.id === form.id ? form : t)));
+    } else {
+      persistTasks([...tasks, { ...form, id: uid(), done: false }]);
+    }
+    setModal(null);
+  }
+  function deleteTask(id) {
+    persistTasks(tasks.filter((t) => t.id !== id));
+  }
+  function toggleTaskDone(id) {
+    persistTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   }
 
   const propertiesWithMeta = useMemo(() => {
@@ -495,9 +588,9 @@ export default function AgroTrackApp() {
       const clientVisits = visits.filter((v) => clientHarvestIds.includes(v.harvestId));
       const lastVisitDate = clientVisits.reduce((latest, v) => (!latest || v.date > latest ? v.date : latest), null);
       const visitStatus = !lastVisitDate ? "none" : lastVisitDate >= weekAgo ? "ok" : "late";
-      return { ...c, gestorName: gestor?.name || null, lastVisitDate, visitStatus };
+      return { ...c, gestorName: gestor?.name || null, gestorAvatar: gestor ? teamAvatars[gestor.id] || null : null, lastVisitDate, visitStatus };
     });
-  }, [clients, team, properties, fields, harvests, visits]);
+  }, [clients, team, teamAvatars, properties, fields, harvests, visits]);
 
   const harvestsWithMeta = useMemo(() => {
     return harvests.map((h) => {
@@ -575,6 +668,7 @@ export default function AgroTrackApp() {
     { id: "clientes", label: "Clientes", icon: Users },
     { id: "propriedades", label: "Propriedades", icon: Home },
     { id: "talhoes", label: "Talhões", icon: Sprout },
+    { id: "agenda", label: "Agenda", icon: Calendar },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "equipe", label: "Equipe", icon: UserCog },
     { id: "configuracoes", label: "Configurações", icon: Settings },
@@ -785,6 +879,16 @@ export default function AgroTrackApp() {
           />
         )}
 
+        {view === "agenda" && (
+          <AgendaView
+            tasks={tasks} team={team} teamAvatars={teamAvatars} clients={clients}
+            onAdd={(date) => setModal({ type: "task", data: date ? { date } : null })}
+            onEdit={(t) => setModal({ type: "task", data: t })}
+            onDelete={deleteTask}
+            onToggleDone={toggleTaskDone}
+          />
+        )}
+
         {view === "visitas" && (
           <VisitasView
             visits={visits} harvests={harvestsWithMeta}
@@ -798,6 +902,7 @@ export default function AgroTrackApp() {
         {view === "equipe" && (
           <EquipeView
             team={team}
+            teamAvatars={teamAvatars}
             isMaster={profile?.role === "master"}
             onAdd={() => { setTeamError(""); setModal({ type: "team", data: null }); }}
             onEdit={(t) => { setTeamError(""); setModal({ type: "team", data: t }); }}
@@ -865,10 +970,13 @@ export default function AgroTrackApp() {
         <WeedModal data={modal.data} onSave={saveWeed} onClose={() => setModal(null)} />
       )}
       {modal?.type === "team" && (
-        <TeamMemberModal data={modal.data} error={teamError} onSave={saveTeamMember} onClose={() => setModal(null)} />
+        <TeamMemberModal data={modal.data} avatarUrl={modal.data ? teamAvatars[modal.data.id] : null} error={teamError} onSave={saveTeamMember} onClose={() => setModal(null)} />
       )}
       {modal?.type === "teamCreated" && (
         <ColaboradorCreatedModal data={modal.data} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "task" && (
+        <TaskModal data={modal.data} team={team} clients={clients} onSave={saveTask} onClose={() => setModal(null)} />
       )}
     </div>
   );
@@ -938,13 +1046,16 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
                 <div
                   key={c.id}
                   onClick={() => onOpenClient && onOpenClient(c.id)}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: onOpenClient ? "pointer" : "default" }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: onOpenClient ? "pointer" : "default" }}
                 >
-                  <div>
-                    <div style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{c.name}</div>
-                    <div style={{ fontSize: 9.5, color: "#6B7268" }}>
-                      {c.gestorName ? `Gestor: ${c.gestorName}` : "Sem gestor definido"}
-                      {c.lastVisitDate ? ` · última visita ${fmtDate(c.lastVisitDate)}` : ""}
+                  <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                    {c.gestorName && <Avatar name={c.gestorName} url={c.gestorAvatar} size={26} />}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: 9.5, color: "#6B7268" }}>
+                        {c.gestorName ? `Gestor: ${c.gestorName}` : "Sem gestor definido"}
+                        {c.lastVisitDate ? ` · última visita ${fmtDate(c.lastVisitDate)}` : ""}
+                      </div>
                     </div>
                   </div>
                   <VisitStatusBadge status={c.visitStatus} />
@@ -1089,7 +1200,14 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
                     <td>{c.phone || "—"}</td>
                     <td>{c.city || "—"}</td>
                     <td>{count}</td>
-                    <td>{c.gestorName || "—"}</td>
+                    <td>
+                      {c.gestorName ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <Avatar name={c.gestorName} url={c.gestorAvatar} size={22} />
+                          {c.gestorName}
+                        </div>
+                      ) : "—"}
+                    </td>
                     <td><VisitStatusBadge status={c.visitStatus} /></td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -1124,7 +1242,10 @@ function ClientDetail({ client, properties, onBack, onAddProperty, onEditPropert
             {client.city && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {client.city}</span>}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10.5, color: "#9BA298" }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 5 }}><UserCog size={13} /> {client.gestorName ? `Gestor: ${client.gestorName}` : "Sem gestor definido"}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {client.gestorName ? <Avatar name={client.gestorName} url={client.gestorAvatar} size={18} /> : <UserCog size={13} />}
+              {client.gestorName ? `Gestor: ${client.gestorName}` : "Sem gestor definido"}
+            </span>
             <VisitStatusBadge status={client.visitStatus} />
           </div>
         </div>
@@ -1548,6 +1669,172 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
         </div>
       )}
     </div>
+  );
+}
+
+const TASK_TYPE_META = {
+  visita: { label: "Visita", bg: "#16301A", color: "#7BC142" },
+  tarefa: { label: "Tarefa", bg: "#1A2333", color: "#7EA6E0" },
+};
+
+function TaskTypeBadge({ type }) {
+  const meta = TASK_TYPE_META[type] || TASK_TYPE_META.tarefa;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", padding: "2px 8px",
+      borderRadius: 20, background: meta.bg, color: meta.color, fontSize: 9, fontWeight: 600, whiteSpace: "nowrap"
+    }}>
+      {meta.label}
+    </span>
+  );
+}
+
+function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone }) {
+  const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
+  const [assigneeFilter, setAssigneeFilter] = useState("Todos");
+
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const todayIso = toISODateLocal(new Date());
+  const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+
+  const filteredTasks = tasks.filter((t) => assigneeFilter === "Todos" || t.assigneeId === assigneeFilter);
+  const tasksByDay = {};
+  for (const d of days) tasksByDay[toISODateLocal(d)] = [];
+  for (const t of filteredTasks) {
+    if (tasksByDay[t.date]) tasksByDay[t.date].push(t);
+  }
+  for (const iso in tasksByDay) {
+    tasksByDay[iso].sort((a, b) => Number(a.done) - Number(b.done));
+  }
+
+  const rangeLabel = `${days[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Agenda</h2>
+          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Visitas e tarefas da semana · {rangeLabel}</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select style={{ ...inputStyle, width: 170 }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
+            <option value="Todos">Toda a equipe</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <GhostBtn onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>Hoje</GhostBtn>
+          <GhostBtn onClick={() => setWeekStart(addDays(weekStart, -7))}><ArrowLeft size={14} /></GhostBtn>
+          <GhostBtn onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight size={16} /></GhostBtn>
+          <PrimaryBtn onClick={() => onAdd(null)}><Plus size={16} /> Nova tarefa</PrimaryBtn>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(160px, 1fr))", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+        {days.map((d, i) => {
+          const iso = toISODateLocal(d);
+          const isToday = iso === todayIso;
+          const dayTasks = tasksByDay[iso] || [];
+          return (
+            <div key={iso} style={{
+              background: "#161D19", border: "1px solid " + (isToday ? "#7BC142" : "#232B25"), borderRadius: 12, padding: 12,
+              display: "flex", flexDirection: "column", gap: 8, minHeight: 160
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 9.5, color: isToday ? "#7BC142" : "#6B7268", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>{weekdayLabels[i]}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#F2F0E6", fontFamily: "'Manrope', sans-serif" }}>{d.getDate()}</div>
+                </div>
+                <button onClick={() => onAdd(iso)} style={iconBtnStyle}><Plus size={13} /></button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                {dayTasks.length === 0 ? (
+                  <div style={{ fontSize: 9.5, color: "#4A5049" }}>—</div>
+                ) : (
+                  dayTasks.map((t) => {
+                    const assignee = team.find((tm) => tm.id === t.assigneeId);
+                    const client = clients.find((c) => c.id === t.clientId);
+                    return (
+                      <div key={t.id} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 4 }}>
+                          <TaskTypeBadge type={t.type} />
+                          <div style={{ display: "flex", gap: 3 }}>
+                            <button onClick={() => onEdit(t)} style={{ ...iconBtnStyle, padding: 3 }}><Pencil size={11} /></button>
+                            <button onClick={() => { if (confirm("Remover este item da agenda?")) onDelete(t.id); }} style={{ ...iconBtnStyle, padding: 3 }}><Trash2 size={11} /></button>
+                          </div>
+                        </div>
+                        <div
+                          onClick={() => onToggleDone(t.id)}
+                          style={{
+                            fontSize: 10.5, fontWeight: 600, color: t.done ? "#6B7268" : "#D6D3C7",
+                            textDecoration: t.done ? "line-through" : "none", cursor: "pointer", marginBottom: 4
+                          }}
+                        >
+                          {t.title}
+                        </div>
+                        {client && <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 4 }}>{client.name}</div>}
+                        {assignee && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <Avatar name={assignee.name} url={teamAvatars?.[assignee.id]} size={16} />
+                            <span style={{ fontSize: 9.5, color: "#9BA298" }}>{assignee.name}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TaskModal({ data, team, clients, onSave, onClose }) {
+  const [form, setForm] = useState({
+    type: "visita", title: "", assigneeId: team[0]?.id || "", clientId: "",
+    date: toISODateLocal(new Date()), notes: "", done: false,
+    ...(data || {}),
+  });
+  const canSave = form.title.trim() && form.assigneeId && form.date;
+  return (
+    <Modal title={data?.id ? "Editar item da agenda" : "Novo item na agenda"} onClose={onClose}>
+      <Field label="Tipo">
+        <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          <option value="visita">Visita</option>
+          <option value="tarefa">Tarefa</option>
+        </select>
+      </Field>
+      <Field label="Título">
+        <input style={inputStyle} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Ex: Visita técnica — monitoramento de pragas" />
+      </Field>
+      <Field label="Responsável">
+        {team.length === 0 ? (
+          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>Nenhum colaborador cadastrado ainda. Cadastre em Equipe.</div>
+        ) : (
+          <select style={inputStyle} value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
+            <option value="">Selecione…</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Cliente (opcional)">
+        <select style={inputStyle} value={form.clientId || ""} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+          <option value="">Sem cliente vinculado</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Data">
+        <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+      </Field>
+      <Field label="Observações">
+        <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Detalhes, pauta, contexto…" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
   );
 }
 
@@ -2168,7 +2455,7 @@ function WeedModal({ data, onSave, onClose }) {
 
 const TEAM_ROLES = ["Técnico agrícola", "Agrônomo", "Administrativo", "Proprietário", "Outro"];
 
-function EquipeView({ team, isMaster, onAdd, onEdit, onDelete }) {
+function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
@@ -2189,7 +2476,12 @@ function EquipeView({ team, isMaster, onAdd, onEdit, onDelete }) {
             <tbody>
               {team.map((t) => (
                 <tr key={t.id}>
-                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{t.name}</td>
+                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <Avatar name={t.name} url={teamAvatars?.[t.id]} />
+                      {t.name}
+                    </div>
+                  </td>
                   <td>{t.title || (t.role === "master" ? "Master" : "—")}</td>
                   <td>{t.phone || "—"}</td>
                   <td>{t.email || "—"}</td>
@@ -2213,12 +2505,41 @@ function EquipeView({ team, isMaster, onAdd, onEdit, onDelete }) {
   );
 }
 
-function TeamMemberModal({ data, error, onSave, onClose }) {
+function TeamMemberModal({ data, avatarUrl, error, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState(data || { name: "", title: "Técnico agrícola", phone: "", email: "", password: "" });
+  const [avatarPreview, setAvatarPreview] = useState(avatarUrl || null);
+  const [avatarError, setAvatarError] = useState("");
+  const fileInputRef = useRef(null);
   const canSave = form.name.trim() && (isEdit || (form.email.trim() && form.password.length >= 6));
+
+  async function handlePhotoChange(file) {
+    if (!file) return;
+    setAvatarError("");
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 160);
+      setAvatarPreview(dataUrl);
+      setForm((f) => ({ ...f, avatarDataUrl: dataUrl }));
+    } catch (err) {
+      setAvatarError(err.message || "Não foi possível processar a imagem.");
+    }
+  }
+  function handleRemovePhoto() {
+    setAvatarPreview(null);
+    setForm((f) => ({ ...f, avatarDataUrl: null }));
+  }
+
   return (
     <Modal title={isEdit ? "Editar colaborador" : "Novo colaborador"} onClose={onClose}>
+      <Field label="Foto">
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <Avatar name={form.name} url={avatarPreview} size={48} />
+          <GhostBtn type="button" onClick={() => fileInputRef.current?.click()}>Escolher foto</GhostBtn>
+          {avatarPreview && <GhostBtn type="button" onClick={handleRemovePhoto}>Remover</GhostBtn>}
+          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handlePhotoChange(e.target.files[0])} />
+        </div>
+        {avatarError && <div style={{ fontSize: 10.5, color: "#E38B84", marginTop: 6 }}>{avatarError}</div>}
+      </Field>
       <Field label="Nome">
         <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Carlos Mendes" />
       </Field>
