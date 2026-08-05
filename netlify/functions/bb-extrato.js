@@ -4,19 +4,28 @@
 // forma automática, usando OAuth2 (client_credentials) + mTLS (certificado
 // do CNPJ). Só quem é master/administrador pode chamar.
 //
-// O certificado .pfx NÃO fica em variável de ambiente — o Lambda usado pelo
+// O certificado NÃO fica em variável de ambiente — o Lambda usado pelo
 // Netlify limita o total de variáveis de ambiente a 4KB, bem menos que um
-// certificado. Em vez disso, o .pfx fica guardado no Supabase Storage, num
-// bucket privado chamado "secrets" (só a service_role consegue ler, nunca o
-// navegador). Suba o arquivo .pfx original ali direto pelo painel do
-// Supabase (Storage > secrets > upload) — sem precisar converter pra base64.
+// certificado. Em vez disso, fica guardado no Supabase Storage, num bucket
+// privado chamado "secrets" (só a service_role consegue ler, nunca o
+// navegador).
+//
+// Importante: NÃO subimos o .pfx original aqui. Certificados e-CNPJ antigos
+// costumam usar uma cifra legada (RC2-40) dentro do PKCS12 que o OpenSSL 3
+// (usado pelo Node 18+) recusa abrir por padrão ("Unsupported PKCS12 PFX
+// data"), mesmo com o arquivo íntegro. Pra contornar isso, extraia certificado
+// e chave como dois arquivos .pem separados (usando a flag -legacy do
+// openssl, que ainda sabe abrir a cifra antiga) e suba os DOIS pro bucket
+// "secrets" com esses nomes exatos:
+//
+//   openssl pkcs12 -in zanella.pfx -clcerts -nokeys -legacy -out cert.pem
+//   openssl pkcs12 -in zanella.pfx -nocerts -nodes   -legacy -out key.pem
 //
 // Variáveis de ambiente necessárias (Site settings > Environment variables,
 // nunca no código):
 //   BB_CLIENT_ID       - Client ID de Produção (portal Developers BB)
 //   BB_CLIENT_SECRET   - Client Secret de Produção
 //   BB_APP_KEY         - App Key / Developer Application Key
-//   BB_CERT_PASSPHRASE - senha do certificado .pfx
 //   BB_AGENCIA         - agência da conta corrente
 //   BB_CONTA           - número da conta corrente (com dígito, se houver)
 // Opcionais (só se o host padrão abaixo não funcionar, ajustar sem precisar mexer no código):
@@ -37,35 +46,28 @@ function json(body, statusCode = 200) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-async function getPfxBuffer(adminClient) {
-  const { data: files, error: listError } = await adminClient.storage.from("secrets").list();
-  if (listError) throw new Error(`Falha ao listar o bucket secrets: ${listError.message}`);
-  if (!files || files.length === 0) return null;
-  const fileName = files[0].name;
+async function downloadSecret(adminClient, fileName) {
   const { data: blob, error: downloadError } = await adminClient.storage.from("secrets").download(fileName);
-  if (downloadError) throw new Error(`Falha ao baixar "${fileName}" do bucket secrets: ${downloadError.message}`);
+  if (downloadError) return null;
   if (!blob) return null;
   const arrayBuffer = await blob.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  if (buffer.length < 500) {
-    throw new Error(`Arquivo "${fileName}" baixado com só ${buffer.length} bytes — muito pequeno pra ser um certificado .pfx válido. Confira o arquivo no Supabase.`);
-  }
-  return { buffer, fileName };
+  return Buffer.from(arrayBuffer);
 }
 
 async function getMtlsAgent(adminClient) {
-  const pfx = await getPfxBuffer(adminClient);
-  const passphrase = process.env.BB_CERT_PASSPHRASE;
-  if (!pfx || !passphrase) return null;
+  const [cert, key] = await Promise.all([
+    downloadSecret(adminClient, "cert.pem"),
+    downloadSecret(adminClient, "key.pem"),
+  ]);
+  if (!cert || !key) return null;
   try {
-    // tls.createSecureContext valida/decodifica o PKCS12 na hora (o
+    // tls.createSecureContext valida/decodifica o certificado na hora (o
     // https.Agent, sozinho, só guarda os bytes e só tentaria abrir o
     // certificado depois, na primeira conexão — escondendo o erro real).
-    tls.createSecureContext({ pfx: pfx.buffer, passphrase });
-    return new https.Agent({ pfx: pfx.buffer, passphrase });
+    tls.createSecureContext({ cert, key });
+    return new https.Agent({ cert, key });
   } catch (e) {
-    const prefix = pfx.buffer.subarray(0, 8).toString("hex");
-    throw new Error(`Certificado "${pfx.fileName}" inválido (${pfx.buffer.length} bytes, começa com ${prefix}): ${e.message}`);
+    throw new Error(`Certificado/chave inválidos (cert.pem: ${cert.length} bytes, key.pem: ${key.length} bytes): ${e.message}`);
   }
 }
 
@@ -149,7 +151,7 @@ function normalizeTransactions(raw) {
 export const handler = async (event) => {
   if (event.httpMethod !== "GET") return json({ error: "Método não permitido." }, 405);
 
-  const missing = ["BB_CLIENT_ID", "BB_CLIENT_SECRET", "BB_APP_KEY", "BB_CERT_PASSPHRASE", "BB_AGENCIA", "BB_CONTA"]
+  const missing = ["BB_CLIENT_ID", "BB_CLIENT_SECRET", "BB_APP_KEY", "BB_AGENCIA", "BB_CONTA"]
     .filter((k) => !process.env[k]);
   if (!supabaseUrl || !anonKey || !serviceRoleKey || missing.length > 0) {
     return json({ error: `Configuração do servidor incompleta. Faltando: ${missing.join(", ") || "variáveis do Supabase"}.` }, 500);
@@ -175,7 +177,7 @@ export const handler = async (event) => {
 
   try {
     const agent = await getMtlsAgent(adminClient);
-    if (!agent) return json({ error: 'Certificado mTLS não encontrado. Suba o arquivo .pfx no Supabase (Storage > bucket "secrets") e confira a variável BB_CERT_PASSPHRASE.' }, 500);
+    if (!agent) return json({ error: 'Certificado mTLS não encontrado. Suba "cert.pem" e "key.pem" no Supabase (Storage > bucket "secrets").' }, 500);
     const token = await getAccessToken(agent);
     const raw = await fetchExtrato(agent, token, dataInicio, dataFim);
     const transactions = normalizeTransactions(raw);
