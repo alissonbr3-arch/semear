@@ -325,7 +325,7 @@ export default function AgroTrackApp() {
   const [activityLog, setActivityLog] = useState([]);
   const [finances, setFinances] = useState([]);
   const [bonuses, setBonuses] = useState([]);
-  const [settings, setSettings] = useState({ commissionRatePerHa: 30 });
+  const [settings, setSettings] = useState({ commissionRatePerHa: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
   const [selectedPropertyId, setSelectedPropertyId] = useState(null);
@@ -394,7 +394,7 @@ export default function AgroTrackApp() {
       setActivityLog(al || []);
       setFinances(fn || []);
       setBonuses(bn || []);
-      setSettings(st || { commissionRatePerHa: 30 });
+      setSettings({ commissionRatePerHa: 30, projectShareRate: 20, ...(st || {}) });
       setLoading(false);
     })();
   }, [session, profile]);
@@ -468,8 +468,12 @@ export default function AgroTrackApp() {
   }
 
   function updateCommissionRate(rate) {
-    logActivity(makeLogEntry("update", "settings", "Taxa de comissão", `R$ ${rate}/ha/mês`));
+    logActivity(makeLogEntry("update", "settings", "Pró-labore por hectare", `R$ ${rate}/ha/mês`));
     persistSettings({ ...settings, commissionRatePerHa: rate });
+  }
+  function updateProjectShareRate(rate) {
+    logActivity(makeLogEntry("update", "settings", "Pró-labore de projetos", `${rate}% dos honorários de projeto`));
+    persistSettings({ ...settings, projectShareRate: rate });
   }
 
   async function promoteToAdmin(id) {
@@ -1122,6 +1126,7 @@ export default function AgroTrackApp() {
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
             onDeleteBonus={deleteBonus}
             onChangeRate={updateCommissionRate}
+            onChangeProjectRate={updateProjectShareRate}
           />
         )}
 
@@ -3069,19 +3074,28 @@ function fmtCurrency(n) {
   return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto" };
+
 function FinanceiroView({
   finances, bonuses, settings, clients, team, properties, fields,
   onAddFinance, onEditFinance, onDeleteFinance,
   onAddBonus, onEditBonus, onDeleteBonus,
-  onChangeRate,
+  onChangeRate, onChangeProjectRate,
 }) {
   const [tab, setTab] = useState("honorarios");
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHa ?? 30));
+  const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
 
   const monthFinances = finances.filter((f) => f.referenceMonth === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
   const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
+
+  const gestorByClientId = useMemo(() => {
+    const map = {};
+    clients.forEach((c) => { if (c.gestorId) map[c.id] = c.gestorId; });
+    return map;
+  }, [clients]);
 
   const areaByGestor = useMemo(() => {
     const map = {};
@@ -3097,14 +3111,27 @@ function FinanceiroView({
 
   const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
+  const projectShareByGestor = useMemo(() => {
+    const map = {};
+    monthFinances
+      .filter((f) => f.type === "projeto" && f.status === "pago")
+      .forEach((f) => {
+        const gestorId = gestorByClientId[f.clientId];
+        if (!gestorId) return;
+        map[gestorId] = (map[gestorId] || 0) + Number(f.amount) * (Number(settings.projectShareRate || 0) / 100);
+      });
+    return map;
+  }, [monthFinances, gestorByClientId, settings.projectShareRate]);
+
   const commissionRows = team
     .map((t) => {
       const areaHa = areaByGestor[t.id] || 0;
       const base = areaHa * Number(settings.commissionRatePerHa || 0);
+      const projectShare = projectShareByGestor[t.id] || 0;
       const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
-      return { gestor: t, areaHa, base, bonusTotal, total: base + bonusTotal };
+      return { gestor: t, areaHa, base, projectShare, bonusTotal, total: base + projectShare + bonusTotal };
     })
-    .filter((r) => r.areaHa > 0 || r.bonusTotal > 0)
+    .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal > 0)
     .sort((a, b) => b.total - a.total);
 
   const totalComissoes = commissionRows.reduce((s, r) => s + r.total, 0);
@@ -3114,7 +3141,7 @@ function FinanceiroView({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
         <div>
           <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Financeiro</h2>
-          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Honorários recebidos e comissão dos gestores</p>
+          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Honorários recebidos e pró-labore da equipe</p>
         </div>
         <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
       </div>
@@ -3134,7 +3161,7 @@ function FinanceiroView({
           background: tab === "comissoes" ? "#1E4A20" : "#161D19", color: tab === "comissoes" ? "#F5F2E8" : "#D6D3C7",
           fontSize: 10.5, fontWeight: 600, cursor: "pointer"
         }}>
-          <UserCog size={15} /> Comissões
+          <UserCog size={15} /> Pró-labore
         </button>
       </div>
 
@@ -3152,13 +3179,14 @@ function FinanceiroView({
           ) : (
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
               <table>
-                <thead><tr><th>Cliente</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Tipo</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {monthFinances.map((f) => {
                     const client = clients.find((c) => c.id === f.clientId);
                     return (
                       <tr key={f.id}>
                         <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{client?.name || "—"}</td>
+                        <td>{FINANCE_TYPE_LABELS[f.type] || "Mensalidade"}</td>
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(f.date)}</td>
                         <td>{fmtCurrency(f.amount)}</td>
                         <td><FinanceStatusBadge status={f.status} /></td>
@@ -3181,28 +3209,36 @@ function FinanceiroView({
       {tab === "comissoes" && (
         <div>
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <StatCard label="Total de comissões no mês" value={fmtCurrency(totalComissoes)} accent="#7BC142" />
+            <StatCard label="Total de pró-labore no mês" value={fmtCurrency(totalComissoes)} accent="#7BC142" />
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
-              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Taxa por hectare (R$/ha/mês)</div>
+              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Por hectare (R$/ha/mês)</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input type="number" style={{ ...inputStyle, width: 100 }} value={rateInput} onChange={(e) => setRateInput(e.target.value)} />
                 <GhostBtn onClick={() => onChangeRate(Number(rateInput) || 0)}>Salvar</GhostBtn>
               </div>
             </div>
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>De projetos (% dos honorários pagos)</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="number" style={{ ...inputStyle, width: 100 }} value={projectRateInput} onChange={(e) => setProjectRateInput(e.target.value)} />
+                <GhostBtn onClick={() => onChangeProjectRate(Number(projectRateInput) || 0)}>Salvar</GhostBtn>
+              </div>
+            </div>
           </div>
 
           {commissionRows.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos ou bonificação neste mês.</div>
+            <div style={{ color: "#6B7268", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos, honorário de projeto ou bonificação neste mês.</div>
           ) : (
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden", marginBottom: 24 }}>
               <table>
-                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Comissão base</th><th>Bonificações</th><th>Total</th></tr></thead>
+                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Bonificações</th><th>Total</th></tr></thead>
                 <tbody>
                   {commissionRows.map((r) => (
                     <tr key={r.gestor.id}>
                       <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{r.gestor.name}</td>
                       <td>{r.areaHa.toLocaleString("pt-BR")} ha</td>
                       <td>{fmtCurrency(r.base)}</td>
+                      <td>{fmtCurrency(r.projectShare)}</td>
                       <td>{fmtCurrency(r.bonusTotal)}</td>
                       <td style={{ fontWeight: 600, color: "#7BC142" }}>{fmtCurrency(r.total)}</td>
                     </tr>
@@ -3253,7 +3289,7 @@ function FinanceiroView({
 function FinanceModal({ data, clients, onSave, onClose }) {
   const [form, setForm] = useState({
     clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
-    referenceMonth: new Date().toISOString().slice(0, 7), status: "pago",
+    referenceMonth: new Date().toISOString().slice(0, 7), status: "pago", type: "mensalidade",
     ...(data || {}),
   });
   const canSave = form.clientId && Number(form.amount) > 0 && form.date;
@@ -3265,6 +3301,15 @@ function FinanceModal({ data, clients, onSave, onClose }) {
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
+      <Field label="Tipo">
+        <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+          <option value="mensalidade">Mensalidade</option>
+          <option value="projeto">Projeto</option>
+        </select>
+      </Field>
+      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
+        Honorários de "Projeto" pagos geram automaticamente pró-labore pro gestor do cliente, na aba Pró-labore.
+      </div>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 1500" />
       </Field>
@@ -3297,6 +3342,9 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
   const canSave = form.gestorId && form.description.trim() && Number(form.amount) > 0 && form.date;
   return (
     <Modal title={data?.id ? "Editar bonificação" : "Nova bonificação"} onClose={onClose}>
+      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -4, marginBottom: 14 }}>
+        Use só pra valores fora da regra padrão (R$/ha + 20% de projetos). Honorários do tipo "Projeto" já geram pró-labore automaticamente.
+      </div>
       <Field label="Gestor">
         <select style={inputStyle} value={form.gestorId} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
           <option value="">Selecione…</option>
@@ -3309,8 +3357,8 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
-      <Field label="Descrição (projeto elaborado)">
-        <input style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex: Projeto de correção de solo — Fazenda Bom Sucesso" />
+      <Field label="Descrição">
+        <input style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex: Ajuste pontual combinado com o cliente" />
       </Field>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 500" />
