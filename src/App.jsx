@@ -620,7 +620,7 @@ export default function AgroTrackApp() {
         .at-sidebar .sidebar-footer-text { white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
         .at-sidebar:hover .sidebar-footer-text { opacity: 1; }
         .at-sidebar .logo-full { display: none; width: 100%; height: auto; }
-        .at-sidebar .logo-mark { display: block; height: 30px; width: auto; }
+        .at-sidebar .logo-mark { display: block; height: 24px; width: 24px; object-fit: contain; }
         .at-sidebar:hover .logo-full { display: block; }
         .at-sidebar:hover .logo-mark { display: none; }
       `}</style>
@@ -628,7 +628,7 @@ export default function AgroTrackApp() {
       {/* Sidebar */}
       <div className="at-sidebar" style={{ background: "#0A1C0C", color: "#DAD7C9", padding: "22px 14px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "6px 4px", margin: "0 0 22px" }}>
-          <img src={LOGO_MARK_SRC} alt="Semear" className="logo-mark" />
+          <img src="/favicon.png" alt="Semear" className="logo-mark" />
           <img src={LOGO_SRC} alt="Semear Consultoria Agropecuária" className="logo-full" />
         </div>
         {NAV.map((n) => {
