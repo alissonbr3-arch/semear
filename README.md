@@ -58,6 +58,12 @@ Se tudo funcionar até aqui, o app está pronto para ir ao ar.
    - No painel do site → **Site configuration** → **Environment
      variables** → adicione `VITE_SUPABASE_URL` e
      `VITE_SUPABASE_ANON_KEY` com os mesmos valores do seu `.env`.
+   - Se o portal do cliente estiver habilitado (login próprio para cada
+     cliente ver só as fazendas dele), adicione também
+     `SUPABASE_SERVICE_ROLE_KEY` — pegue o valor em Supabase → **Project
+     Settings** → **API** → chave **service_role** (nunca coloque essa
+     chave no `.env` nem no código; ela só deve existir aqui, nas
+     variáveis de ambiente do Netlify).
    - Depois, em **Deploys**, clique em **Trigger deploy** → **Deploy site**
      para gerar uma nova versão já com essas variáveis.
 

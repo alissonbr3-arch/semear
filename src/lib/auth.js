@@ -63,3 +63,45 @@ export async function deleteColaborador(id) {
   if (data?.error) return { error: data.error };
   return { ok: true };
 }
+
+async function callNetlifyFunction(path, options) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) return { error: "Sessão inválida." };
+  try {
+    const res = await fetch(`/.netlify/functions/${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(options?.headers || {}) },
+    });
+    const body = await res.json();
+    if (!res.ok) return { error: body?.error || "Falha na requisição." };
+    return { data: body };
+  } catch (e) {
+    return { error: e?.message || "Falha na requisição." };
+  }
+}
+
+export async function createClientAccess({ name, email, phone, password, clientId }) {
+  return callNetlifyFunction("manage-client-access", {
+    method: "POST",
+    body: JSON.stringify({ action: "create", name, email, phone, password, clientId }),
+  });
+}
+
+export async function updateClientAccess({ id, name, phone }) {
+  return callNetlifyFunction("manage-client-access", {
+    method: "POST",
+    body: JSON.stringify({ action: "update", id, name, phone }),
+  });
+}
+
+export async function deleteClientAccess(id) {
+  return callNetlifyFunction("manage-client-access", {
+    method: "POST",
+    body: JSON.stringify({ action: "delete", id }),
+  });
+}
+
+export async function fetchClientPortalData() {
+  return callNetlifyFunction("client-portal-data", { method: "GET" });
+}
