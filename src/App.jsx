@@ -494,11 +494,11 @@ export default function AgroTrackApp() {
   function markFinancePaid(entry, transaction) {
     const client = clients.find((c) => c.id === entry.clientId);
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
-    persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date } : f)));
+    persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString() } : f)));
   }
   function markBillPaid(entry, transaction) {
     logActivity(makeLogEntry("update", "bill", entry.description, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
-    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date } : b)));
+    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString() } : b)));
   }
 
   function saveBill(form) {
@@ -1352,7 +1352,7 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
           <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="#7BC142"
             sub={monthFinanceSummary.totalPendente > 0 ? `${fmtCurrency(monthFinanceSummary.totalPendente)} pendente` : "tudo recebido"} />
           <StatCard label={`Saídas previstas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalSaidasPrevistas)} accent="#E3B455"
-            sub={`Pró-labore ${fmtCurrency(monthFinanceSummary.totalProLabore)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasPendentes)}`} />
+            sub={`Pró-labore ${fmtCurrency(monthFinanceSummary.totalProLabore)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasDoMes)}`} />
         </div>
       )}
 
@@ -3315,12 +3315,40 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
   });
 
   const totalProLabore = proLaboreRows.reduce((s, r) => s + r.total, 0);
-  const totalSaidasPrevistas = totalProLabore + totalDespesasPendentes;
+  const totalDespesasDoMes = totalDespesasPagas + totalDespesasPendentes;
+  const totalSaidasPrevistas = totalProLabore + totalDespesasDoMes;
+  const totalEntradasPrevistas = totalRecebido + totalPendente;
 
   return {
-    monthFinances, totalRecebido, totalPendente, proLaboreRows, totalProLabore,
-    monthBills, totalDespesasPagas, totalDespesasPendentes, totalSaidasPrevistas,
+    monthFinances, totalRecebido, totalPendente, totalEntradasPrevistas, proLaboreRows, totalProLabore,
+    monthBills, totalDespesasPagas, totalDespesasPendentes, totalDespesasDoMes, totalSaidasPrevistas,
   };
+}
+
+function CashFlowChart({ months }) {
+  const width = 560, height = 190, padding = 28, baseline = height - 26, top = 14;
+  const max = Math.max(1, ...months.flatMap((m) => [m.entradas, m.saidas]));
+  const groupWidth = (width - padding * 2) / months.length;
+  const barWidth = Math.min(20, (groupWidth - 16) / 2);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+        <line key={f} x1={padding} x2={width - padding} y1={baseline - f * (baseline - top)} y2={baseline - f * (baseline - top)} stroke="#232B25" strokeWidth="1" />
+      ))}
+      {months.map((m, i) => {
+        const cx = padding + i * groupWidth + groupWidth / 2;
+        const hE = (m.entradas / max) * (baseline - top);
+        const hS = (m.saidas / max) * (baseline - top);
+        return (
+          <g key={m.month}>
+            <rect x={cx - barWidth - 3} y={baseline - hE} width={barWidth} height={hE} rx={2} fill="#7BC142" />
+            <rect x={cx + 3} y={baseline - hS} width={barWidth} height={hS} rx={2} fill="#E38B84" />
+            <text x={cx} y={baseline + 14} textAnchor="middle" fontSize="9" fill="#9BA298">{m.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 function FinanceiroView({
@@ -3351,6 +3379,44 @@ function FinanceiroView({
 
   const totalComissoes = summary.totalProLabore;
 
+  const cashFlowMonths = useMemo(() => {
+    const result = [];
+    for (let i = 5; i >= 0; i--) {
+      const m = addMonthsToReferenceMonth(month, -i);
+      const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month: m });
+      const [y, mm] = m.split("-").map(Number);
+      const label = new Date(y, mm - 1, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
+      result.push({ month: m, label, entradas: s.totalEntradasPrevistas, saidas: s.totalSaidasPrevistas });
+    }
+    return result;
+  }, [finances, bonuses, bills, settings, clients, team, properties, fields, month]);
+
+  const pendingItems = useMemo(() => {
+    const fin = summary.monthFinances.filter((f) => f.status === "pendente").map((f) => ({
+      id: `f-${f.id}`, kind: "entrada", amount: Number(f.amount), date: f.date,
+      label: clients.find((c) => c.id === f.clientId)?.name || "Honorário",
+    }));
+    const desp = summary.monthBills.filter((b) => b.status === "pendente").map((b) => ({
+      id: `b-${b.id}`, kind: "saida", amount: Number(b.amount), date: b.date,
+      label: b.description,
+    }));
+    return [...fin, ...desp].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  }, [summary, clients]);
+
+  const reconciledFeed = useMemo(() => {
+    const fin = finances.filter((f) => f.reconciledBank).map((f) => ({
+      id: `f-${f.id}`, kind: "entrada", amount: Number(f.amount), date: f.date, at: f.reconciledAt || f.date,
+      label: clients.find((c) => c.id === f.clientId)?.name || "Honorário",
+    }));
+    const desp = bills.filter((b) => b.reconciledBank).map((b) => ({
+      id: `b-${b.id}`, kind: "saida", amount: Number(b.amount), date: b.date, at: b.reconciledAt || b.date,
+      label: b.description,
+    }));
+    return [...fin, ...desp].sort((a, b) => (b.at || "").localeCompare(a.at || "")).slice(0, 8);
+  }, [finances, bills, clients]);
+
+  const saldoPrevisto = summary.totalEntradasPrevistas - summary.totalSaidasPrevistas;
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
@@ -3359,6 +3425,69 @@ function FinanceiroView({
           <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Honorários recebidos e pró-labore da equipe</p>
         </div>
         <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
+      </div>
+
+      <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+        <StatCard label="Entradas previstas no mês" value={fmtCurrency(summary.totalEntradasPrevistas)} accent="#7BC142"
+          sub={`${fmtCurrency(totalRecebido)} recebido`} />
+        <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="#E3B455"
+          sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
+        <StatCard label="Saldo previsto no mês" value={fmtCurrency(saldoPrevisto)} accent={saldoPrevisto >= 0 ? "#7BC142" : "#E38B84"} />
+      </div>
+
+      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 14 }}>
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 2, minWidth: 320 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Fluxo de caixa · últimos 6 meses</div>
+            <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: "#9BA298" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: "#7BC142", display: "inline-block" }} />Entradas
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: "#E38B84", display: "inline-block" }} />Saídas
+              </span>
+            </div>
+          </div>
+          <CashFlowChart months={cashFlowMonths} />
+        </div>
+
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Pendências do mês</div>
+          {pendingItems.length === 0 ? (
+            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nada pendente neste mês.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 9, maxHeight: 210, overflowY: "auto" }}>
+              {pendingItems.map((item) => (
+                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10 }}>
+                  <span style={{ color: "#D6D3C7", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
+                    {item.label}
+                  </span>
+                  <strong style={{ color: "#F2F0E6", whiteSpace: "nowrap" }}>{fmtCurrency(item.amount)}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginBottom: 20 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Últimas movimentações conciliadas</div>
+        {reconciledFeed.length === 0 ? (
+          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma conciliação bancária registrada ainda.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+            {reconciledFeed.map((item) => (
+              <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10.5 }}>
+                <span style={{ color: "#D6D3C7" }}>
+                  <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
+                  {item.label} <span style={{ color: "#6B7268" }}>· {fmtDate(item.date)}</span>
+                </span>
+                <strong style={{ color: "#F2F0E6" }}>{fmtCurrency(item.amount)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
