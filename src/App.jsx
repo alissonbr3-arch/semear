@@ -1208,7 +1208,7 @@ export default function AgroTrackApp() {
         />
       )}
       {modal?.type === "finance" && (
-        <FinanceModal data={modal.data} clients={clients} onSave={saveFinance} onClose={() => setModal(null)} />
+        <FinanceModal data={modal.data} clients={clients} team={team} onSave={saveFinance} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bonus" && (
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
@@ -3074,7 +3074,8 @@ function fmtCurrency(n) {
   return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto" };
+const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo" };
+const FINANCE_TYPES_WITH_SHARE = ["projeto", "analise_solo"];
 
 function FinanceiroView({
   finances, bonuses, settings, clients, team, properties, fields,
@@ -3114,9 +3115,9 @@ function FinanceiroView({
   const projectShareByGestor = useMemo(() => {
     const map = {};
     monthFinances
-      .filter((f) => f.type === "projeto" && f.status === "pago")
+      .filter((f) => FINANCE_TYPES_WITH_SHARE.includes(f.type) && f.status === "pago")
       .forEach((f) => {
-        const gestorId = gestorByClientId[f.clientId];
+        const gestorId = f.responsibleGestorId || gestorByClientId[f.clientId];
         if (!gestorId) return;
         map[gestorId] = (map[gestorId] || 0) + Number(f.amount) * (Number(settings.projectShareRate || 0) / 100);
       });
@@ -3179,14 +3180,16 @@ function FinanceiroView({
           ) : (
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
               <table>
-                <thead><tr><th>Cliente</th><th>Tipo</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {monthFinances.map((f) => {
                     const client = clients.find((c) => c.id === f.clientId);
+                    const responsible = team.find((t) => t.id === f.responsibleGestorId);
                     return (
                       <tr key={f.id}>
                         <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{client?.name || "—"}</td>
                         <td>{FINANCE_TYPE_LABELS[f.type] || "Mensalidade"}</td>
+                        <td>{responsible?.name || "—"}</td>
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(f.date)}</td>
                         <td>{fmtCurrency(f.amount)}</td>
                         <td><FinanceStatusBadge status={f.status} /></td>
@@ -3287,13 +3290,16 @@ function FinanceiroView({
   );
 }
 
-function FinanceModal({ data, clients, onSave, onClose }) {
+function FinanceModal({ data, clients, team, onSave, onClose }) {
   const [form, setForm] = useState({
     clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
     referenceMonth: new Date().toISOString().slice(0, 7), status: "pago", type: "mensalidade",
+    responsibleGestorId: "",
     ...(data || {}),
   });
-  const canSave = form.clientId && Number(form.amount) > 0 && form.date;
+  const canSave = form.clientId && Number(form.amount) > 0 && form.date
+    && (form.type === "mensalidade" || form.responsibleGestorId);
+  const needsResponsible = form.type !== "mensalidade";
   return (
     <Modal title={data?.id ? "Editar honorário" : "Novo honorário"} onClose={onClose}>
       <Field label="Cliente">
@@ -3306,10 +3312,19 @@ function FinanceModal({ data, clients, onSave, onClose }) {
         <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
           <option value="mensalidade">Mensalidade</option>
           <option value="projeto">Projeto</option>
+          <option value="analise_solo">Análise de Solo</option>
         </select>
       </Field>
+      {needsResponsible && (
+        <Field label="Gestor responsável pelo projeto/análise">
+          <select style={inputStyle} value={form.responsibleGestorId} onChange={(e) => setForm({ ...form, responsibleGestorId: e.target.value })}>
+            <option value="">Selecione…</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </Field>
+      )}
       <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
-        Honorários de "Projeto" pagos geram automaticamente pró-labore pro gestor do cliente, na aba Pró-labore.
+        Honorários de "Projeto" ou "Análise de Solo" pagos geram automaticamente pró-labore pro gestor responsável escolhido acima, na aba Pró-labore.
       </div>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 1500" />
@@ -3344,7 +3359,7 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
   return (
     <Modal title={data?.id ? "Editar bonificação" : "Nova bonificação"} onClose={onClose}>
       <div style={{ fontSize: 10, color: "#6B7268", marginTop: -4, marginBottom: 14 }}>
-        Use só pra valores fora da regra padrão (R$/ha + 20% de projetos). Honorários do tipo "Projeto" já geram pró-labore automaticamente.
+        Use só pra valores fora da regra padrão (R$/ha + % de projeto/análise de solo). Honorários do tipo "Projeto" ou "Análise de Solo" já geram pró-labore automaticamente pro gestor responsável escolhido no lançamento.
       </div>
       <Field label="Gestor">
         <select style={inputStyle} value={form.gestorId} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
