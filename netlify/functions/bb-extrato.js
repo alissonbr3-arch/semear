@@ -4,18 +4,24 @@
 // forma automática, usando OAuth2 (client_credentials) + mTLS (certificado
 // do CNPJ). Só quem é master/administrador pode chamar.
 //
+// O certificado .pfx NÃO fica em variável de ambiente — o Lambda usado pelo
+// Netlify limita o total de variáveis de ambiente a 4KB, bem menos que um
+// certificado. Em vez disso, o .pfx fica guardado no Supabase Storage, num
+// bucket privado chamado "secrets" (só a service_role consegue ler, nunca o
+// navegador). Suba o arquivo .pfx original ali direto pelo painel do
+// Supabase (Storage > secrets > upload) — sem precisar converter pra base64.
+//
 // Variáveis de ambiente necessárias (Site settings > Environment variables,
 // nunca no código):
-//   BB_CLIENT_ID          - Client ID de Produção (portal Developers BB)
-//   BB_CLIENT_SECRET       - Client Secret de Produção
-//   BB_APP_KEY              - App Key / Developer Application Key
-//   BB_CERT_PFX_BASE64      - certificado .pfx (A1) convertido pra base64
-//   BB_CERT_PASSPHRASE      - senha do certificado .pfx
-//   BB_AGENCIA               - agência da conta corrente
-//   BB_CONTA                  - número da conta corrente (com dígito, se houver)
+//   BB_CLIENT_ID       - Client ID de Produção (portal Developers BB)
+//   BB_CLIENT_SECRET   - Client Secret de Produção
+//   BB_APP_KEY         - App Key / Developer Application Key
+//   BB_CERT_PASSPHRASE - senha do certificado .pfx
+//   BB_AGENCIA         - agência da conta corrente
+//   BB_CONTA           - número da conta corrente (com dígito, se houver)
 // Opcionais (só se o host padrão abaixo não funcionar, ajustar sem precisar mexer no código):
-//   BB_OAUTH_URL             - default: https://oauth.bb.com.br/oauth/token
-//   BB_API_BASE_URL          - default: https://api-extratos.bb.com.br
+//   BB_OAUTH_URL       - default: https://oauth.bb.com.br/oauth/token
+//   BB_API_BASE_URL    - default: https://api-extratos.bb.com.br
 import https from "node:https";
 import { createClient } from "@supabase/supabase-js";
 
@@ -30,25 +36,21 @@ function json(body, statusCode = 200) {
   return { statusCode, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
 }
 
-function getPfxBase64() {
-  // Netlify limita cada variável a 5000 caracteres, então o certificado pode
-  // vir inteiro em BB_CERT_PFX_BASE64 (se couber) ou dividido em
-  // BB_CERT_PFX_BASE64_1, BB_CERT_PFX_BASE64_2, ... (nessa ordem).
-  if (process.env.BB_CERT_PFX_BASE64) return process.env.BB_CERT_PFX_BASE64;
-  const parts = [];
-  let i = 1;
-  while (process.env[`BB_CERT_PFX_BASE64_${i}`]) {
-    parts.push(process.env[`BB_CERT_PFX_BASE64_${i}`]);
-    i++;
-  }
-  return parts.length > 0 ? parts.join("") : null;
+async function getPfxBuffer(adminClient) {
+  const { data: files, error: listError } = await adminClient.storage.from("secrets").list();
+  if (listError || !files || files.length === 0) return null;
+  const fileName = files[0].name;
+  const { data: blob, error: downloadError } = await adminClient.storage.from("secrets").download(fileName);
+  if (downloadError || !blob) return null;
+  const arrayBuffer = await blob.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
-function getMtlsAgent() {
-  const pfxBase64 = getPfxBase64();
+async function getMtlsAgent(adminClient) {
+  const pfx = await getPfxBuffer(adminClient);
   const passphrase = process.env.BB_CERT_PASSPHRASE;
-  if (!pfxBase64 || !passphrase) return null;
-  return new https.Agent({ pfx: Buffer.from(pfxBase64, "base64"), passphrase });
+  if (!pfx || !passphrase) return null;
+  return new https.Agent({ pfx, passphrase });
 }
 
 function httpsRequestJson(url, { method = "GET", headers = {}, body = null, agent }) {
@@ -133,7 +135,6 @@ export const handler = async (event) => {
 
   const missing = ["BB_CLIENT_ID", "BB_CLIENT_SECRET", "BB_APP_KEY", "BB_CERT_PASSPHRASE", "BB_AGENCIA", "BB_CONTA"]
     .filter((k) => !process.env[k]);
-  if (!getPfxBase64()) missing.push("BB_CERT_PFX_BASE64 (ou BB_CERT_PFX_BASE64_1, _2, ...)");
   if (!supabaseUrl || !anonKey || !serviceRoleKey || missing.length > 0) {
     return json({ error: `Configuração do servidor incompleta. Faltando: ${missing.join(", ") || "variáveis do Supabase"}.` }, 500);
   }
@@ -157,8 +158,8 @@ export const handler = async (event) => {
   const dataFim = params.dataFim || today;
 
   try {
-    const agent = getMtlsAgent();
-    if (!agent) return json({ error: "Certificado mTLS não configurado no servidor." }, 500);
+    const agent = await getMtlsAgent(adminClient);
+    if (!agent) return json({ error: 'Certificado mTLS não encontrado. Suba o arquivo .pfx no Supabase (Storage > bucket "secrets") e confira a variável BB_CERT_PASSPHRASE.' }, 500);
     const token = await getAccessToken(agent);
     const raw = await fetchExtrato(agent, token, dataInicio, dataFim);
     const transactions = normalizeTransactions(raw);
