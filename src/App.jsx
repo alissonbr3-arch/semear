@@ -2203,6 +2203,16 @@ function isValidNumber(v) {
   return typeof v === "number" && !Number.isNaN(v);
 }
 
+// Método da saturação por bases (NC em t/ha, considerando calcário com PRNT 100%):
+// NC = CTC x (V2 desejado - V1 atual) / 100. Não recomenda calcário se a
+// saturação atual já está no nível desejado ou acima.
+function limeNeedTonPerHa(point, desiredV) {
+  const ctc = Number(point.ctc);
+  const v = Number(point.v);
+  if (Number.isNaN(ctc) || Number.isNaN(v) || Number.isNaN(desiredV)) return null;
+  return Math.max(0, (ctc * (desiredV - v)) / 100);
+}
+
 function MapClickCapture({ onClick }) {
   useMapEvents({ click(e) { onClick(e.latlng.lat, e.latlng.lng); } });
   return null;
@@ -2247,6 +2257,8 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   });
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   const [nutrient, setNutrient] = useState("p");
+  const [desiredV, setDesiredV] = useState(70);
+  const isLimeMode = nutrient === "nc_calcario";
   const [gridHectares, setGridHectares] = useState(5);
   const [gridError, setGridError] = useState("");
   const [gpsActive, setGpsActive] = useState(false);
@@ -2368,7 +2380,14 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   }
 
   const selectedPoint = form.points.find((p) => p.id === selectedPointId);
-  const heatOverlay = useMemo(() => buildHeatOverlay(polygon, form.points, nutrient), [polygon, form.points, nutrient]);
+  const pointValue = (p) => (isLimeMode ? limeNeedTonPerHa(p, Number(desiredV)) : p[nutrient] !== undefined && p[nutrient] !== "" ? Number(p[nutrient]) : null);
+  const heatOverlay = useMemo(() => {
+    if (isLimeMode) {
+      const withLime = form.points.map((p) => ({ ...p, __lime: limeNeedTonPerHa(p, Number(desiredV)) }));
+      return buildHeatOverlay(polygon, withLime, "__lime");
+    }
+    return buildHeatOverlay(polygon, form.points, nutrient);
+  }, [polygon, form.points, nutrient, isLimeMode, desiredV]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
   const mapEl = bounds && (
@@ -2382,7 +2401,8 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
       {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
       {!readOnly && <MapClickCapture onClick={handleMapClick} />}
       {form.points.map((p) => {
-        const hasValue = p[nutrient] !== undefined && p[nutrient] !== "" && !Number.isNaN(Number(p[nutrient]));
+        const val = pointValue(p);
+        const hasValue = val !== null && !Number.isNaN(val);
         const showValue = !!heatOverlay && hasValue;
         const isSelected = selectedPointId === p.id;
         return (
@@ -2399,7 +2419,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
             eventHandlers={{ click: () => setSelectedPointId(p.id) }}
           >
             <Tooltip permanent direction="top" offset={[0, showValue ? -4 : -9]} className={showValue ? "soil-value-label" : "field-map-label"}>
-              {showValue ? Number(p[nutrient]).toFixed(1) : p.label}
+              {showValue ? val.toFixed(1) : p.label}
             </Tooltip>
           </CircleMarker>
         );
@@ -2423,7 +2443,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
       padding: "8px 10px", fontSize: 9, color: "#D6D3C7", minWidth: 100,
     }}>
       <div style={{ fontWeight: 600, marginBottom: 5, whiteSpace: "nowrap" }}>
-        {SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label}
+        {isLimeMode ? "Necessidade de Calcário (t/ha)" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label}
       </div>
       <div style={{ height: 8, borderRadius: 4, background: "linear-gradient(to right, #D64541, #E3B455, #7BC142)", marginBottom: 4 }} />
       <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -2438,8 +2458,22 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: !fullscreen || detailsOpen ? 12 : 0, flexWrap: "wrap" }}>
         <span style={{ fontSize: 9.5, color: "#9BA298" }}>Ver no mapa:</span>
         <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+          <optgroup label="Resultado de laboratório">
+            {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+          </optgroup>
+          <optgroup label="Recomendação de insumo">
+            <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
+          </optgroup>
         </select>
+        {isLimeMode && (
+          <>
+            <span style={{ fontSize: 9.5, color: "#9BA298" }}>V% desejado:</span>
+            <input
+              type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
+              value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
+            />
+          </>
+        )}
         {fullscreen && (
           <GhostBtn onClick={() => setDetailsOpen((v) => !v)}>
             {detailsOpen ? "Ocultar controles" : "Mais controles"}
