@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import * as XLSX from "xlsx";
 import { safeGet, safeSet } from "./lib/storage.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
@@ -2052,6 +2053,59 @@ const SOIL_NUTRIENTS = [
   { key: "s", label: "Enxofre (S)", unit: "mg/dm³" },
 ];
 
+const SOIL_COLUMN_ALIASES = {
+  label: ["ponto", "amostra", "id", "point", "label", "identificacao", "numero", "número", "no"],
+  ph: ["ph"],
+  p: ["p", "fosforo", "fósforo"],
+  k: ["k", "potassio", "potássio"],
+  ca: ["ca", "calcio", "cálcio"],
+  mg: ["mg", "magnesio", "magnésio"],
+  al: ["al", "aluminio", "alumínio"],
+  ctc: ["ctc"],
+  v: ["v", "v%", "saturacaodebases", "saturaçãodebases", "satbases"],
+  mo: ["mo", "materiaorganica", "matériaorgânica"],
+  s: ["s", "enxofre"],
+};
+
+function normalizeSpreadsheetHeader(h) {
+  return String(h || "")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9%]/g, "");
+}
+
+function mapSoilColumns(headerRow) {
+  const normalized = headerRow.map((h) => normalizeSpreadsheetHeader(h));
+  const mapping = {};
+  Object.entries(SOIL_COLUMN_ALIASES).forEach(([key, aliases]) => {
+    const idx = normalized.findIndex((h) => aliases.includes(h));
+    if (idx !== -1) mapping[key] = idx;
+  });
+  return mapping;
+}
+
+async function parseSoilSpreadsheet(file) {
+  const isCsv = /\.csv$/i.test(file.name);
+  const workbook = isCsv
+    ? XLSX.read(await file.text(), { type: "string" })
+    : XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+  if (rows.length < 2) return { rows: [], mapping: {} };
+  const mapping = mapSoilColumns(rows[0]);
+  const dataRows = rows.slice(1).filter((r) => r.some((c) => c !== "" && c !== null && c !== undefined));
+  const parsed = dataRows.map((r) => {
+    const entry = {};
+    Object.entries(mapping).forEach(([key, idx]) => {
+      const raw = r[idx];
+      entry[key] = key === "label" ? String(raw ?? "").trim() : (raw === "" || raw === undefined || raw === null ? null : Number(raw));
+    });
+    return entry;
+  });
+  return { rows: parsed, mapping };
+}
+
 function pointInPolygon(lat, lng, polygon) {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -2184,6 +2238,8 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const [liveLocation, setLiveLocation] = useState(null);
   const [gpsError, setGpsError] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
+  const [importSummary, setImportSummary] = useState("");
+  const [importError, setImportError] = useState("");
   const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
@@ -2246,6 +2302,44 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
     }
     setForm((f) => ({ ...f, points: generated }));
     setSelectedPointId(null);
+  }
+
+  async function handleImportFile(file) {
+    setImportError("");
+    setImportSummary("");
+    try {
+      const { rows, mapping } = await parseSoilSpreadsheet(file);
+      if (!mapping.label) {
+        setImportError('Não encontrei uma coluna de identificação do ponto (ex: "Ponto", "Amostra", "ID") na planilha.');
+        return;
+      }
+      if (rows.length === 0) {
+        setImportError("Não encontrei nenhuma linha de dado na planilha.");
+        return;
+      }
+      let updated = 0;
+      const notFound = [];
+      const nextPoints = form.points.map((p) => ({ ...p }));
+      rows.forEach((row) => {
+        if (!row.label) return;
+        const point = nextPoints.find((p) => p.label.trim().toLowerCase() === row.label.trim().toLowerCase());
+        if (!point) { notFound.push(row.label); return; }
+        Object.keys(SOIL_COLUMN_ALIASES).forEach((key) => {
+          if (key === "label") return;
+          if (row[key] !== undefined && row[key] !== null && !Number.isNaN(row[key])) {
+            point[key] = row[key];
+          }
+        });
+        updated++;
+      });
+      setForm((f) => ({ ...f, points: nextPoints }));
+      setImportSummary(
+        `${updated} ponto(s) atualizado(s) a partir da planilha.` +
+        (notFound.length > 0 ? ` ${notFound.length} linha(s) sem ponto correspondente no mapa (${notFound.slice(0, 5).join(", ")}${notFound.length > 5 ? "…" : ""}).` : "")
+      );
+    } catch (e) {
+      setImportError("Não consegui ler esse arquivo. Confira se é um .xlsx, .xls ou .csv válido, exportado de uma planilha.");
+    }
   }
 
   function updateSelectedPoint(patch) {
@@ -2423,6 +2517,14 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
               <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
                 Gere a grade automática acima, ou clique direto no mapa pra adicionar/ajustar pontos manualmente. Selecione um ponto na lista abaixo pra preencher o resultado.
               </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap", background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 9.5, color: "#9BA298", flex: "1 1 260px" }}>
+                  Importar resultados de planilha (XLSX/XLS/CSV) — precisa de uma coluna com o nome do ponto (igual ao rótulo do mapa, ex: "P1") e colunas com os nutrientes.
+                </div>
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files[0] && handleImportFile(e.target.files[0])} style={{ fontSize: 10.5, color: "#D6D3C7" }} />
+              </div>
+              {importSummary && <div style={{ fontSize: 9.5, color: "#7BC142", marginBottom: 10 }}>{importSummary}</div>}
+              {importError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{importError}</div>}
             </>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
