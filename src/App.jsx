@@ -8,6 +8,8 @@ import {
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import * as XLSX from "xlsx";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import { safeGet, safeSet } from "./lib/storage.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
@@ -372,6 +374,7 @@ export default function AgroTrackApp() {
   const [bills, setBills] = useState([]);
   const [categoryMemory, setCategoryMemory] = useState({});
   const [soilAnalyses, setSoilAnalyses] = useState([]);
+  const [soilAnalysisEditor, setSoilAnalysisEditor] = useState(null);
   const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -1030,6 +1033,7 @@ export default function AgroTrackApp() {
     setSelectedPropertyId(null);
     setSelectedFieldId(null);
     setSelectedHarvestId(null);
+    setSoilAnalysisEditor(null);
   }
 
   function openPropertyFromClient(propId) {
@@ -1152,6 +1156,15 @@ export default function AgroTrackApp() {
 
       {/* Main content */}
       <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto" }}>
+        {soilAnalysisEditor ? (
+          <SoilAnalysisPage
+            field={fieldsWithMeta.find((f) => f.id === soilAnalysisEditor.fieldId)}
+            data={soilAnalyses.find((s) => s.id === soilAnalysisEditor.analysisId) || null}
+            onSave={(form) => { saveSoilAnalysis(form); setSoilAnalysisEditor(null); }}
+            onBack={() => setSoilAnalysisEditor(null)}
+          />
+        ) : (
+          <>
         {view === "dashboard" && (
           <Dashboard totals={totals} recentVisits={recentVisits} clients={clientsWithMeta} properties={properties} fields={fieldsWithMeta} onOpenField={openField} onOpenClient={openClientFromDashboard} isFinance={isFinance} monthFinanceSummary={monthFinanceSummary} />
         )}
@@ -1206,8 +1219,8 @@ export default function AgroTrackApp() {
             onEditHarvest={(h) => setModal({ type: "harvest", data: h })}
             onDeleteHarvest={deleteHarvest}
             onOpenHarvest={(id) => setSelectedHarvestId(id)}
-            onAddSoilAnalysis={() => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === selectedFieldId), analysis: null } })}
-            onEditSoilAnalysis={(sa) => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === selectedFieldId), analysis: sa } })}
+            onAddSoilAnalysis={() => setSoilAnalysisEditor({ fieldId: selectedFieldId, analysisId: null })}
+            onEditSoilAnalysis={(sa) => setSoilAnalysisEditor({ fieldId: selectedFieldId, analysisId: sa.id })}
             onDeleteSoilAnalysis={deleteSoilAnalysis}
           />
         )}
@@ -1269,8 +1282,8 @@ export default function AgroTrackApp() {
         {view === "solo" && (
           <SoilAnalysesView
             soilAnalyses={soilAnalyses} fields={fieldsWithMeta}
-            onAdd={(fieldId) => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === fieldId), analysis: null } })}
-            onEdit={(sa) => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === sa.fieldId), analysis: sa } })}
+            onAdd={(fieldId) => setSoilAnalysisEditor({ fieldId, analysisId: null })}
+            onEdit={(sa) => setSoilAnalysisEditor({ fieldId: sa.fieldId, analysisId: sa.id })}
             onDelete={deleteSoilAnalysis}
           />
         )}
@@ -1335,6 +1348,8 @@ export default function AgroTrackApp() {
             onDeleteWeed={deleteWeed}
           />
         )}
+          </>
+        )}
       </div>
 
       {modal?.type === "client" && (
@@ -1396,12 +1411,6 @@ export default function AgroTrackApp() {
       )}
       {modal?.type === "bill" && (
         <BillModal data={modal.data} categoryMemory={categoryMemory} onSave={saveBill} onClose={() => setModal(null)} />
-      )}
-      {modal?.type === "soilAnalysis" && (
-        <SoilAnalysisModal
-          data={modal.data.analysis} field={modal.data.field}
-          onSave={saveSoilAnalysis} onClose={() => setModal(null)}
-        />
       )}
       {modal?.type === "reconcile" && (
         <ReconciliationModal
@@ -1826,7 +1835,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
         const viewingField = viewingAnalysis ? fieldsWithMeta.find((f) => f.id === viewingAnalysis.fieldId) : null;
         if (!viewingAnalysis || !viewingField) return null;
         return (
-          <SoilAnalysisModal
+          <SoilAnalysisPage
             data={viewingAnalysis} field={viewingField} readOnly
             onSave={() => {}} onClose={() => setViewingAnalysisId(null)}
           />
@@ -2218,6 +2227,88 @@ function MapClickCapture({ onClick }) {
   return null;
 }
 
+function downloadSoilAnalysisPdf(field, form, desiredV) {
+  const doc = new jsPDF();
+  let y = 18;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.text("Relatório de Análise de Solo", 14, y);
+  y += 8;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Cliente: ${field.clientName || "—"}`, 14, y); y += 5;
+  doc.text(`Propriedade: ${field.propertyName || "—"}`, 14, y); y += 5;
+  doc.text(`Talhão: ${field.name} (${fieldAreaHa(field).toLocaleString("pt-BR")} ha)`, 14, y); y += 5;
+  doc.text(`Data da coleta: ${fmtDate(form.date)}${form.label ? " · " + form.label : ""} · ${form.points.length} ponto(s)`, 14, y);
+  y += 9;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("Resultados de laboratório por ponto", 14, y);
+  y += 2;
+
+  const nutrientCols = SOIL_NUTRIENTS.map((n) => n.label.replace(/\s*\([^)]*\)/, ""));
+  autoTable(doc, {
+    startY: y + 4,
+    head: [["Ponto", ...nutrientCols]],
+    body: form.points.map((p) => [
+      p.label,
+      ...SOIL_NUTRIENTS.map((n) => (p[n.key] !== undefined && p[n.key] !== "" && !Number.isNaN(Number(p[n.key])) ? Number(p[n.key]).toFixed(1) : "—")),
+    ]),
+    foot: [["Média", ...SOIL_NUTRIENTS.map((n) => {
+      const values = form.points
+        .filter((p) => p[n.key] !== undefined && p[n.key] !== "")
+        .map((p) => Number(p[n.key]))
+        .filter((v) => !Number.isNaN(v));
+      return values.length ? (values.reduce((s, v) => s + v, 0) / values.length).toFixed(1) : "—";
+    })]],
+    styles: { fontSize: 7 },
+    headStyles: { fillColor: [30, 74, 32] },
+    footStyles: { fillColor: [40, 40, 40], fontStyle: "bold" },
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  if (y > 240) { doc.addPage(); y = 20; }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text(`Recomendação de Calcário (saturação de bases desejada: ${desiredV}%)`, 14, y);
+  y += 2;
+
+  const ncByPoint = form.points.map((p) => ({ p, nc: limeNeedTonPerHa(p, Number(desiredV)) }));
+  autoTable(doc, {
+    startY: y + 4,
+    head: [["Ponto", "V% atual", "CTC (cmolc/dm³)", "Necessidade (t/ha)"]],
+    body: ncByPoint.map(({ p, nc }) => [
+      p.label,
+      p.v !== undefined && p.v !== "" ? Number(p.v).toFixed(1) : "—",
+      p.ctc !== undefined && p.ctc !== "" ? Number(p.ctc).toFixed(1) : "—",
+      nc !== null ? nc.toFixed(2) : "—",
+    ]),
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [30, 74, 32] },
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  const ncValues = ncByPoint.map(({ nc }) => nc).filter((v) => v !== null);
+  const avgNc = ncValues.length ? ncValues.reduce((s, v) => s + v, 0) / ncValues.length : 0;
+  const areaHa = fieldAreaHa(field);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Necessidade média de calcário: ${avgNc.toFixed(2)} t/ha`, 14, y); y += 5;
+  doc.text(`Volume total estimado para o talhão (${areaHa.toLocaleString("pt-BR")} ha): ${(avgNc * areaHa).toFixed(1)} toneladas`, 14, y); y += 5;
+  doc.setFontSize(8);
+  doc.text("Cálculo pelo método da saturação por bases (NC = CTC x (V desejado - V atual) / 100), considerando calcário com PRNT 100%.", 14, y);
+
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  doc.text(`Gerado em ${fmtDateTime(new Date().toISOString())} · Semear Consultoria Agropecuária`, 14, doc.internal.pageSize.getHeight() - 10);
+
+  const safeName = `${field.name}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
+  doc.save(`analise-solo-${safeName}-${form.date}.pdf`);
+}
+
 function generateSamplingGrid(polygon, hectaresPerPoint) {
   const lats = polygon.map((p) => p[0]);
   const lngs = polygon.map((p) => p[1]);
@@ -2249,7 +2340,7 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
+function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
     label: "", points: [],
@@ -2604,28 +2695,30 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
     );
   }
 
-  return (
-    <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth="min(1400px, 95vw)">
-      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 140 }}>
-          <Field label="Data da coleta">
-            {readOnly ? (
-              <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{fmtDate(form.date)}</div>
-            ) : (
-              <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-            )}
-          </Field>
+  const bodyEl = (
+    <>
+      {!onBack && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <Field label="Data da coleta">
+              {readOnly ? (
+                <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{fmtDate(form.date)}</div>
+              ) : (
+                <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              )}
+            </Field>
+          </div>
+          <div style={{ flex: 2, minWidth: 200 }}>
+            <Field label="Identificação (opcional)">
+              {readOnly ? (
+                <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{form.label || "—"}</div>
+              ) : (
+                <input style={inputStyle} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Ex: Análise pré-plantio safra 25/26" />
+              )}
+            </Field>
+          </div>
         </div>
-        <div style={{ flex: 2, minWidth: 200 }}>
-          <Field label="Identificação (opcional)">
-            {readOnly ? (
-              <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{form.label || "—"}</div>
-            ) : (
-              <input style={inputStyle} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Ex: Análise pré-plantio safra 25/26" />
-            )}
-          </Field>
-        </div>
-      </div>
+      )}
 
       {!bounds ? (
         <div style={{ fontSize: 10.5, color: "#E3B455", background: "#332811", borderRadius: 8, padding: 12, marginBottom: 14 }}>
@@ -2679,8 +2772,56 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
           {step === "coleta" && coletaControlsEl}
         </>
       )}
+    </>
+  );
 
+  if (onBack) {
+    return (
+      <div>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+          <ArrowLeft size={14} /> Voltar
+        </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>
+              {data?.id ? "Editar análise de solo" : "Nova análise de solo"}
+            </h2>
+            <div style={{ fontSize: 10.5, color: "#9BA298" }}>
+              {field.clientName} · {field.propertyName} · {field.name}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div style={{ minWidth: 140 }}>
+              <Field label="Data da coleta">
+                <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              </Field>
+            </div>
+            <div style={{ minWidth: 200 }}>
+              <Field label="Identificação (opcional)">
+                <input style={inputStyle} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Ex: Análise pré-plantio safra 25/26" />
+              </Field>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {form.points.length > 0 && (
+                <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70)}>Baixar PDF</GhostBtn>
+              )}
+              <GhostBtn onClick={onBack}>Cancelar</GhostBtn>
+              <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>
+            </div>
+          </div>
+        </div>
+        {bodyEl}
+      </div>
+    );
+  }
+
+  return (
+    <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth="min(1400px, 95vw)">
+      {bodyEl}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        {form.points.length > 0 && (
+          <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70)}>Baixar PDF</GhostBtn>
+        )}
         <GhostBtn onClick={onClose}>{readOnly ? "Fechar" : "Cancelar"}</GhostBtn>
         {!readOnly && (
           <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>
