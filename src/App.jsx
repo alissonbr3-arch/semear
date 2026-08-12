@@ -2129,6 +2129,28 @@ function MapClickCapture({ onClick }) {
   return null;
 }
 
+function generateSamplingGrid(polygon, hectaresPerPoint) {
+  const lats = polygon.map((p) => p[0]);
+  const lngs = polygon.map((p) => p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const meanLat = (minLat + maxLat) / 2;
+
+  const spacingM = Math.sqrt(Math.max(hectaresPerPoint, 0.1) * 10000);
+  const latStep = spacingM / 111320;
+  const lngStep = spacingM / (111320 * Math.cos((meanLat * Math.PI) / 180));
+
+  const points = [];
+  for (let lat = minLat + latStep / 2; lat <= maxLat; lat += latStep) {
+    for (let lng = minLng + lngStep / 2; lng <= maxLng; lng += lngStep) {
+      if (pointInPolygon(lat, lng, polygon)) {
+        points.push({ id: uid(), lat, lng, label: `P${points.length + 1}` });
+      }
+    }
+  }
+  return points;
+}
+
 function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
@@ -2137,6 +2159,8 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   });
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   const [nutrient, setNutrient] = useState("p");
+  const [gridHectares, setGridHectares] = useState(5);
+  const [gridError, setGridError] = useState("");
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
   const bounds = polygon.length >= 3 ? polygon.map(([lat, lng]) => [lat, lng]) : null;
@@ -2147,6 +2171,25 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
     const point = { id: uid(), lat, lng, label };
     setForm((f) => ({ ...f, points: [...f.points, point] }));
     setSelectedPointId(point.id);
+  }
+
+  function handleGenerateGrid() {
+    setGridError("");
+    if (!bounds) return;
+    if (form.points.length > 0 && !confirm(`Isso substitui os ${form.points.length} ponto(s) já existentes (e qualquer resultado já preenchido). Continuar?`)) {
+      return;
+    }
+    const generated = generateSamplingGrid(polygon, Number(gridHectares) || 5);
+    if (generated.length === 0) {
+      setGridError("Nenhum ponto coube dentro do talhão com esse espaçamento. Tente um valor menor.");
+      return;
+    }
+    if (generated.length > 500) {
+      setGridError(`Isso geraria ${generated.length} pontos — tente um espaçamento maior (menos denso).`);
+      return;
+    }
+    setForm((f) => ({ ...f, points: generated }));
+    setSelectedPointId(null);
   }
 
   function updateSelectedPoint(patch) {
@@ -2192,9 +2235,20 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
       ) : (
         <>
           {!readOnly && (
-            <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
-              Clique no mapa pra adicionar um ponto de coleta. Selecione um ponto na lista abaixo pra preencher o resultado.
-            </div>
+            <>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 12, flexWrap: "wrap", background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12 }}>
+                <div style={{ width: 170 }}>
+                  <Field label="Gerar grade a cada (ha)">
+                    <input type="number" min="0.1" step="0.5" style={inputStyle} value={gridHectares} onChange={(e) => setGridHectares(e.target.value)} />
+                  </Field>
+                </div>
+                <GhostBtn onClick={handleGenerateGrid} style={{ marginBottom: 14 }}>Gerar grade automática</GhostBtn>
+                {gridError && <div style={{ fontSize: 9.5, color: "#E38B84", width: "100%" }}>{gridError}</div>}
+              </div>
+              <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+                Gere a grade automática acima, ou clique direto no mapa pra adicionar/ajustar pontos manualmente. Selecione um ponto na lista abaixo pra preencher o resultado.
+              </div>
+            </>
           )}
           <div style={{ height: 340, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14 }}>
             <MapContainer bounds={bounds} boundsOptions={{ padding: [16, 16] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
