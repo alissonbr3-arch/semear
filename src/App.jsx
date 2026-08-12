@@ -121,6 +121,33 @@ function resizeImageToDataUrl(file, size = 160) {
   });
 }
 
+function resizeImageToBlob(file, maxDimension = 1600, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Arquivo de imagem inválido."));
+      img.onload = () => {
+        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error("Falha ao processar a imagem.")); return; }
+          resolve(blob);
+        }, "image/jpeg", quality);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function Avatar({ name, url, size = 28 }) {
   const initials = (name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
   if (url) {
@@ -649,11 +676,12 @@ export default function AgroTrackApp() {
   }
 
   function saveVisit(form) {
-    logActivity(makeLogEntry(form.id ? "update" : "create", "visit", fmtDate(form.date)));
-    if (form.id) {
+    const exists = visits.some((v) => v.id === form.id);
+    logActivity(makeLogEntry(exists ? "update" : "create", "visit", fmtDate(form.date)));
+    if (exists) {
       persistVisits(visits.map((v) => (v.id === form.id ? form : v)));
     } else {
-      persistVisits([...visits, { ...form, id: uid() }]);
+      persistVisits([...visits, form]);
     }
     setModal(null);
   }
@@ -661,6 +689,33 @@ export default function AgroTrackApp() {
     const visit = visits.find((v) => v.id === id);
     logActivity(makeLogEntry("delete", "visit", visit ? fmtDate(visit.date) : null));
     persistVisits(visits.filter((v) => v.id !== id));
+  }
+  async function uploadVisitPhoto(visitId, file) {
+    let blob;
+    try {
+      blob = await resizeImageToBlob(file);
+    } catch (e) {
+      return { error: e.message };
+    }
+    const safeName = file.name
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-zA-Z0-9.\-_]/g, "_")
+      .replace(/\.\w+$/, ".jpg");
+    const path = `visits/${visitId}/${uid()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage.from("documents").upload(path, blob, { contentType: "image/jpeg" });
+    if (uploadError) return { error: uploadError.message };
+    const { data: pub } = supabase.storage.from("documents").getPublicUrl(path);
+    const photo = { id: uid(), path, url: pub.publicUrl, uploadedAt: new Date().toISOString() };
+    if (visits.some((v) => v.id === visitId)) {
+      persistVisits(visits.map((v) => (v.id === visitId ? { ...v, photos: [...(v.photos || []), photo] } : v)));
+    }
+    return { ok: true, photo };
+  }
+  async function deleteVisitPhoto(visitId, photo) {
+    await supabase.storage.from("documents").remove([photo.path]);
+    if (visits.some((v) => v.id === visitId)) {
+      persistVisits(visits.map((v) => (v.id === visitId ? { ...v, photos: (v.photos || []).filter((p) => p.id !== photo.id) } : v)));
+    }
   }
 
   function saveVariety(form) {
@@ -1256,7 +1311,7 @@ export default function AgroTrackApp() {
         <HarvestModal data={modal.data} fields={fields} properties={properties} clients={clients} varieties={varieties} onSave={saveHarvest} onClose={() => setModal(null)} />
       )}
       {modal?.type === "visit" && (
-        <VisitModal data={modal.data} harvests={harvestsWithMeta} team={team} onSave={saveVisit} onClose={() => setModal(null)} />
+        <VisitModal data={modal.data} harvests={harvestsWithMeta} team={team} onSave={saveVisit} onUploadPhoto={uploadVisitPhoto} onDeletePhoto={deleteVisitPhoto} onClose={() => setModal(null)} />
       )}
       {modal?.type === "variety" && (
         <VarietyModal data={modal.data} onSave={saveVariety} onClose={() => setModal(null)} />
@@ -1644,7 +1699,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
           <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
         ) : (
           <table>
-            <thead><tr><th>Data</th><th>Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th></tr></thead>
+            <thead><tr><th>Data</th><th>Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th><th>Fotos</th></tr></thead>
             <tbody>
               {recentVisits.map((v) => (
                 <tr key={v.id}>
@@ -1653,6 +1708,18 @@ function ClientPortalApp({ data, error, onSignOut }) {
                   <td>{v.culture && <CultureBadge culture={v.culture} />}</td>
                   <td>{v.culture && <StageProgress culture={v.culture} stage={v.stage} />}</td>
                   <td>{v.technician}</td>
+                  <td>
+                    {v.photos && v.photos.length > 0 ? (
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        {v.photos.slice(0, 3).map((p) => (
+                          <a key={p.id} href={p.url} target="_blank" rel="noreferrer">
+                            <img src={p.url} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4, display: "block" }} />
+                          </a>
+                        ))}
+                        {v.photos.length > 3 && <span style={{ fontSize: 9, color: "#9BA298" }}>+{v.photos.length - 3}</span>}
+                      </div>
+                    ) : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2030,6 +2097,15 @@ function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisi
               {v.recommendations && (
                 <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>Recomendações:</strong> {v.recommendations}</div>
               )}
+              {v.photos && v.photos.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  {v.photos.map((p) => (
+                    <a key={p.id} href={p.url} target="_blank" rel="noreferrer">
+                      <img src={p.url} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #232B25", display: "block" }} />
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -2271,6 +2347,15 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
               )}
               {v.recommendations && (
                 <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>Recomendações:</strong> {v.recommendations}</div>
+              )}
+              {v.photos && v.photos.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  {v.photos.map((p) => (
+                    <a key={p.id} href={p.url} target="_blank" rel="noreferrer">
+                      <img src={p.url} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #232B25", display: "block" }} />
+                    </a>
+                  ))}
+                </div>
               )}
             </div>
           ))}
@@ -2678,10 +2763,32 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
   );
 }
 
-function VisitModal({ data, harvests, team, onSave, onClose }) {
-  const [form, setForm] = useState({ harvestId: harvests[0]?.id || "", date: new Date().toISOString().slice(0, 10), technician: "", stage: "", pests: "", recommendations: "", ...(data || {}) });
+function VisitModal({ data, harvests, team, onSave, onUploadPhoto, onDeletePhoto, onClose }) {
+  const [form, setForm] = useState({
+    id: data?.id || uid(), harvestId: harvests[0]?.id || "", date: new Date().toISOString().slice(0, 10),
+    technician: "", stage: "", pests: "", recommendations: "", photos: [],
+    ...(data || {}),
+  });
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const selectedHarvest = harvests.find((h) => h.id === form.harvestId);
   const stages = selectedHarvest ? CULTURE_META[selectedHarvest.culture]?.stages || [] : [];
+
+  async function handlePhotoFiles(files) {
+    setPhotoError("");
+    setUploadingPhoto(true);
+    for (const file of files) {
+      const r = await onUploadPhoto(form.id, file);
+      if (r?.error) { setPhotoError(r.error); continue; }
+      setForm((f) => ({ ...f, photos: [...(f.photos || []), r.photo] }));
+    }
+    setUploadingPhoto(false);
+  }
+
+  async function handleDeletePhoto(photo) {
+    await onDeletePhoto(form.id, photo);
+    setForm((f) => ({ ...f, photos: (f.photos || []).filter((p) => p.id !== photo.id) }));
+  }
 
   return (
     <Modal title={data?.id ? "Editar visita" : "Registrar visita"} onClose={onClose}>
@@ -2719,6 +2826,31 @@ function VisitModal({ data, harvests, team, onSave, onClose }) {
       </Field>
       <Field label="Recomendações">
         <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.recommendations} onChange={(e) => setForm({ ...form, recommendations: e.target.value })} placeholder="Ex: monitorar em 7 dias, sem necessidade de controle" />
+      </Field>
+      <Field label="Fotos">
+        <input
+          type="file" accept="image/*" multiple disabled={uploadingPhoto}
+          onChange={(e) => { if (e.target.files.length > 0) handlePhotoFiles(Array.from(e.target.files)); e.target.value = ""; }}
+          style={{ fontSize: 10.5, color: "#D6D3C7" }}
+        />
+        {uploadingPhoto && <div style={{ fontSize: 9.5, color: "#9BA298", marginTop: 6 }}>Enviando…</div>}
+        {photoError && <div style={{ fontSize: 9.5, color: "#E38B84", marginTop: 6 }}>{photoError}</div>}
+        {(form.photos || []).length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            {form.photos.map((p) => (
+              <div key={p.id} style={{ position: "relative", width: 72, height: 72 }}>
+                <a href={p.url} target="_blank" rel="noreferrer">
+                  <img src={p.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid #232B25", display: "block" }} />
+                </a>
+                <button onClick={() => handleDeletePhoto(p)} style={{
+                  position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
+                  background: "#1A1F1B", border: "1px solid #2E362F", color: "#E38B84", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                }}><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
       </Field>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
