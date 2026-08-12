@@ -2047,6 +2047,8 @@ function ClientDocuments({ clientId, documents, onUpload, onDelete }) {
 const SOIL_NUTRIENTS = [
   { key: "ph", label: "pH", unit: "" },
   { key: "p", label: "Fósforo (P)", unit: "mg/dm³" },
+  { key: "p_mel", label: "Fósforo Mehlich (P Mel)", unit: "mg/dm³" },
+  { key: "p_res", label: "Fósforo Resina (P Res)", unit: "mg/dm³" },
   { key: "k", label: "Potássio (K)", unit: "mg/dm³" },
   { key: "ca", label: "Cálcio (Ca)", unit: "cmolc/dm³" },
   { key: "mg", label: "Magnésio (Mg)", unit: "cmolc/dm³" },
@@ -2061,6 +2063,8 @@ const SOIL_COLUMN_ALIASES = {
   label: ["ponto", "amostra", "id", "point", "label", "identificacao", "numero", "número", "no"],
   ph: ["ph"],
   p: ["p", "fosforo", "fósforo"],
+  p_mel: ["pmel", "pmehlich", "pmelich", "fosforomehlich", "fósforomehlich", "fosforomelich"],
+  p_res: ["pres", "presina", "fosfororesina", "fósfororesina"],
   k: ["k", "potassio", "potássio"],
   ca: ["ca", "calcio", "cálcio"],
   mg: ["mg", "magnesio", "magnésio"],
