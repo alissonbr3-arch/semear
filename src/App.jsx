@@ -2475,7 +2475,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   }
 
   return (
-    <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth={880}>
+    <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth="min(1400px, 95vw)">
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 140 }}>
           <Field label="Data da coleta">
@@ -2530,7 +2530,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
           </div>
-          <div style={{ height: 340, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14 }}>
+          <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14 }}>
             {mapEl}
           </div>
           {controlsEl}
