@@ -2161,6 +2161,15 @@ function generateSamplingGrid(polygon, hectaresPerPoint) {
   return points;
 }
 
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
@@ -2171,9 +2180,45 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const [nutrient, setNutrient] = useState("p");
   const [gridHectares, setGridHectares] = useState(5);
   const [gridError, setGridError] = useState("");
+  const [gpsActive, setGpsActive] = useState(false);
+  const [liveLocation, setLiveLocation] = useState(null);
+  const [gpsError, setGpsError] = useState("");
+  const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
   const bounds = polygon.length >= 3 ? polygon.map(([lat, lng]) => [lat, lng]) : null;
+
+  useEffect(() => {
+    return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
+  }, []);
+
+  function toggleGps() {
+    if (gpsActive) {
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+      setGpsActive(false);
+      setLiveLocation(null);
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGpsError("Esse navegador/dispositivo não tem suporte a GPS.");
+      return;
+    }
+    setGpsError("");
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => setLiveLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => setGpsError(err.message || "Não foi possível obter sua localização. Confira se o navegador tem permissão de GPS."),
+      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+    );
+    setGpsActive(true);
+  }
+
+  const sortedPoints = useMemo(() => {
+    if (!liveLocation) return form.points;
+    return [...form.points].sort(
+      (a, b) => haversineMeters(liveLocation.lat, liveLocation.lng, a.lat, a.lng) - haversineMeters(liveLocation.lat, liveLocation.lng, b.lat, b.lng)
+    );
+  }, [form.points, liveLocation]);
 
   function handleMapClick(lat, lng) {
     if (readOnly) return;
@@ -2285,6 +2330,15 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
                   <Tooltip direction="top">{p.label}{p[nutrient] !== undefined && p[nutrient] !== "" ? ` · ${p[nutrient]}` : ""}</Tooltip>
                 </CircleMarker>
               ))}
+              {liveLocation && (
+                <CircleMarker
+                  center={[liveLocation.lat, liveLocation.lng]}
+                  radius={8}
+                  pathOptions={{ color: "#F5F2E8", weight: 2, fillColor: "#2E86FF", fillOpacity: 0.9 }}
+                >
+                  <Tooltip direction="top" permanent>Você está aqui</Tooltip>
+                </CircleMarker>
+              )}
             </MapContainer>
           </div>
 
@@ -2293,22 +2347,36 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
             <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
               {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
             </select>
+            {!readOnly && (
+              <GhostBtn onClick={toggleGps}>
+                <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
+              </GhostBtn>
+            )}
+            {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
           </div>
+          {gpsActive && (
+            <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+              {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-            {form.points.map((p) => (
-              <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
-                display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
-                border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
-                background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
-                color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
-              }}>
-                {p.label}
-                {!readOnly && (
-                  <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
-                )}
-              </button>
-            ))}
+            {sortedPoints.map((p) => {
+              const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
+              return (
+                <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
+                  display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
+                  border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
+                  background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
+                  color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
+                }}>
+                  {p.label}{dist !== null ? ` · ${dist}m` : ""}
+                  {!readOnly && (
+                    <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
+                  )}
+                </button>
+              );
+            })}
             {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
           </div>
 
