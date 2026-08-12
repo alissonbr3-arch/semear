@@ -2349,9 +2349,17 @@ function ndviColor(t) {
 
 function buildNdviOverlayImage(grid, bounds) {
   const { width, height, values } = grid;
-  const validValues = values.filter((v) => v !== null);
-  if (validValues.length === 0) return null;
-  const minV = Math.min(...validValues), maxV = Math.max(...validValues);
+  // Math.min/max(...array) estoura a pilha de chamadas em imagens grandes
+  // (até 512x512 = 260 mil+ pixels) — precisa somar min/max num laço comum.
+  let minV = Infinity, maxV = -Infinity, hasValid = false;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v === null) continue;
+    hasValid = true;
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+  }
+  if (!hasValid) return null;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
