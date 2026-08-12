@@ -1164,6 +1164,7 @@ export default function AgroTrackApp() {
           <SoilAnalysisPage
             field={fieldsWithMeta.find((f) => f.id === soilAnalysisEditor.fieldId)}
             data={soilAnalyses.find((s) => s.id === soilAnalysisEditor.analysisId) || null}
+            initialStep={soilAnalysisEditor.initialStep}
             onSave={(form) => { saveSoilAnalysis(form); setSoilAnalysisEditor(null); }}
             onBack={() => setSoilAnalysisEditor(null)}
           />
@@ -1287,7 +1288,7 @@ export default function AgroTrackApp() {
           <SoilAnalysesView
             soilAnalyses={soilAnalyses} fields={fieldsWithMeta} clients={clients}
             onAdd={(fieldId) => setSoilAnalysisEditor({ fieldId, analysisId: null })}
-            onEdit={(sa) => setSoilAnalysisEditor({ fieldId: sa.fieldId, analysisId: sa.id })}
+            onEdit={(sa, initialStep) => setSoilAnalysisEditor({ fieldId: sa.fieldId, analysisId: sa.id, initialStep })}
             onDelete={deleteSoilAnalysis}
           />
         )}
@@ -2582,13 +2583,13 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
+function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, onClose }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
     label: "", points: [],
     ...(data || {}),
   });
-  const [step, setStep] = useState(readOnly ? "visualizacao" : "coleta");
+  const [step, setStep] = useState(initialStep || (readOnly ? "visualizacao" : "coleta"));
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   const [nutrient, setNutrient] = useState("p");
   const [desiredV, setDesiredV] = useState(70);
@@ -3756,31 +3757,11 @@ function SoilAnalysesView({ soilAnalyses, fields, clients, onAdd, onEdit, onDele
   );
   const [selectedFieldId, setSelectedFieldId] = useState(eligibleFields[0]?.id || "");
   const [clientFilter, setClientFilter] = useState("");
-  const [showOutline, setShowOutline] = useState(true);
-  const [showPoints, setShowPoints] = useState(true);
 
   const clientOptions = useMemo(() => {
     const ids = new Set(eligibleFields.map((f) => f.clientId).filter(Boolean));
     return clients.filter((c) => ids.has(c.id));
   }, [clients, eligibleFields]);
-
-  const mapFields = useMemo(
-    () => (clientFilter ? eligibleFields.filter((f) => f.clientId === clientFilter) : eligibleFields),
-    [eligibleFields, clientFilter]
-  );
-
-  const latestAnalysisByField = useMemo(() => {
-    const map = {};
-    [...soilAnalyses].sort((a, b) => (b.date || "").localeCompare(a.date || "")).forEach((s) => {
-      if (!map[s.fieldId]) map[s.fieldId] = s;
-    });
-    return map;
-  }, [soilAnalyses]);
-
-  function openFieldAnalysis(fieldId) {
-    const latest = latestAnalysisByField[fieldId];
-    if (latest) onEdit(latest); else onAdd(fieldId);
-  }
 
   const list = useMemo(() => {
     return [...soilAnalyses]
@@ -3820,87 +3801,40 @@ function SoilAnalysesView({ soilAnalyses, fields, clients, onAdd, onEdit, onDele
         </div>
       )}
 
-      {eligibleFields.length > 0 && (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Mapa geral</div>
-            <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-              <select style={{ ...inputStyle, width: 200 }} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
-                <option value="">Todos os clientes</option>
-                {clientOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "#D6D3C7", cursor: "pointer" }}>
-                <input type="checkbox" checked={showOutline} onChange={(e) => setShowOutline(e.target.checked)} /> Contorno de talhão
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "#D6D3C7", cursor: "pointer" }}>
-                <input type="checkbox" checked={showPoints} onChange={(e) => setShowPoints(e.target.checked)} /> Pontos de solo
-              </label>
-            </div>
-          </div>
-          {mapFields.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum talhão pra esse filtro.</div>
-          ) : (
-            <div style={{ height: 420, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25" }}>
-              <MapContainer
-                bounds={mapFields.flatMap((f) => f.fieldMap.points.map(([lat, lng]) => [lat, lng]))}
-                boundsOptions={{ padding: [24, 24] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom
-              >
-                <TileLayer
-                  attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
-                  url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                  maxZoom={19}
-                />
-                {mapFields.map((f) => {
-                  const positions = f.fieldMap.points.map(([lat, lng]) => [lat, lng]);
-                  const latest = latestAnalysisByField[f.id];
-                  return (
-                    <React.Fragment key={f.id}>
-                      {showOutline && (
-                        <Polygon
-                          positions={positions}
-                          pathOptions={{ color: "#7BC142", weight: 1.5, fillColor: "#7BC142", fillOpacity: 0.08 }}
-                          eventHandlers={{ click: () => openFieldAnalysis(f.id) }}
-                        >
-                          <Tooltip permanent direction="center" className="field-map-label">{f.name}</Tooltip>
-                        </Polygon>
-                      )}
-                      {showPoints && latest && latest.points.map((p) => (
-                        <CircleMarker
-                          key={p.id}
-                          center={[p.lat, p.lng]}
-                          radius={5}
-                          pathOptions={{ color: "#0E1310", weight: 1.5, fillColor: "#E3B455", fillOpacity: 0.9 }}
-                          eventHandlers={{ click: () => openFieldAnalysis(f.id) }}
-                        >
-                          <Tooltip direction="top">{f.name} · {p.label}</Tooltip>
-                        </CircleMarker>
-                      ))}
-                    </React.Fragment>
-                  );
-                })}
-              </MapContainer>
-            </div>
-          )}
+      {clientOptions.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <select style={{ ...inputStyle, width: 220 }} value={clientFilter} onChange={(e) => setClientFilter(e.target.value)}>
+            <option value="">Todos os clientes</option>
+            {clientOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
         </div>
       )}
 
       {list.length === 0 ? (
         <EmptyState icon={FlaskConical} title="Nenhuma análise de solo registrada" sub="Escolha um talhão acima e registre a primeira coleta georreferenciada." />
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {list.map((s) => (
-            <div key={s.id} onClick={() => onEdit(s)} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer" }}>
-              <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11, marginBottom: 8 }}>
-                {s.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {s.propertyName} · {s.fieldName}</span>
+            <div key={s.id} style={{
+              background: "#161D19", border: "1px solid #232B25", borderRadius: 10, padding: "12px 16px",
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap",
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11, marginBottom: 4 }}>
+                  {s.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {s.propertyName} · {s.fieldName}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 9.5, color: "#9BA298", flexWrap: "wrap" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}><FlaskConical size={12} color="#7BC142" /> {s.label || fmtDate(s.date)}</span>
+                  <span>{fmtDate(s.date)}</span>
+                  <span>{s.points.length} ponto(s) coletado(s)</span>
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
-                <FlaskConical size={13} color="#7BC142" />
-                <span style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{s.label || fmtDate(s.date)}</span>
-              </div>
-              <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>{fmtDate(s.date)} · {s.points.length} ponto(s) coletado(s)</div>
-              <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => onEdit(s)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
-                <button onClick={() => { if (confirm(`Remover a análise "${s.label || fmtDate(s.date)}"?`)) onDelete(s.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <GhostBtn onClick={() => onAdd(s.fieldId)}><Plus size={13} /> Criar</GhostBtn>
+                <GhostBtn onClick={() => onEdit(s, "coleta")}><Pencil size={13} /> Editar</GhostBtn>
+                <GhostBtn onClick={() => onEdit(s, "visualizacao")}><Microscope size={13} /> Visualizar</GhostBtn>
+                <GhostBtn onClick={() => onEdit(s, "insumos")}><FlaskConical size={13} /> Recomendação</GhostBtn>
+                <button onClick={() => { if (confirm(`Remover a análise "${s.label || fmtDate(s.date)}"?`)) onDelete(s.id); }} style={iconBtnStyle}><Trash2 size={13} /></button>
               </div>
             </div>
           ))}
