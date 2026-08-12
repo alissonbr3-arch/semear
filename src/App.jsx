@@ -2082,6 +2082,13 @@ function mapSoilColumns(headerRow) {
     const idx = normalized.findIndex((h) => aliases.includes(h));
     if (idx !== -1) mapping[key] = idx;
   });
+  // Quase todo laudo de laboratório traz o identificador do ponto na
+  // primeira coluna, mesmo quando o cabeçalho usa um nome que não está na
+  // nossa lista de sinônimos — usa a coluna 0 como último recurso em vez de
+  // simplesmente falhar a importação inteira por causa do nome de uma coluna.
+  if (mapping.label === undefined && headerRow.length > 0 && normalized[0] !== "") {
+    mapping.label = 0;
+  }
   return mapping;
 }
 
