@@ -1016,6 +1016,7 @@ export default function AgroTrackApp() {
     { id: "talhoes", label: "Talhões", icon: Sprout },
     { id: "agenda", label: "Agenda", icon: Calendar },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
+    { id: "solo", label: "Análise de Solo", icon: FlaskConical },
     { id: "equipe", label: "Equipe", icon: UserCog },
     { id: "atividade", label: "Atividade", icon: History },
     ...(isFinance ? [{ id: "financeiro", label: "Financeiro", icon: Wallet }] : []),
@@ -1259,6 +1260,15 @@ export default function AgroTrackApp() {
             onEdit={(v) => setModal({ type: "visit", data: v })}
             onDelete={deleteVisit}
             hasHarvests={harvests.length > 0}
+          />
+        )}
+
+        {view === "solo" && (
+          <SoilAnalysesView
+            soilAnalyses={soilAnalyses} fields={fieldsWithMeta}
+            onAdd={(fieldId) => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === fieldId), analysis: null } })}
+            onEdit={(sa) => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === sa.fieldId), analysis: sa } })}
+            onDelete={deleteSoilAnalysis}
           />
         )}
 
@@ -2770,6 +2780,74 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
                   ))}
                 </div>
               )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SoilAnalysesView({ soilAnalyses, fields, onAdd, onEdit, onDelete }) {
+  const eligibleFields = useMemo(
+    () => fields.filter((f) => f.fieldMap?.mode === "kml" && f.fieldMap.points?.length >= 3),
+    [fields]
+  );
+  const [selectedFieldId, setSelectedFieldId] = useState(eligibleFields[0]?.id || "");
+
+  const list = useMemo(() => {
+    return [...soilAnalyses].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((s) => {
+      const field = fields.find((f) => f.id === s.fieldId);
+      return {
+        ...s,
+        fieldName: field?.name || "(talhão removido)",
+        propertyName: field?.propertyName || "—",
+        clientName: field?.clientName || "—",
+      };
+    });
+  }, [soilAnalyses, fields]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Análise de Solo</h2>
+          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Amostragem georreferenciada por talhão</p>
+        </div>
+        {eligibleFields.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <select style={{ ...inputStyle, width: 260 }} value={selectedFieldId} onChange={(e) => setSelectedFieldId(e.target.value)}>
+              {eligibleFields.map((f) => <option key={f.id} value={f.id}>{f.clientName} · {f.propertyName} · {f.name}</option>)}
+            </select>
+            <PrimaryBtn onClick={() => onAdd(selectedFieldId)}><Plus size={16} /> Nova análise</PrimaryBtn>
+          </div>
+        )}
+      </div>
+
+      {eligibleFields.length === 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+          <AlertTriangle size={15} /> Nenhum talhão com área definida por KML ainda — defina a área de um talhão nesse formato pra habilitar a amostragem de solo nele.
+        </div>
+      )}
+
+      {list.length === 0 ? (
+        <EmptyState icon={FlaskConical} title="Nenhuma análise de solo registrada" sub="Escolha um talhão acima e registre a primeira coleta georreferenciada." />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
+          {list.map((s) => (
+            <div key={s.id} onClick={() => onEdit(s)} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer" }}>
+              <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11, marginBottom: 8 }}>
+                {s.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {s.propertyName} · {s.fieldName}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                <FlaskConical size={13} color="#7BC142" />
+                <span style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{s.label || fmtDate(s.date)}</span>
+              </div>
+              <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>{fmtDate(s.date)} · {s.points.length} ponto(s) coletado(s)</div>
+              <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => onEdit(s)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
+                <button onClick={() => { if (confirm(`Remover a análise "${s.label || fmtDate(s.date)}"?`)) onDelete(s.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
+              </div>
             </div>
           ))}
         </div>
