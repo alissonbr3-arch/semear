@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -2226,6 +2226,8 @@ function limeNeedTonPerHa(point, desiredV) {
   return Math.max(0, (ctc * (desiredV - v)) / 100);
 }
 
+const WHITE_TILE_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAADklEQVR42mP4DwYMEAoAU7oL9YXEbhEAAAAASUVORK5CYII=";
+
 function MapClickCapture({ onClick }) {
   useMapEvents({ click(e) { onClick(e.latlng.lat, e.latlng.lng); } });
   return null;
@@ -2613,6 +2615,7 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   const [ndviShowLayer, setNdviShowLayer] = useState(true);
   const [ndviDateTo, setNdviDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [ndviDateFrom, setNdviDateFrom] = useState(() => new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10));
+  const [overlayOpacity, setOverlayOpacity] = useState(0.65);
   const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
@@ -2838,15 +2841,29 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
 
   const mapEl = bounds && (
     <MapContainer bounds={bounds} boundsOptions={{ padding: [16, 16] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-      <TileLayer
-        attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
-        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        maxZoom={19}
-      />
+      <LayersControl position="topright">
+        <LayersControl.BaseLayer checked name="Satélite">
+          <TileLayer
+            attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={19}
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Ruas">
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            maxZoom={19}
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Branco">
+          <TileLayer attribution="" url={WHITE_TILE_URL} maxZoom={19} />
+        </LayersControl.BaseLayer>
+      </LayersControl>
       <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
-      {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
+      {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={overlayOpacity} />}
       {step === "coleta" && ndviShowLayer && !ndviZones && ndviOverlay && (
-        <ImageOverlay url={ndviOverlay.dataUrl} bounds={ndviOverlay.bounds} opacity={0.75} />
+        <ImageOverlay url={ndviOverlay.dataUrl} bounds={ndviOverlay.bounds} opacity={overlayOpacity} />
       )}
       {step === "coleta" && ndviShowLayer && ndviZones && ndviZones.zones.map((zone) => {
         const t = ndviZones.zones.length > 1 ? zone.classIndex / (ndviZones.zones.length - 1) : 0.5;
@@ -2857,7 +2874,7 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
               <Polygon
                 key={i}
                 positions={polyRings[0].map(([lng, lat]) => [lat, lng])}
-                pathOptions={{ color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: 0.55 }}
+                pathOptions={{ color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: overlayOpacity }}
               />
             ))}
           </React.Fragment>
@@ -2914,6 +2931,19 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
         <span>{heatOverlay.minV.toFixed(1)}</span>
         <span>{heatOverlay.maxV.toFixed(1)}</span>
       </div>
+    </div>
+  );
+
+  const hasColorOverlay = !!heatOverlay || (step === "coleta" && (!!ndviOverlay || !!ndviZones));
+  const opacitySliderEl = hasColorOverlay && (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <Volume2 size={14} color="#9BA298" />
+      <input
+        type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
+        onChange={(e) => setOverlayOpacity(Number(e.target.value))}
+        style={{ width: 110 }}
+        title="Transparência das cores no mapa"
+      />
     </div>
   );
 
@@ -3046,7 +3076,8 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
       <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "#0E1310", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #232B25", flexShrink: 0, gap: 8, flexWrap: "wrap" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#F2F0E6" }}>{form.label || fmtDate(form.date)}</div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+            {opacitySliderEl}
             {!readOnly && <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>}
             <GhostBtn onClick={() => setFullscreen(false)}><X size={14} /> Sair da tela cheia</GhostBtn>
           </div>
@@ -3205,7 +3236,8 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
             <div style={{ marginBottom: 12 }}>{stepControlsEl}</div>
           )}
 
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
+            <div>{opacitySliderEl}</div>
             <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
           </div>
           <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14, position: "relative" }}>
