@@ -121,9 +121,9 @@ export async function fetchBBExtrato({ dataInicio, dataFim } = {}) {
   return callNetlifyFunction(`bb-extrato${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
 
-export async function fetchNdvi({ bbox, days } = {}) {
+export async function fetchNdvi({ bbox, dateFrom, dateTo } = {}) {
   return callNetlifyFunction("sentinel-ndvi", {
     method: "POST",
-    body: JSON.stringify({ bbox, days }),
+    body: JSON.stringify({ bbox, dateFrom, dateTo }),
   });
 }

@@ -87,7 +87,7 @@ export const handler = async (event) => {
     return json({ error: "Corpo da requisição inválido." }, 400);
   }
 
-  const { bbox, days } = body;
+  const { bbox, dateFrom, dateTo } = body;
   if (!Array.isArray(bbox) || bbox.length !== 4 || bbox.some((n) => typeof n !== "number")) {
     return json({ error: "bbox inválido — esperado [minLng, minLat, maxLng, maxLat]." }, 400);
   }
@@ -105,8 +105,11 @@ export const handler = async (event) => {
     width = Math.max(32, Math.round(maxDim * (widthDeg / heightDeg)));
   }
 
-  const to = new Date();
-  const from = new Date(to.getTime() - (Number(days) || 45) * 86400000);
+  const to = dateTo ? new Date(`${dateTo}T23:59:59Z`) : new Date();
+  const from = dateFrom ? new Date(`${dateFrom}T00:00:00Z`) : new Date(to.getTime() - 45 * 86400000);
+  if (Number.isNaN(to.getTime()) || Number.isNaN(from.getTime()) || from >= to) {
+    return json({ error: "Período inválido — confira as datas de início e fim." }, 400);
+  }
 
   try {
     const token = await getAccessToken();

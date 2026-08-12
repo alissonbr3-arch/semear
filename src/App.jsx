@@ -2606,10 +2606,13 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   const [ndviError, setNdviError] = useState("");
   const [ndviGrid, setNdviGrid] = useState(null);
   const [ndviOverlay, setNdviOverlay] = useState(null);
+  const [ndviDateRangeUsed, setNdviDateRangeUsed] = useState(null);
   const [ndviZones, setNdviZones] = useState(null);
   const [ndviNumClasses, setNdviNumClasses] = useState(4);
   const [ndviPointsPerZone, setNdviPointsPerZone] = useState(2);
   const [ndviShowLayer, setNdviShowLayer] = useState(true);
+  const [ndviDateTo, setNdviDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ndviDateFrom, setNdviDateFrom] = useState(() => new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10));
   const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
@@ -2718,34 +2721,43 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
     }
   }
 
-  async function handleFetchNdvi() {
+  async function handleFetchNdviPreview() {
     setNdviError("");
     setNdviLoading(true);
     setNdviZones(null);
     setNdviOverlay(null);
     setNdviGrid(null);
+    setNdviDateRangeUsed(null);
     try {
+      if (ndviDateFrom && ndviDateTo && ndviDateFrom >= ndviDateTo) {
+        setNdviError("A data de início precisa ser antes da data de fim.");
+        return;
+      }
       const lats = polygon.map((p) => p[0]);
       const lngs = polygon.map((p) => p[1]);
       const bbox = [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
-      const r = await fetchNdvi({ bbox });
+      const r = await fetchNdvi({ bbox, dateFrom: ndviDateFrom, dateTo: ndviDateTo });
       if (r.error) { setNdviError(r.error); return; }
-      const { image, bounds: imgBounds, width, height } = r.data;
+      const { image, bounds: imgBounds, width, height, dateRange } = r.data;
       const grid = await decodeNdviGrid(image, width, height);
       const overlay = buildNdviOverlayImage(grid, imgBounds);
       if (!overlay) {
-        setNdviError("A imagem voltou sem nenhum pixel válido (provavelmente nuvem cobrindo o talhão no período). Tenta de novo mais tarde.");
+        setNdviError("A imagem voltou sem nenhum pixel válido (provavelmente nuvem cobrindo o talhão o período todo). Tenta um período diferente.");
         return;
       }
       setNdviGrid({ grid, bounds: imgBounds });
       setNdviOverlay(overlay);
-      const classification = classifyNdviZones(polygon, imgBounds, grid, ndviNumClasses);
-      setNdviZones(classification);
+      setNdviDateRangeUsed(dateRange);
     } catch (e) {
       setNdviError(e.message || "Não consegui buscar a imagem NDVI.");
     } finally {
       setNdviLoading(false);
     }
+  }
+
+  function handleClassifyNdvi() {
+    if (!ndviGrid) return;
+    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, ndviNumClasses));
   }
 
   function handleReclassifyNdvi(newNumClasses) {
@@ -3121,29 +3133,50 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
 
               <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12, marginBottom: 12 }}>
                 <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>
-                  Zonas por NDVI (Sentinel-2, via Copernicus) — busca a imagem de satélite mais recente do talhão e classifica em zonas de vigor da vegetação, pra usar como base do grid ou exportar direto.
+                  Zonas por NDVI (Sentinel-2, via Copernicus) — escolhe um período, busca uma prévia da imagem de satélite (pra conferir se a cultura já está estabelecida e se não tem nuvem cobrindo) e só depois classifica em zonas de vigor.
                 </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: ndviZones ? 10 : 0 }}>
-                  <GhostBtn onClick={handleFetchNdvi} disabled={ndviLoading}>{ndviLoading ? "Buscando…" : "Buscar imagem NDVI"}</GhostBtn>
-                  {ndviZones && (
-                    <>
-                      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Zonas:</span>
-                      <input
-                        type="number" min="2" max="8" step="1" style={{ ...inputStyle, width: 60 }}
-                        value={ndviNumClasses} onChange={(e) => handleReclassifyNdvi(Number(e.target.value) || 4)}
-                      />
-                      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Pontos/zona:</span>
-                      <input
-                        type="number" min="1" max="10" step="1" style={{ ...inputStyle, width: 60 }}
-                        value={ndviPointsPerZone} onChange={(e) => setNdviPointsPerZone(e.target.value)}
-                      />
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "#D6D3C7", cursor: "pointer" }}>
-                        <input type="checkbox" checked={ndviShowLayer} onChange={(e) => setNdviShowLayer(e.target.checked)} /> Mostrar no mapa
-                      </label>
-                    </>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                  <span style={{ fontSize: 9.5, color: "#9BA298" }}>De:</span>
+                  <input type="date" style={{ ...inputStyle, width: 140 }} value={ndviDateFrom} onChange={(e) => setNdviDateFrom(e.target.value)} />
+                  <span style={{ fontSize: 9.5, color: "#9BA298" }}>até:</span>
+                  <input type="date" style={{ ...inputStyle, width: 140 }} value={ndviDateTo} onChange={(e) => setNdviDateTo(e.target.value)} />
+                  <GhostBtn onClick={handleFetchNdviPreview} disabled={ndviLoading}>{ndviLoading ? "Buscando…" : "Buscar prévia NDVI"}</GhostBtn>
+                  {ndviGrid && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "#D6D3C7", cursor: "pointer" }}>
+                      <input type="checkbox" checked={ndviShowLayer} onChange={(e) => setNdviShowLayer(e.target.checked)} /> Mostrar no mapa
+                    </label>
                   )}
                 </div>
-                {ndviError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: ndviZones ? 10 : 0 }}>{ndviError}</div>}
+                {ndviError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{ndviError}</div>}
+                {ndviDateRangeUsed && (
+                  <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 10 }}>
+                    Imagem buscada entre {fmtDate(ndviDateRangeUsed.from)} e {fmtDate(ndviDateRangeUsed.to)} (menos nuvem disponível no período) — confira no mapa se a lavoura já estava instalada e se não tem nuvem cobrindo antes de classificar.
+                  </div>
+                )}
+                {ndviGrid && !ndviZones && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Zonas:</span>
+                    <input
+                      type="number" min="2" max="8" step="1" style={{ ...inputStyle, width: 60 }}
+                      value={ndviNumClasses} onChange={(e) => setNdviNumClasses(Number(e.target.value) || 4)}
+                    />
+                    <PrimaryBtn onClick={handleClassifyNdvi}>Classificar em zonas</PrimaryBtn>
+                  </div>
+                )}
+                {ndviZones && (
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Zonas:</span>
+                    <input
+                      type="number" min="2" max="8" step="1" style={{ ...inputStyle, width: 60 }}
+                      value={ndviNumClasses} onChange={(e) => handleReclassifyNdvi(Number(e.target.value) || 4)}
+                    />
+                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Pontos/zona:</span>
+                    <input
+                      type="number" min="1" max="10" step="1" style={{ ...inputStyle, width: 60 }}
+                      value={ndviPointsPerZone} onChange={(e) => setNdviPointsPerZone(e.target.value)}
+                    />
+                  </div>
+                )}
                 {ndviZones && ndviZones.zones.length > 0 && (
                   <>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
