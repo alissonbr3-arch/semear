@@ -2528,7 +2528,11 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
                 <div style={{ fontSize: 9.5, color: "#9BA298", flex: "1 1 260px" }}>
                   Importar resultados de planilha (XLSX/XLS/CSV) — precisa de uma coluna com o nome do ponto (igual ao rótulo do mapa, ex: "P1") e colunas com os nutrientes.
                 </div>
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => e.target.files[0] && handleImportFile(e.target.files[0])} style={{ fontSize: 10.5, color: "#D6D3C7" }} />
+                <input
+                  type="file" accept=".xlsx,.xls,.csv"
+                  onChange={(e) => { if (e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value = ""; }}
+                  style={{ fontSize: 10.5, color: "#D6D3C7" }}
+                />
               </div>
               {importSummary && <div style={{ fontSize: 9.5, color: "#7BC142", marginBottom: 10 }}>{importSummary}</div>}
               {importError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{importError}</div>}
