@@ -2255,6 +2255,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
     label: "", points: [],
     ...(data || {}),
   });
+  const [step, setStep] = useState(readOnly ? "visualizacao" : "coleta");
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   const [nutrient, setNutrient] = useState("p");
   const [desiredV, setDesiredV] = useState(70);
@@ -2272,6 +2273,12 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
   const bounds = polygon.length >= 3 ? polygon.map(([lat, lng]) => [lat, lng]) : null;
+
+  function switchStep(next) {
+    setStep(next);
+    if (next === "insumos" && !isLimeMode) setNutrient("nc_calcario");
+    if (next === "visualizacao" && isLimeMode) setNutrient("p");
+  }
 
   useEffect(() => {
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
@@ -2306,7 +2313,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   }, [form.points, liveLocation]);
 
   function handleMapClick(lat, lng) {
-    if (readOnly) return;
+    if (readOnly || step !== "coleta") return;
     const label = `P${form.points.length + 1}`;
     const point = { id: uid(), lat, lng, label };
     setForm((f) => ({ ...f, points: [...f.points, point] }));
@@ -2380,14 +2387,16 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   }
 
   const selectedPoint = form.points.find((p) => p.id === selectedPointId);
+  const showHeatMap = step !== "coleta";
   const pointValue = (p) => (isLimeMode ? limeNeedTonPerHa(p, Number(desiredV)) : p[nutrient] !== undefined && p[nutrient] !== "" ? Number(p[nutrient]) : null);
   const heatOverlay = useMemo(() => {
+    if (!showHeatMap) return null;
     if (isLimeMode) {
       const withLime = form.points.map((p) => ({ ...p, __lime: limeNeedTonPerHa(p, Number(desiredV)) }));
       return buildHeatOverlay(polygon, withLime, "__lime");
     }
     return buildHeatOverlay(polygon, form.points, nutrient);
-  }, [polygon, form.points, nutrient, isLimeMode, desiredV]);
+  }, [polygon, form.points, nutrient, isLimeMode, desiredV, showHeatMap]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
   const mapEl = bounds && (
@@ -2399,7 +2408,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
       />
       <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
       {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
-      {!readOnly && <MapClickCapture onClick={handleMapClick} />}
+      {!readOnly && step === "coleta" && <MapClickCapture onClick={handleMapClick} />}
       {form.points.map((p) => {
         const val = pointValue(p);
         const hasValue = val !== null && !Number.isNaN(val);
@@ -2453,94 +2462,116 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
     </div>
   );
 
-  const controlsEl = (
+  const coletaControlsEl = (
     <>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: !fullscreen || detailsOpen ? 12 : 0, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 9.5, color: "#9BA298" }}>Ver no mapa:</span>
-        <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          <optgroup label="Resultado de laboratório">
-            {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
-          </optgroup>
-          <optgroup label="Recomendação de insumo">
-            <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
-          </optgroup>
-        </select>
-        {isLimeMode && (
-          <>
-            <span style={{ fontSize: 9.5, color: "#9BA298" }}>V% desejado:</span>
-            <input
-              type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
-              value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
-            />
-          </>
-        )}
-        {fullscreen && (
-          <GhostBtn onClick={() => setDetailsOpen((v) => !v)}>
-            {detailsOpen ? "Ocultar controles" : "Mais controles"}
+      {!readOnly && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+          <GhostBtn onClick={toggleGps}>
+            <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
           </GhostBtn>
-        )}
+          {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
+        </div>
+      )}
+      {gpsActive && (
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+          {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {sortedPoints.map((p) => {
+          const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
+          return (
+            <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
+              display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
+              border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
+              background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
+              color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
+            }}>
+              {p.label}{dist !== null ? ` · ${dist}m` : ""}
+              {!readOnly && (
+                <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
+              )}
+            </button>
+          );
+        })}
+        {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
       </div>
 
-      {(!fullscreen || detailsOpen) && (
-        <>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-            {!readOnly && (
-              <GhostBtn onClick={toggleGps}>
-                <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
-              </GhostBtn>
-            )}
-            {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
-          </div>
-          {gpsActive && (
-            <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
-              {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
-            </div>
-          )}
-
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-            {sortedPoints.map((p) => {
-              const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
-              return (
-                <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
-                  display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
-                  border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
-                  background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
-                  color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
-                }}>
-                  {p.label}{dist !== null ? ` · ${dist}m` : ""}
-                  {!readOnly && (
-                    <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
-                  )}
-                </button>
-              );
-            })}
-            {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
-          </div>
-
-          {selectedPoint && (
-            <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
-                {SOIL_NUTRIENTS.map((n) => (
-                  <div key={n.key}>
-                    <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
-                    {readOnly ? (
-                      <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
-                    ) : (
-                      <input
-                        type="number" style={inputStyle}
-                        value={selectedPoint[n.key] ?? ""}
-                        onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
-                      />
-                    )}
-                  </div>
-                ))}
+      {selectedPoint && (
+        <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+            {SOIL_NUTRIENTS.map((n) => (
+              <div key={n.key}>
+                <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                {readOnly ? (
+                  <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
+                ) : (
+                  <input
+                    type="number" style={inputStyle}
+                    value={selectedPoint[n.key] ?? ""}
+                    onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
+                  />
+                )}
               </div>
-            </div>
-          )}
-        </>
+            ))}
+          </div>
+        </div>
       )}
     </>
+  );
+
+  const visualizacaoControlsEl = (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Nutriente:</span>
+      <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+        {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+      </select>
+    </div>
+  );
+
+  const insumosControlsEl = (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Insumo:</span>
+      <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+        <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
+      </select>
+      {isLimeMode && (
+        <>
+          <span style={{ fontSize: 9.5, color: "#9BA298" }}>Saturação de bases (V%) desejada:</span>
+          <input
+            type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
+            value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
+          />
+        </>
+      )}
+    </div>
+  );
+
+  const stepControlsEl = step === "coleta" ? coletaControlsEl : step === "visualizacao" ? visualizacaoControlsEl : insumosControlsEl;
+
+  const tabsEl = bounds && (
+    <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+      {[
+        { id: "coleta", label: "1. Importação e coleta", icon: ClipboardList },
+        { id: "visualizacao", label: "2. Visualização", icon: Microscope },
+        { id: "insumos", label: "3. Recomendação de insumos", icon: FlaskConical },
+      ].map((t) => {
+        const Icon = t.icon;
+        const active = step === t.id;
+        return (
+          <button key={t.id} onClick={() => switchStep(t.id)} style={{
+            display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 20,
+            border: "1px solid " + (active ? "#1E4A20" : "#232B25"),
+            background: active ? "#1E4A20" : "#161D19", color: active ? "#F5F2E8" : "#D6D3C7",
+            fontSize: 10, fontWeight: 600, cursor: "pointer",
+          }}>
+            <Icon size={14} /> {t.label}
+          </button>
+        );
+      })}
+    </div>
   );
 
   if (fullscreen && bounds) {
@@ -2553,9 +2584,21 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
             <GhostBtn onClick={() => setFullscreen(false)}><X size={14} /> Sair da tela cheia</GhostBtn>
           </div>
         </div>
+        <div style={{ padding: "10px 16px 0" }}>{tabsEl}</div>
         <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}{legendEl}</div>
         <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid #232B25" }}>
-          {controlsEl}
+          {step === "coleta" ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: detailsOpen ? 12 : 0 }}>
+                <GhostBtn onClick={() => setDetailsOpen((v) => !v)}>
+                  {detailsOpen ? "Ocultar controles" : "Mais controles"}
+                </GhostBtn>
+              </div>
+              {detailsOpen && coletaControlsEl}
+            </>
+          ) : (
+            stepControlsEl
+          )}
         </div>
       </div>
     );
@@ -2590,7 +2633,9 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
         </div>
       ) : (
         <>
-          {!readOnly && (
+          {tabsEl}
+
+          {step === "coleta" && !readOnly && (
             <>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 12, flexWrap: "wrap", background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12 }}>
                 <div style={{ width: 170 }}>
@@ -2618,6 +2663,11 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
               {importError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{importError}</div>}
             </>
           )}
+
+          {step !== "coleta" && (
+            <div style={{ marginBottom: 12 }}>{stepControlsEl}</div>
+          )}
+
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
           </div>
@@ -2625,7 +2675,8 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
             {mapEl}
             {legendEl}
           </div>
-          {controlsEl}
+
+          {step === "coleta" && coletaControlsEl}
         </>
       )}
 
