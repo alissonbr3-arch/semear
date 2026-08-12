@@ -2316,7 +2316,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
     setImportSummary("");
     try {
       const { rows, mapping } = await parseSoilSpreadsheet(file);
-      if (!mapping.label) {
+      if (mapping.label === undefined) {
         setImportError('Não encontrei uma coluna de identificação do ponto (ex: "Ponto", "Amostra", "ID") na planilha.');
         return;
       }
