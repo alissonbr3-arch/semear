@@ -1118,6 +1118,8 @@ export default function AgroTrackApp() {
         .leaflet-control-attribution a { color: #9BA298 !important; }
         .field-map-label { background: rgba(14,19,16,0.85) !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 10px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px !important; }
         .field-map-label::before { display: none !important; }
+        .soil-value-label { background: transparent !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 8px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; padding: 0 !important; text-shadow: 0 0 3px #0E1310, 0 0 3px #0E1310, 0 0 3px #0E1310; }
+        .soil-value-label::before { display: none !important; }
       `}</style>
 
       {/* Sidebar */}
@@ -1625,6 +1627,8 @@ function ClientPortalApp({ data, error, onSignOut }) {
       .leaflet-control-attribution a { color: #9BA298 !important; }
       .field-map-label { background: rgba(14,19,16,0.85) !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 10px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px !important; }
       .field-map-label::before { display: none !important; }
+      .soil-value-label { background: transparent !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 8px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; padding: 0 !important; text-shadow: 0 0 3px #0E1310, 0 0 3px #0E1310, 0 0 3px #0E1310; }
+      .soil-value-label::before { display: none !important; }
     `}</style>
   );
 
@@ -2372,21 +2376,29 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
       <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
       {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
       {!readOnly && <MapClickCapture onClick={handleMapClick} />}
-      {form.points.map((p) => (
-        <CircleMarker
-          key={p.id}
-          center={[p.lat, p.lng]}
-          radius={selectedPointId === p.id ? 10 : 7}
-          pathOptions={{
-            color: "#0E1310", weight: selectedPointId === p.id ? 2.5 : 1.5,
-            fillColor: p[nutrient] !== undefined && p[nutrient] !== "" ? "#F2F0E6" : "#9BA298",
-            fillOpacity: 0.9,
-          }}
-          eventHandlers={{ click: () => setSelectedPointId(p.id) }}
-        >
-          <Tooltip permanent direction="top" offset={[0, -9]} className="field-map-label">{p.label}</Tooltip>
-        </CircleMarker>
-      ))}
+      {form.points.map((p) => {
+        const hasValue = p[nutrient] !== undefined && p[nutrient] !== "" && !Number.isNaN(Number(p[nutrient]));
+        const showValue = !!heatOverlay && hasValue;
+        const isSelected = selectedPointId === p.id;
+        return (
+          <CircleMarker
+            key={p.id}
+            center={[p.lat, p.lng]}
+            radius={isSelected ? 10 : showValue ? 9 : 7}
+            pathOptions={{
+              color: isSelected ? "#0E1310" : "transparent",
+              weight: isSelected ? 2.5 : 0,
+              fillColor: showValue ? "transparent" : hasValue ? "#F2F0E6" : "#9BA298",
+              fillOpacity: showValue ? 0 : 0.9,
+            }}
+            eventHandlers={{ click: () => setSelectedPointId(p.id) }}
+          >
+            <Tooltip permanent direction="top" offset={[0, showValue ? -4 : -9]} className={showValue ? "soil-value-label" : "field-map-label"}>
+              {showValue ? Number(p[nutrient]).toFixed(1) : p.label}
+            </Tooltip>
+          </CircleMarker>
+        );
+      })}
       {liveLocation && (
         <CircleMarker
           center={[liveLocation.lat, liveLocation.lng]}
@@ -2397,6 +2409,23 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
         </CircleMarker>
       )}
     </MapContainer>
+  );
+
+  const legendEl = heatOverlay && (
+    <div style={{
+      position: "absolute", bottom: 10, right: 10, zIndex: 1000,
+      background: "rgba(14,19,16,0.9)", border: "1px solid #232B25", borderRadius: 8,
+      padding: "8px 10px", fontSize: 9, color: "#D6D3C7", minWidth: 100,
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: 5, whiteSpace: "nowrap" }}>
+        {SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label}
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: "linear-gradient(to right, #D64541, #E3B455, #7BC142)", marginBottom: 4 }} />
+      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'IBM Plex Mono', monospace" }}>
+        <span>{heatOverlay.minV.toFixed(1)}</span>
+        <span>{heatOverlay.maxV.toFixed(1)}</span>
+      </div>
+    </div>
   );
 
   const controlsEl = (
@@ -2473,7 +2502,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
             <GhostBtn onClick={() => setFullscreen(false)}><X size={14} /> Sair da tela cheia</GhostBtn>
           </div>
         </div>
-        <div style={{ flex: 1, minHeight: 0 }}>{mapEl}</div>
+        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}{legendEl}</div>
         <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid #232B25" }}>
           {controlsEl}
         </div>
@@ -2541,8 +2570,9 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
             <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
           </div>
-          <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14 }}>
+          <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14, position: "relative" }}>
             {mapEl}
+            {legendEl}
           </div>
           {controlsEl}
         </>
