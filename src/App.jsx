@@ -11,14 +11,14 @@ import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Delaunay } from "d3-delaunay";
-import { intersection } from "martinez-polygon-clipping";
+import { intersection, union } from "martinez-polygon-clipping";
 import shpwrite from "@mapbox/shp-write";
 import { safeGet, safeSet } from "./lib/storage.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole, fetchBBExtrato
+  setTeamRole, fetchBBExtrato, fetchNdvi
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 
@@ -2284,11 +2284,8 @@ function buildVoronoiPrescriptionGeoJSON(fieldPolygonLatLng, points, valueFieldN
   return { type: "FeatureCollection", features };
 }
 
-async function downloadPrescriptionShapefile(field, points, valueFieldName, getValue, fileNamePrefix) {
-  const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
-  if (polygon.length < 3) throw new Error("Esse talhão não tem área definida por KML.");
-  const geojson = buildVoronoiPrescriptionGeoJSON(polygon, points, valueFieldName, getValue);
-  if (geojson.features.length === 0) throw new Error("Nenhum ponto com valor pra exportar nesse mapa.");
+async function downloadShapefileZip(geojson, fileNamePrefix, field) {
+  if (geojson.features.length === 0) throw new Error("Nada pra exportar nesse mapa.");
   const blob = await shpwrite.zip(geojson, { outputType: "blob", compression: "DEFLATE", types: { polygon: "zonas" } });
   const safeName = `${fileNamePrefix}_${field.name}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
   const url = URL.createObjectURL(blob);
@@ -2299,6 +2296,167 @@ async function downloadPrescriptionShapefile(field, points, valueFieldName, getV
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+async function downloadPrescriptionShapefile(field, points, valueFieldName, getValue, fileNamePrefix) {
+  const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
+  if (polygon.length < 3) throw new Error("Esse talhão não tem área definida por KML.");
+  const geojson = buildVoronoiPrescriptionGeoJSON(polygon, points, valueFieldName, getValue);
+  await downloadShapefileZip(geojson, fileNamePrefix, field);
+}
+
+// NDVI: converte a imagem em tons de cinza (0=NDVI -1, 255=NDVI +1) devolvida
+// pela função sentinel-ndvi numa grade de valores de NDVI, decodificando via
+// canvas. Pixel com alfa baixo = sem dado válido (nuvem, fora da cena).
+function decodeNdviGrid(dataUrl, width, height) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error("Não consegui decodificar a imagem NDVI recebida."));
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      const imgData = ctx.getImageData(0, 0, width, height);
+      const values = new Array(width * height);
+      for (let i = 0; i < width * height; i++) {
+        const idx = i * 4;
+        if (imgData.data[idx + 3] < 128) { values[i] = null; continue; }
+        values[i] = imgData.data[idx] / 127.5 - 1;
+      }
+      resolve({ width, height, values });
+    };
+    img.src = dataUrl;
+  });
+}
+
+function ndviColor(t) {
+  const stops = [[0, [166, 97, 26]], [0.5, [223, 194, 125]], [1, [26, 152, 80]]];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [t0, c0] = stops[i], [t1, c1] = stops[i + 1];
+    if (t >= t0 && t <= t1) {
+      const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+      return [
+        Math.round(c0[0] + f * (c1[0] - c0[0])),
+        Math.round(c0[1] + f * (c1[1] - c0[1])),
+        Math.round(c0[2] + f * (c1[2] - c0[2])),
+      ];
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+function buildNdviOverlayImage(grid, bounds) {
+  const { width, height, values } = grid;
+  const validValues = values.filter((v) => v !== null);
+  if (validValues.length === 0) return null;
+  const minV = Math.min(...validValues), maxV = Math.max(...validValues);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.createImageData(width, height);
+  for (let i = 0; i < values.length; i++) {
+    const idx = i * 4;
+    const v = values[i];
+    if (v === null) { imgData.data[idx + 3] = 0; continue; }
+    const t = maxV > minV ? (v - minV) / (maxV - minV) : 0.5;
+    const [r, g, b] = ndviColor(t);
+    imgData.data[idx] = r; imgData.data[idx + 1] = g; imgData.data[idx + 2] = b; imgData.data[idx + 3] = 210;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return { dataUrl: canvas.toDataURL(), bounds, minV, maxV };
+}
+
+// Classifica o talhão em zonas de manejo a partir do NDVI: amostra uma grade
+// grossa de células sobre a imagem, agrupa cada célula numa classe por
+// quantil, recorta pelo limite real do talhão e funde (union) as células
+// vizinhas da mesma classe num polígono só por zona.
+function classifyNdviZones(fieldPolygonLatLng, bounds, grid, numClasses) {
+  const [[minLat, minLng], [maxLat, maxLng]] = bounds;
+  const { width, height, values } = grid;
+  const cellsPerSide = 12;
+  const cellW = (maxLng - minLng) / cellsPerSide;
+  const cellH = (maxLat - minLat) / cellsPerSide;
+  const fieldMultiPoly = [[toGeoJsonRing(fieldPolygonLatLng)]];
+
+  function sampleAt(lat, lng) {
+    const px = Math.floor(((lng - minLng) / (maxLng - minLng)) * width);
+    const py = Math.floor(((maxLat - lat) / (maxLat - minLat)) * height);
+    if (px < 0 || px >= width || py < 0 || py >= height) return null;
+    return values[py * width + px];
+  }
+
+  const cellData = [];
+  for (let r = 0; r < cellsPerSide; r++) {
+    for (let c = 0; c < cellsPerSide; c++) {
+      const cellMinLng = minLng + c * cellW, cellMaxLng = cellMinLng + cellW;
+      const cellMinLat = minLat + r * cellH, cellMaxLat = cellMinLat + cellH;
+      const val = sampleAt((cellMinLat + cellMaxLat) / 2, (cellMinLng + cellMaxLng) / 2);
+      if (val === null) continue;
+      cellData.push({ cellMinLng, cellMaxLng, cellMinLat, cellMaxLat, val });
+    }
+  }
+  if (cellData.length === 0) return { zones: [], breaks: [] };
+
+  const sortedVals = cellData.map((c) => c.val).sort((a, b) => a - b);
+  const breaks = [];
+  for (let i = 1; i < numClasses; i++) {
+    const idx = Math.min(Math.floor((i / numClasses) * sortedVals.length), sortedVals.length - 1);
+    breaks.push(sortedVals[idx]);
+  }
+  const classify = (val) => {
+    for (let i = 0; i < breaks.length; i++) { if (val <= breaks[i]) return i; }
+    return breaks.length;
+  };
+
+  const byClass = {};
+  cellData.forEach((cell) => {
+    const cls = classify(cell.val);
+    const ring = [
+      [cell.cellMinLng, cell.cellMinLat], [cell.cellMaxLng, cell.cellMinLat],
+      [cell.cellMaxLng, cell.cellMaxLat], [cell.cellMinLng, cell.cellMaxLat], [cell.cellMinLng, cell.cellMinLat],
+    ];
+    let clipped;
+    try { clipped = intersection([[ring]], fieldMultiPoly); } catch (e) { clipped = null; }
+    if (!clipped || clipped.length === 0) return;
+    if (!byClass[cls]) byClass[cls] = { polys: [], values: [] };
+    clipped.forEach((polyRings) => byClass[cls].polys.push(polyRings));
+    byClass[cls].values.push(cell.val);
+  });
+
+  const zones = Object.entries(byClass).map(([clsStr, { polys, values: vals }]) => {
+    let unioned = polys;
+    try {
+      unioned = polys.reduce((acc, poly) => (acc ? union(acc, [poly]) : [poly]), null) || polys;
+    } catch (e) { /* mantém os polígonos não fundidos se a união falhar */ }
+    const areaHa = unioned.reduce((sum, polyRings) => {
+      const outerRing = polyRings[0].map(([lng, lat]) => ({ lat, lng }));
+      return sum + geodesicAreaHa(outerRing);
+    }, 0);
+    return {
+      classIndex: Number(clsStr),
+      ndviMin: Math.min(...vals),
+      ndviMax: Math.max(...vals),
+      ndviAvg: vals.reduce((s, v) => s + v, 0) / vals.length,
+      areaHa,
+      polygons: unioned,
+    };
+  }).sort((a, b) => a.classIndex - b.classIndex);
+
+  return { zones, breaks };
+}
+
+function generatePointsForZone(zone, targetCount) {
+  if (targetCount <= 0 || zone.areaHa <= 0) return [];
+  const hectaresPerPoint = zone.areaHa / targetCount;
+  let points = [];
+  zone.polygons.forEach((polyRings) => {
+    const outerRing = polyRings[0].map(([lng, lat]) => [lat, lng]);
+    points = points.concat(generateSamplingGrid(outerRing, hectaresPerPoint));
+  });
+  return points;
 }
 
 function downloadSoilAnalysisPdf(field, form, desiredV) {
@@ -2436,6 +2594,14 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [importSummary, setImportSummary] = useState("");
   const [importError, setImportError] = useState("");
+  const [ndviLoading, setNdviLoading] = useState(false);
+  const [ndviError, setNdviError] = useState("");
+  const [ndviGrid, setNdviGrid] = useState(null);
+  const [ndviOverlay, setNdviOverlay] = useState(null);
+  const [ndviZones, setNdviZones] = useState(null);
+  const [ndviNumClasses, setNdviNumClasses] = useState(4);
+  const [ndviPointsPerZone, setNdviPointsPerZone] = useState(2);
+  const [ndviShowLayer, setNdviShowLayer] = useState(true);
   const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
@@ -2544,6 +2710,76 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
     }
   }
 
+  async function handleFetchNdvi() {
+    setNdviError("");
+    setNdviLoading(true);
+    setNdviZones(null);
+    setNdviOverlay(null);
+    setNdviGrid(null);
+    try {
+      const lats = polygon.map((p) => p[0]);
+      const lngs = polygon.map((p) => p[1]);
+      const bbox = [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
+      const r = await fetchNdvi({ bbox });
+      if (r.error) { setNdviError(r.error); return; }
+      const { image, bounds: imgBounds, width, height } = r.data;
+      const grid = await decodeNdviGrid(image, width, height);
+      const overlay = buildNdviOverlayImage(grid, imgBounds);
+      if (!overlay) {
+        setNdviError("A imagem voltou sem nenhum pixel válido (provavelmente nuvem cobrindo o talhão no período). Tenta de novo mais tarde.");
+        return;
+      }
+      setNdviGrid({ grid, bounds: imgBounds });
+      setNdviOverlay(overlay);
+      const classification = classifyNdviZones(polygon, imgBounds, grid, ndviNumClasses);
+      setNdviZones(classification);
+    } catch (e) {
+      setNdviError(e.message || "Não consegui buscar a imagem NDVI.");
+    } finally {
+      setNdviLoading(false);
+    }
+  }
+
+  function handleReclassifyNdvi(newNumClasses) {
+    setNdviNumClasses(newNumClasses);
+    if (!ndviGrid) return;
+    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, newNumClasses));
+  }
+
+  function handleGenerateGridFromNdvi() {
+    if (!ndviZones || ndviZones.zones.length === 0) return;
+    if (form.points.length > 0 && !confirm(`Isso substitui os ${form.points.length} ponto(s) já existentes (e qualquer resultado já preenchido). Continuar?`)) {
+      return;
+    }
+    let allPoints = [];
+    ndviZones.zones.forEach((zone) => {
+      allPoints = allPoints.concat(generatePointsForZone(zone, Number(ndviPointsPerZone) || 1));
+    });
+    const relabeled = allPoints.map((p, i) => ({ ...p, label: `P${i + 1}` }));
+    setForm((f) => ({ ...f, points: relabeled }));
+    setSelectedPointId(null);
+  }
+
+  async function handleExportNdviZones() {
+    setNdviError("");
+    if (!ndviZones || ndviZones.zones.length === 0) return;
+    try {
+      const features = [];
+      ndviZones.zones.forEach((zone) => {
+        zone.polygons.forEach((polyRings) => {
+          features.push({
+            type: "Feature",
+            properties: { ZONA: zone.classIndex + 1, NDVI_MED: Number(zone.ndviAvg.toFixed(3)) },
+            geometry: { type: "Polygon", coordinates: polyRings },
+          });
+        });
+      });
+      await downloadShapefileZip({ type: "FeatureCollection", features }, "zonas_ndvi", field);
+    } catch (e) {
+      setNdviError(e.message || "Não consegui exportar as zonas.");
+    }
+  }
+
   function updateSelectedPoint(patch) {
     setForm((f) => ({ ...f, points: f.points.map((p) => (p.id === selectedPointId ? { ...p, ...patch } : p)) }));
   }
@@ -2589,6 +2825,24 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
       />
       <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
       {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
+      {step === "coleta" && ndviShowLayer && !ndviZones && ndviOverlay && (
+        <ImageOverlay url={ndviOverlay.dataUrl} bounds={ndviOverlay.bounds} opacity={0.75} />
+      )}
+      {step === "coleta" && ndviShowLayer && ndviZones && ndviZones.zones.map((zone) => {
+        const t = ndviZones.zones.length > 1 ? zone.classIndex / (ndviZones.zones.length - 1) : 0.5;
+        const [r, g, b] = ndviColor(t);
+        return (
+          <React.Fragment key={zone.classIndex}>
+            {zone.polygons.map((polyRings, i) => (
+              <Polygon
+                key={i}
+                positions={polyRings[0].map(([lng, lat]) => [lat, lng])}
+                pathOptions={{ color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: 0.55 }}
+              />
+            ))}
+          </React.Fragment>
+        );
+      })}
       {!readOnly && step === "coleta" && <MapClickCapture onClick={handleMapClick} />}
       {form.points.map((p) => {
         const val = pointValue(p);
@@ -2856,6 +3110,53 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
               </div>
               {importSummary && <div style={{ fontSize: 9.5, color: "#7BC142", marginBottom: 10 }}>{importSummary}</div>}
               {importError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{importError}</div>}
+
+              <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>
+                  Zonas por NDVI (Sentinel-2, via Copernicus) — busca a imagem de satélite mais recente do talhão e classifica em zonas de vigor da vegetação, pra usar como base do grid ou exportar direto.
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: ndviZones ? 10 : 0 }}>
+                  <GhostBtn onClick={handleFetchNdvi} disabled={ndviLoading}>{ndviLoading ? "Buscando…" : "Buscar imagem NDVI"}</GhostBtn>
+                  {ndviZones && (
+                    <>
+                      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Zonas:</span>
+                      <input
+                        type="number" min="2" max="8" step="1" style={{ ...inputStyle, width: 60 }}
+                        value={ndviNumClasses} onChange={(e) => handleReclassifyNdvi(Number(e.target.value) || 4)}
+                      />
+                      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Pontos/zona:</span>
+                      <input
+                        type="number" min="1" max="10" step="1" style={{ ...inputStyle, width: 60 }}
+                        value={ndviPointsPerZone} onChange={(e) => setNdviPointsPerZone(e.target.value)}
+                      />
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "#D6D3C7", cursor: "pointer" }}>
+                        <input type="checkbox" checked={ndviShowLayer} onChange={(e) => setNdviShowLayer(e.target.checked)} /> Mostrar no mapa
+                      </label>
+                    </>
+                  )}
+                </div>
+                {ndviError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: ndviZones ? 10 : 0 }}>{ndviError}</div>}
+                {ndviZones && ndviZones.zones.length > 0 && (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      {ndviZones.zones.map((z) => {
+                        const t = ndviZones.zones.length > 1 ? z.classIndex / (ndviZones.zones.length - 1) : 0.5;
+                        const [r, g, b] = ndviColor(t);
+                        return (
+                          <div key={z.classIndex} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "#9BA298" }}>
+                            <span style={{ width: 9, height: 9, borderRadius: 2, background: `rgb(${r},${g},${b})`, display: "inline-block" }} />
+                            Zona {z.classIndex + 1} · NDVI {z.ndviAvg.toFixed(2)} · {z.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <GhostBtn onClick={handleGenerateGridFromNdvi}>Gerar grade pelas zonas NDVI</GhostBtn>
+                      <GhostBtn onClick={handleExportNdviZones}>Exportar zonas (SHP)</GhostBtn>
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
 

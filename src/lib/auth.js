@@ -120,3 +120,10 @@ export async function fetchBBExtrato({ dataInicio, dataFim } = {}) {
   const qs = params.toString();
   return callNetlifyFunction(`bb-extrato${qs ? `?${qs}` : ""}`, { method: "GET" });
 }
+
+export async function fetchNdvi({ bbox, days } = {}) {
+  return callNetlifyFunction("sentinel-ndvi", {
+    method: "POST",
+    body: JSON.stringify({ bbox, days }),
+  });
+}
