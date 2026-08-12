@@ -2253,6 +2253,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const [liveLocation, setLiveLocation] = useState(null);
   const [gpsError, setGpsError] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [importSummary, setImportSummary] = useState("");
   const [importError, setImportError] = useState("");
   const watchIdRef = useRef(null);
@@ -2434,64 +2435,76 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
 
   const controlsEl = (
     <>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: !fullscreen || detailsOpen ? 12 : 0, flexWrap: "wrap" }}>
         <span style={{ fontSize: 9.5, color: "#9BA298" }}>Ver no mapa:</span>
         <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
           {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
         </select>
-        {!readOnly && (
-          <GhostBtn onClick={toggleGps}>
-            <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
+        {fullscreen && (
+          <GhostBtn onClick={() => setDetailsOpen((v) => !v)}>
+            {detailsOpen ? "Ocultar controles" : "Mais controles"}
           </GhostBtn>
         )}
-        {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
-      </div>
-      {gpsActive && (
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
-          {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        {sortedPoints.map((p) => {
-          const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
-          return (
-            <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
-              display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
-              border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
-              background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
-              color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
-            }}>
-              {p.label}{dist !== null ? ` · ${dist}m` : ""}
-              {!readOnly && (
-                <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
-              )}
-            </button>
-          );
-        })}
-        {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
       </div>
 
-      {selectedPoint && (
-        <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
-            {SOIL_NUTRIENTS.map((n) => (
-              <div key={n.key}>
-                <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
-                {readOnly ? (
-                  <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
-                ) : (
-                  <input
-                    type="number" style={inputStyle}
-                    value={selectedPoint[n.key] ?? ""}
-                    onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
-                  />
-                )}
-              </div>
-            ))}
+      {(!fullscreen || detailsOpen) && (
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            {!readOnly && (
+              <GhostBtn onClick={toggleGps}>
+                <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
+              </GhostBtn>
+            )}
+            {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
           </div>
-        </div>
+          {gpsActive && (
+            <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+              {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {sortedPoints.map((p) => {
+              const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
+              return (
+                <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
+                  display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
+                  border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
+                  background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
+                  color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
+                }}>
+                  {p.label}{dist !== null ? ` · ${dist}m` : ""}
+                  {!readOnly && (
+                    <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
+                  )}
+                </button>
+              );
+            })}
+            {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
+          </div>
+
+          {selectedPoint && (
+            <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                {SOIL_NUTRIENTS.map((n) => (
+                  <div key={n.key}>
+                    <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                    {readOnly ? (
+                      <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
+                    ) : (
+                      <input
+                        type="number" style={inputStyle}
+                        value={selectedPoint[n.key] ?? ""}
+                        onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </>
   );
