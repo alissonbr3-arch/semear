@@ -10,6 +10,9 @@ import "leaflet/dist/leaflet.css";
 import * as XLSX from "xlsx";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { Delaunay } from "d3-delaunay";
+import { intersection } from "martinez-polygon-clipping";
+import shpwrite from "@mapbox/shp-write";
 import { safeGet, safeSet } from "./lib/storage.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
@@ -2228,6 +2231,76 @@ function MapClickCapture({ onClick }) {
   return null;
 }
 
+function toGeoJsonRing(latLngPairs) {
+  const ring = latLngPairs.map(([lat, lng]) => [lng, lat]);
+  const first = ring[0], last = ring[ring.length - 1];
+  if (!first || !last || first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+  return ring;
+}
+
+// Gera uma zona de manejo (polígono de Voronoi recortado pelo limite do
+// talhão) em volta de cada ponto de coleta, com o valor do atributo pra
+// aplicação a taxa variável — é assim que a maioria dos monitores de
+// plantadeira/distribuidor (John Deere GS3, Stara etc.) espera um mapa de
+// prescrição em shapefile: polígono + coluna numérica de taxa, não pontos soltos.
+function buildVoronoiPrescriptionGeoJSON(fieldPolygonLatLng, points, valueFieldName, getValue) {
+  const fieldRing = toGeoJsonRing(fieldPolygonLatLng);
+  const fieldMultiPoly = [[fieldRing]];
+
+  const lats = fieldPolygonLatLng.map((p) => p[0]);
+  const lngs = fieldPolygonLatLng.map((p) => p[1]);
+  const pad = 0.01;
+  const bounds = [Math.min(...lngs) - pad, Math.min(...lats) - pad, Math.max(...lngs) + pad, Math.max(...lats) + pad];
+
+  const validPoints = points.filter((p) => {
+    const v = getValue(p);
+    return v !== null && v !== undefined && !Number.isNaN(v);
+  });
+  if (validPoints.length < 2) return { type: "FeatureCollection", features: [] };
+
+  const delaunay = Delaunay.from(validPoints, (p) => p.lng, (p) => p.lat);
+  const voronoi = delaunay.voronoi(bounds);
+
+  const features = [];
+  validPoints.forEach((p, i) => {
+    const cell = voronoi.cellPolygon(i);
+    if (!cell) return;
+    let clipped;
+    try {
+      clipped = intersection([[cell]], fieldMultiPoly);
+    } catch (e) {
+      clipped = null;
+    }
+    if (!clipped || clipped.length === 0) return;
+    clipped.forEach((polyRings) => {
+      features.push({
+        type: "Feature",
+        properties: { [valueFieldName]: Number(getValue(p).toFixed(2)), PONTO: p.label },
+        geometry: { type: "Polygon", coordinates: polyRings },
+      });
+    });
+  });
+
+  return { type: "FeatureCollection", features };
+}
+
+async function downloadPrescriptionShapefile(field, points, valueFieldName, getValue, fileNamePrefix) {
+  const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
+  if (polygon.length < 3) throw new Error("Esse talhão não tem área definida por KML.");
+  const geojson = buildVoronoiPrescriptionGeoJSON(polygon, points, valueFieldName, getValue);
+  if (geojson.features.length === 0) throw new Error("Nenhum ponto com valor pra exportar nesse mapa.");
+  const blob = await shpwrite.zip(geojson, { outputType: "blob", compression: "DEFLATE", types: { polygon: "zonas" } });
+  const safeName = `${fileNamePrefix}_${field.name}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safeName}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function downloadSoilAnalysisPdf(field, form, desiredV) {
   const doc = new jsPDF();
   let y = 18;
@@ -2351,6 +2424,8 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   const [nutrient, setNutrient] = useState("p");
   const [desiredV, setDesiredV] = useState(70);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const isLimeMode = nutrient === "nc_calcario";
   const [gridHectares, setGridHectares] = useState(5);
   const [gridError, setGridError] = useState("");
@@ -2491,6 +2566,20 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   }, [polygon, form.points, nutrient, isLimeMode, desiredV, showHeatMap]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
+  async function handleExportShp() {
+    setExportError("");
+    setExporting(true);
+    try {
+      const fieldName = isLimeMode ? "RATE" : nutrient.toUpperCase();
+      const prefix = isLimeMode ? "calcario" : nutrient;
+      await downloadPrescriptionShapefile(field, form.points, fieldName, pointValue, prefix);
+    } catch (e) {
+      setExportError(e.message || "Não consegui gerar o arquivo SHP.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const mapEl = bounds && (
     <MapContainer bounds={bounds} boundsOptions={{ padding: [16, 16] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
       <TileLayer
@@ -2615,29 +2704,41 @@ function SoilAnalysisPage({ data, field, readOnly, onSave, onBack, onClose }) {
   );
 
   const visualizacaoControlsEl = (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Nutriente:</span>
-      <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-        {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
-      </select>
+    <div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 9.5, color: "#9BA298" }}>Nutriente:</span>
+        <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+          {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+        </select>
+        {form.points.length >= 3 && (
+          <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
+        )}
+        {exportError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{exportError}</span>}
+      </div>
     </div>
   );
 
   const insumosControlsEl = (
-    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <span style={{ fontSize: 9.5, color: "#9BA298" }}>Insumo:</span>
-      <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-        <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
-      </select>
-      {isLimeMode && (
-        <>
-          <span style={{ fontSize: 9.5, color: "#9BA298" }}>Saturação de bases (V%) desejada:</span>
-          <input
-            type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
-            value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
-          />
-        </>
-      )}
+    <div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 9.5, color: "#9BA298" }}>Insumo:</span>
+        <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+          <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
+        </select>
+        {isLimeMode && (
+          <>
+            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Saturação de bases (V%) desejada:</span>
+            <input
+              type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
+              value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
+            />
+          </>
+        )}
+        {form.points.length >= 3 && (
+          <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
+        )}
+        {exportError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{exportError}</span>}
+      </div>
     </div>
   );
 
