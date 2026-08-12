@@ -2183,6 +2183,7 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const [gpsActive, setGpsActive] = useState(false);
   const [liveLocation, setLiveLocation] = useState(null);
   const [gpsError, setGpsError] = useState("");
+  const [fullscreen, setFullscreen] = useState(false);
   const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
@@ -2260,6 +2261,125 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
   const heatOverlay = useMemo(() => buildHeatOverlay(polygon, form.points, nutrient), [polygon, form.points, nutrient]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
+  const mapEl = bounds && (
+    <MapContainer bounds={bounds} boundsOptions={{ padding: [16, 16] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+      <TileLayer
+        attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
+        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        maxZoom={19}
+      />
+      <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
+      {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
+      {!readOnly && <MapClickCapture onClick={handleMapClick} />}
+      {form.points.map((p) => (
+        <CircleMarker
+          key={p.id}
+          center={[p.lat, p.lng]}
+          radius={selectedPointId === p.id ? 10 : 7}
+          pathOptions={{
+            color: "#0E1310", weight: selectedPointId === p.id ? 2.5 : 1.5,
+            fillColor: p[nutrient] !== undefined && p[nutrient] !== "" ? "#F2F0E6" : "#9BA298",
+            fillOpacity: 0.9,
+          }}
+          eventHandlers={{ click: () => setSelectedPointId(p.id) }}
+        >
+          <Tooltip permanent direction="top" offset={[0, -9]} className="field-map-label">{p.label}</Tooltip>
+        </CircleMarker>
+      ))}
+      {liveLocation && (
+        <CircleMarker
+          center={[liveLocation.lat, liveLocation.lng]}
+          radius={8}
+          pathOptions={{ color: "#F5F2E8", weight: 2, fillColor: "#2E86FF", fillOpacity: 0.9 }}
+        >
+          <Tooltip direction="top" permanent>Você está aqui</Tooltip>
+        </CircleMarker>
+      )}
+    </MapContainer>
+  );
+
+  const controlsEl = (
+    <>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 9.5, color: "#9BA298" }}>Ver no mapa:</span>
+        <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+          {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+        </select>
+        {!readOnly && (
+          <GhostBtn onClick={toggleGps}>
+            <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
+          </GhostBtn>
+        )}
+        {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
+      </div>
+      {gpsActive && (
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+          {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {sortedPoints.map((p) => {
+          const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
+          return (
+            <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
+              display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
+              border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
+              background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
+              color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
+            }}>
+              {p.label}{dist !== null ? ` · ${dist}m` : ""}
+              {!readOnly && (
+                <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
+              )}
+            </button>
+          );
+        })}
+        {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
+      </div>
+
+      {selectedPoint && (
+        <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+            {SOIL_NUTRIENTS.map((n) => (
+              <div key={n.key}>
+                <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                {readOnly ? (
+                  <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
+                ) : (
+                  <input
+                    type="number" style={inputStyle}
+                    value={selectedPoint[n.key] ?? ""}
+                    onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  if (fullscreen && bounds) {
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "#0E1310", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #232B25", flexShrink: 0, gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#F2F0E6" }}>{form.label || fmtDate(form.date)}</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {!readOnly && <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>}
+            <GhostBtn onClick={() => setFullscreen(false)}><X size={14} /> Sair da tela cheia</GhostBtn>
+          </div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>{mapEl}</div>
+        <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid #232B25" }}>
+          {controlsEl}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth={880}>
       <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
@@ -2305,102 +2425,13 @@ function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
               </div>
             </>
           )}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+            <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
+          </div>
           <div style={{ height: 340, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14 }}>
-            <MapContainer bounds={bounds} boundsOptions={{ padding: [16, 16] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-              <TileLayer
-                attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
-                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                maxZoom={19}
-              />
-              <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
-              {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
-              {!readOnly && <MapClickCapture onClick={handleMapClick} />}
-              {form.points.map((p) => (
-                <CircleMarker
-                  key={p.id}
-                  center={[p.lat, p.lng]}
-                  radius={selectedPointId === p.id ? 9 : 6}
-                  pathOptions={{
-                    color: "#0E1310", weight: selectedPointId === p.id ? 2.5 : 1.5,
-                    fillColor: p[nutrient] !== undefined && p[nutrient] !== "" ? "#F2F0E6" : "#9BA298",
-                    fillOpacity: 0.9,
-                  }}
-                  eventHandlers={{ click: () => setSelectedPointId(p.id) }}
-                >
-                  <Tooltip direction="top">{p.label}{p[nutrient] !== undefined && p[nutrient] !== "" ? ` · ${p[nutrient]}` : ""}</Tooltip>
-                </CircleMarker>
-              ))}
-              {liveLocation && (
-                <CircleMarker
-                  center={[liveLocation.lat, liveLocation.lng]}
-                  radius={8}
-                  pathOptions={{ color: "#F5F2E8", weight: 2, fillColor: "#2E86FF", fillOpacity: 0.9 }}
-                >
-                  <Tooltip direction="top" permanent>Você está aqui</Tooltip>
-                </CircleMarker>
-              )}
-            </MapContainer>
+            {mapEl}
           </div>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Ver no mapa:</span>
-            <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-              {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
-            </select>
-            {!readOnly && (
-              <GhostBtn onClick={toggleGps}>
-                <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
-              </GhostBtn>
-            )}
-            {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
-          </div>
-          {gpsActive && (
-            <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
-              {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
-            </div>
-          )}
-
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-            {sortedPoints.map((p) => {
-              const dist = liveLocation ? Math.round(haversineMeters(liveLocation.lat, liveLocation.lng, p.lat, p.lng)) : null;
-              return (
-                <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
-                  display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
-                  border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
-                  background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
-                  color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
-                }}>
-                  {p.label}{dist !== null ? ` · ${dist}m` : ""}
-                  {!readOnly && (
-                    <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
-                  )}
-                </button>
-              );
-            })}
-            {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
-          </div>
-
-          {selectedPoint && (
-            <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
-                {SOIL_NUTRIENTS.map((n) => (
-                  <div key={n.key}>
-                    <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
-                    {readOnly ? (
-                      <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
-                    ) : (
-                      <input
-                        type="number" style={inputStyle}
-                        value={selectedPoint[n.key] ?? ""}
-                        onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {controlsEl}
         </>
       )}
 
