@@ -2380,14 +2380,47 @@ function buildNdviOverlayImage(grid, bounds) {
   return { dataUrl: canvas.toDataURL(), bounds, minV, maxV };
 }
 
+// Simplificação de Douglas-Peucker: reduz o número de vértices de um
+// contorno mantendo a forma geral — usada pra suavizar o efeito "escada de
+// quadradinhos" que sobra de unir células de uma grade.
+function perpendicularDistance(x0, y0, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return Math.hypot(x0 - x1, y0 - y1);
+  return Math.abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1) / len;
+}
+function douglasPeucker(points, epsilon) {
+  if (points.length < 3) return points;
+  let maxDist = 0, index = 0;
+  const [x1, y1] = points[0], [x2, y2] = points[points.length - 1];
+  for (let i = 1; i < points.length - 1; i++) {
+    const [x0, y0] = points[i];
+    const dist = perpendicularDistance(x0, y0, x1, y1, x2, y2);
+    if (dist > maxDist) { maxDist = dist; index = i; }
+  }
+  if (maxDist > epsilon) {
+    const left = douglasPeucker(points.slice(0, index + 1), epsilon);
+    const right = douglasPeucker(points.slice(index), epsilon);
+    return left.slice(0, -1).concat(right);
+  }
+  return [points[0], points[points.length - 1]];
+}
+function simplifyPolygonRings(polyRings, epsilon) {
+  return polyRings.map((ring) => {
+    const simplified = douglasPeucker(ring, epsilon);
+    return simplified.length >= 4 ? simplified : ring;
+  });
+}
+
 // Classifica o talhão em zonas de manejo a partir do NDVI: amostra uma grade
-// grossa de células sobre a imagem, agrupa cada célula numa classe por
+// fina de células sobre a imagem, agrupa cada célula numa classe por
 // quantil, recorta pelo limite real do talhão e funde (union) as células
-// vizinhas da mesma classe num polígono só por zona.
+// vizinhas da mesma classe num polígono só por zona — depois suaviza o
+// contorno resultante (menos "escada de quadradinhos", menos vértices).
 function classifyNdviZones(fieldPolygonLatLng, bounds, grid, numClasses) {
   const [[minLat, minLng], [maxLat, maxLng]] = bounds;
   const { width, height, values } = grid;
-  const cellsPerSide = 12;
+  const cellsPerSide = 24;
   const cellW = (maxLng - minLng) / cellsPerSide;
   const cellH = (maxLat - minLat) / cellsPerSide;
   const fieldMultiPoly = [[toGeoJsonRing(fieldPolygonLatLng)]];
@@ -2437,11 +2470,13 @@ function classifyNdviZones(fieldPolygonLatLng, bounds, grid, numClasses) {
     byClass[cls].values.push(cell.val);
   });
 
+  const simplifyEpsilon = Math.min(cellW, cellH) * 0.6;
   const zones = Object.entries(byClass).map(([clsStr, { polys, values: vals }]) => {
     let unioned = polys;
     try {
       unioned = polys.reduce((acc, poly) => (acc ? union(acc, [poly]) : [poly]), null) || polys;
     } catch (e) { /* mantém os polígonos não fundidos se a união falhar */ }
+    unioned = unioned.map((polyRings) => simplifyPolygonRings(polyRings, simplifyEpsilon));
     const areaHa = unioned.reduce((sum, polyRings) => {
       const outerRing = polyRings[0].map(([lng, lat]) => ({ lat, lng }));
       return sum + geodesicAreaHa(outerRing);
@@ -2611,7 +2646,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const [ndviOverlay, setNdviOverlay] = useState(null);
   const [ndviDateRangeUsed, setNdviDateRangeUsed] = useState(null);
   const [ndviZones, setNdviZones] = useState(null);
-  const [ndviNumClasses, setNdviNumClasses] = useState(4);
+  const [ndviHectaresPerZone, setNdviHectaresPerZone] = useState(15);
   const [ndviPointsPerZone, setNdviPointsPerZone] = useState(2);
   const [ndviShowLayer, setNdviShowLayer] = useState(true);
   const [ndviDateTo, setNdviDateTo] = useState(() => new Date().toISOString().slice(0, 10));
@@ -2621,6 +2656,10 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
   const bounds = polygon.length >= 3 ? polygon.map(([lat, lng]) => [lat, lng]) : null;
+  const fieldAreaHaValue = useMemo(
+    () => (polygon.length >= 3 ? geodesicAreaHa(polygon.map(([lat, lng]) => ({ lat, lng }))) : 0),
+    [polygon]
+  );
 
   function switchStep(next) {
     setStep(next);
@@ -2759,15 +2798,20 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     }
   }
 
-  function handleClassifyNdvi() {
-    if (!ndviGrid) return;
-    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, ndviNumClasses));
+  function ndviNumClassesFor(hectaresPerZone) {
+    if (!fieldAreaHaValue) return 4;
+    return Math.max(2, Math.min(8, Math.round(fieldAreaHaValue / (Number(hectaresPerZone) || 15)) || 2));
   }
 
-  function handleReclassifyNdvi(newNumClasses) {
-    setNdviNumClasses(newNumClasses);
+  function handleClassifyNdvi() {
     if (!ndviGrid) return;
-    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, newNumClasses));
+    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, ndviNumClassesFor(ndviHectaresPerZone)));
+  }
+
+  function handleReclassifyNdvi(newHectaresPerZone) {
+    setNdviHectaresPerZone(newHectaresPerZone);
+    if (!ndviGrid) return;
+    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, ndviNumClassesFor(newHectaresPerZone)));
   }
 
   function handleGenerateGridFromNdvi() {
@@ -3187,20 +3231,20 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
                 )}
                 {ndviGrid && !ndviZones && (
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Zonas:</span>
+                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Hectares por zona de manejo:</span>
                     <input
-                      type="number" min="2" max="8" step="1" style={{ ...inputStyle, width: 60 }}
-                      value={ndviNumClasses} onChange={(e) => setNdviNumClasses(Number(e.target.value) || 4)}
+                      type="number" min="1" step="1" style={{ ...inputStyle, width: 70 }}
+                      value={ndviHectaresPerZone} onChange={(e) => setNdviHectaresPerZone(e.target.value)}
                     />
                     <PrimaryBtn onClick={handleClassifyNdvi}>Classificar em zonas</PrimaryBtn>
                   </div>
                 )}
                 {ndviZones && (
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Zonas:</span>
+                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Hectares por zona de manejo:</span>
                     <input
-                      type="number" min="2" max="8" step="1" style={{ ...inputStyle, width: 60 }}
-                      value={ndviNumClasses} onChange={(e) => handleReclassifyNdvi(Number(e.target.value) || 4)}
+                      type="number" min="1" step="1" style={{ ...inputStyle, width: 70 }}
+                      value={ndviHectaresPerZone} onChange={(e) => handleReclassifyNdvi(e.target.value)}
                     />
                     <span style={{ fontSize: 9.5, color: "#9BA298" }}>Pontos/zona:</span>
                     <input
