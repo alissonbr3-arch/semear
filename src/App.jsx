@@ -5,7 +5,7 @@ import {
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat
 } from "lucide-react";
-import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { safeGet, safeSet } from "./lib/storage.js";
 import {
@@ -370,6 +370,7 @@ export default function AgroTrackApp() {
   const [bonuses, setBonuses] = useState([]);
   const [bills, setBills] = useState([]);
   const [categoryMemory, setCategoryMemory] = useState({});
+  const [soilAnalyses, setSoilAnalyses] = useState([]);
   const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
   const [selectedClientId, setSelectedClientId] = useState(null);
@@ -413,12 +414,13 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
-        safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory")
+        safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory"),
+        safeGet("soilAnalyses")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -442,6 +444,7 @@ export default function AgroTrackApp() {
       setSettings({ commissionRatePerHaYear: 30, projectShareRate: 20, ...(st || {}) });
       setBills(bl || []);
       setCategoryMemory(cm || {});
+      setSoilAnalyses(sa || []);
       setLoading(false);
     })();
   }, [session, profile]);
@@ -716,6 +719,25 @@ export default function AgroTrackApp() {
     if (visits.some((v) => v.id === visitId)) {
       persistVisits(visits.map((v) => (v.id === visitId ? { ...v, photos: (v.photos || []).filter((p) => p.id !== photo.id) } : v)));
     }
+  }
+
+  async function persistSoilAnalyses(data) { setSoilAnalyses(data); await safeSet("soilAnalyses", data); }
+  function saveSoilAnalysis(form) {
+    const field = fields.find((f) => f.id === form.fieldId);
+    const exists = soilAnalyses.some((s) => s.id === form.id);
+    logActivity(makeLogEntry(exists ? "update" : "create", "soilAnalysis", field?.name, form.label || fmtDate(form.date)));
+    if (exists) {
+      persistSoilAnalyses(soilAnalyses.map((s) => (s.id === form.id ? form : s)));
+    } else {
+      persistSoilAnalyses([...soilAnalyses, form]);
+    }
+    setModal(null);
+  }
+  function deleteSoilAnalysis(id) {
+    const analysis = soilAnalyses.find((s) => s.id === id);
+    const field = fields.find((f) => f.id === analysis?.fieldId);
+    logActivity(makeLogEntry("delete", "soilAnalysis", field?.name));
+    persistSoilAnalyses(soilAnalyses.filter((s) => s.id !== id));
   }
 
   function saveVariety(form) {
@@ -1174,11 +1196,15 @@ export default function AgroTrackApp() {
         {selectedFieldId && !selectedHarvestId && (
           <FieldDetail
             field={fieldsWithMeta.find((f) => f.id === selectedFieldId)}
+            soilAnalyses={soilAnalyses.filter((s) => s.fieldId === selectedFieldId)}
             onBack={closeFieldDetail}
             onAddHarvest={() => setModal({ type: "harvest", data: { fieldId: selectedFieldId } })}
             onEditHarvest={(h) => setModal({ type: "harvest", data: h })}
             onDeleteHarvest={deleteHarvest}
             onOpenHarvest={(id) => setSelectedHarvestId(id)}
+            onAddSoilAnalysis={() => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === selectedFieldId), analysis: null } })}
+            onEditSoilAnalysis={(sa) => setModal({ type: "soilAnalysis", data: { field: fieldsWithMeta.find((f) => f.id === selectedFieldId), analysis: sa } })}
+            onDeleteSoilAnalysis={deleteSoilAnalysis}
           />
         )}
 
@@ -1357,6 +1383,12 @@ export default function AgroTrackApp() {
       )}
       {modal?.type === "bill" && (
         <BillModal data={modal.data} categoryMemory={categoryMemory} onSave={saveBill} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "soilAnalysis" && (
+        <SoilAnalysisModal
+          data={modal.data.analysis} field={modal.data.field}
+          onSave={saveSoilAnalysis} onClose={() => setModal(null)}
+        />
       )}
       {modal?.type === "reconcile" && (
         <ReconciliationModal
@@ -1560,6 +1592,7 @@ function FieldsOverviewMap({ fields, onOpenField }) {
 }
 
 function ClientPortalApp({ data, error, onSignOut }) {
+  const [viewingAnalysisId, setViewingAnalysisId] = useState(null);
   const shellStyle = {
     fontFamily: "'Inter', -apple-system, sans-serif", minHeight: 640,
     background: "#0E1310", borderRadius: 14, border: "1px solid #232B25", padding: "26px 32px",
@@ -1603,7 +1636,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
     );
   }
 
-  const { client, gestor, properties, fields, harvests, visits, documents } = data;
+  const { client, gestor, properties, fields, harvests, visits, documents, soilAnalyses = [] } = data;
 
   const fieldsWithMeta = fields.map((f) => {
     const fieldHarvests = harvests
@@ -1728,6 +1761,33 @@ function ClientPortalApp({ data, error, onSignOut }) {
       </div>
 
       <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Análises de Solo</div>
+        {soilAnalyses.length === 0 ? (
+          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma análise de solo registrada ainda.</div>
+        ) : (
+          <table>
+            <thead><tr><th>Data</th><th>Talhão</th><th>Identificação</th><th>Pontos</th><th></th></tr></thead>
+            <tbody>
+              {[...soilAnalyses].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((s) => {
+                const soilField = fieldsWithMeta.find((f) => f.id === s.fieldId);
+                return (
+                  <tr key={s.id}>
+                    <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(s.date)}</td>
+                    <td>{soilField?.name || "—"}</td>
+                    <td>{s.label || "—"}</td>
+                    <td>{s.points.length}</td>
+                    <td>
+                      <GhostBtn onClick={() => setViewingAnalysisId(s.id)}>Ver</GhostBtn>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
         <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Documentos</div>
         {documents.length === 0 ? (
           <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum documento disponível ainda.</div>
@@ -1745,6 +1805,18 @@ function ClientPortalApp({ data, error, onSignOut }) {
           </div>
         )}
       </div>
+
+      {viewingAnalysisId && (() => {
+        const viewingAnalysis = soilAnalyses.find((s) => s.id === viewingAnalysisId);
+        const viewingField = viewingAnalysis ? fieldsWithMeta.find((f) => f.id === viewingAnalysis.fieldId) : null;
+        if (!viewingAnalysis || !viewingField) return null;
+        return (
+          <SoilAnalysisModal
+            data={viewingAnalysis} field={viewingField} readOnly
+            onSave={() => {}} onClose={() => setViewingAnalysisId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -1957,7 +2029,260 @@ function ClientDocuments({ clientId, documents, onUpload, onDelete }) {
   );
 }
 
-function FieldDetail({ field, onBack, onAddHarvest, onEditHarvest, onDeleteHarvest, onOpenHarvest }) {
+const SOIL_NUTRIENTS = [
+  { key: "ph", label: "pH", unit: "" },
+  { key: "p", label: "Fósforo (P)", unit: "mg/dm³" },
+  { key: "k", label: "Potássio (K)", unit: "mg/dm³" },
+  { key: "ca", label: "Cálcio (Ca)", unit: "cmolc/dm³" },
+  { key: "mg", label: "Magnésio (Mg)", unit: "cmolc/dm³" },
+  { key: "al", label: "Alumínio (Al)", unit: "cmolc/dm³" },
+  { key: "ctc", label: "CTC", unit: "cmolc/dm³" },
+  { key: "v", label: "Saturação de bases (V%)", unit: "%" },
+  { key: "mo", label: "Matéria orgânica", unit: "g/dm³" },
+  { key: "s", label: "Enxofre (S)", unit: "mg/dm³" },
+];
+
+function pointInPolygon(lat, lng, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [yi, xi] = polygon[i];
+    const [yj, xj] = polygon[j];
+    const intersect = (yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function idwInterpolate(lat, lng, points, valueKey, power = 2) {
+  let weightedSum = 0, weightSum = 0;
+  for (const p of points) {
+    const val = Number(p[valueKey]);
+    if (p[valueKey] === undefined || p[valueKey] === "" || Number.isNaN(val)) continue;
+    const d = Math.hypot(p.lat - lat, p.lng - lng);
+    if (d < 1e-9) return val;
+    const w = 1 / Math.pow(d, power);
+    weightedSum += w * val;
+    weightSum += w;
+  }
+  return weightSum > 0 ? weightedSum / weightSum : null;
+}
+
+function heatColor(t) {
+  const stops = [[0, [214, 69, 65]], [0.5, [227, 180, 85]], [1, [123, 193, 66]]];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [t0, c0] = stops[i], [t1, c1] = stops[i + 1];
+    if (t >= t0 && t <= t1) {
+      const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+      return [
+        Math.round(c0[0] + f * (c1[0] - c0[0])),
+        Math.round(c0[1] + f * (c1[1] - c0[1])),
+        Math.round(c0[2] + f * (c1[2] - c0[2])),
+      ];
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+function buildHeatOverlay(polygon, points, valueKey, resolution = 70) {
+  if (!polygon || polygon.length < 3) return null;
+  const values = points
+    .map((p) => Number(p[valueKey]))
+    .filter((v) => isValidNumber(v));
+  if (values.length === 0) return null;
+  const minV = Math.min(...values), maxV = Math.max(...values);
+  const lats = polygon.map((p) => p[0]);
+  const lngs = polygon.map((p) => p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const w = resolution, h = resolution;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const lat = maxLat - (y / (h - 1)) * (maxLat - minLat);
+      const lng = minLng + (x / (w - 1)) * (maxLng - minLng);
+      const idx = (y * w + x) * 4;
+      if (!pointInPolygon(lat, lng, polygon)) continue;
+      const val = idwInterpolate(lat, lng, points, valueKey);
+      if (val === null) continue;
+      const t = maxV > minV ? (val - minV) / (maxV - minV) : 0.5;
+      const [r, g, b] = heatColor(t);
+      imgData.data[idx] = r;
+      imgData.data[idx + 1] = g;
+      imgData.data[idx + 2] = b;
+      imgData.data[idx + 3] = 210;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return { dataUrl: canvas.toDataURL(), bounds: [[minLat, minLng], [maxLat, maxLng]], minV, maxV };
+}
+
+function isValidNumber(v) {
+  return typeof v === "number" && !Number.isNaN(v);
+}
+
+function MapClickCapture({ onClick }) {
+  useMapEvents({ click(e) { onClick(e.latlng.lat, e.latlng.lng); } });
+  return null;
+}
+
+function SoilAnalysisModal({ data, field, readOnly, onSave, onClose }) {
+  const [form, setForm] = useState({
+    id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
+    label: "", points: [],
+    ...(data || {}),
+  });
+  const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
+  const [nutrient, setNutrient] = useState("p");
+
+  const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
+  const bounds = polygon.length >= 3 ? polygon.map(([lat, lng]) => [lat, lng]) : null;
+
+  function handleMapClick(lat, lng) {
+    if (readOnly) return;
+    const label = `P${form.points.length + 1}`;
+    const point = { id: uid(), lat, lng, label };
+    setForm((f) => ({ ...f, points: [...f.points, point] }));
+    setSelectedPointId(point.id);
+  }
+
+  function updateSelectedPoint(patch) {
+    setForm((f) => ({ ...f, points: f.points.map((p) => (p.id === selectedPointId ? { ...p, ...patch } : p)) }));
+  }
+
+  function deletePoint(id) {
+    setForm((f) => ({ ...f, points: f.points.filter((p) => p.id !== id) }));
+    if (selectedPointId === id) setSelectedPointId(null);
+  }
+
+  const selectedPoint = form.points.find((p) => p.id === selectedPointId);
+  const heatOverlay = useMemo(() => buildHeatOverlay(polygon, form.points, nutrient), [polygon, form.points, nutrient]);
+  const canSave = !readOnly && form.date && form.points.length >= 3;
+
+  return (
+    <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth={880}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <Field label="Data da coleta">
+            {readOnly ? (
+              <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{fmtDate(form.date)}</div>
+            ) : (
+              <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+            )}
+          </Field>
+        </div>
+        <div style={{ flex: 2, minWidth: 200 }}>
+          <Field label="Identificação (opcional)">
+            {readOnly ? (
+              <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{form.label || "—"}</div>
+            ) : (
+              <input style={inputStyle} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Ex: Análise pré-plantio safra 25/26" />
+            )}
+          </Field>
+        </div>
+      </div>
+
+      {!bounds ? (
+        <div style={{ fontSize: 10.5, color: "#E3B455", background: "#332811", borderRadius: 8, padding: 12, marginBottom: 14 }}>
+          Esse talhão não tem uma área definida por KML (coordenadas reais) — a amostragem georreferenciada de solo só funciona com um talhão desenhado a partir de KML. Defina a área do talhão nesse formato pra habilitar a coleta.
+        </div>
+      ) : (
+        <>
+          {!readOnly && (
+            <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+              Clique no mapa pra adicionar um ponto de coleta. Selecione um ponto na lista abaixo pra preencher o resultado.
+            </div>
+          )}
+          <div style={{ height: 340, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14 }}>
+            <MapContainer bounds={bounds} boundsOptions={{ padding: [16, 16] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+              <TileLayer
+                attribution="Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics"
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                maxZoom={19}
+              />
+              <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
+              {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={0.65} />}
+              {!readOnly && <MapClickCapture onClick={handleMapClick} />}
+              {form.points.map((p) => (
+                <CircleMarker
+                  key={p.id}
+                  center={[p.lat, p.lng]}
+                  radius={selectedPointId === p.id ? 9 : 6}
+                  pathOptions={{
+                    color: "#0E1310", weight: selectedPointId === p.id ? 2.5 : 1.5,
+                    fillColor: p[nutrient] !== undefined && p[nutrient] !== "" ? "#F2F0E6" : "#9BA298",
+                    fillOpacity: 0.9,
+                  }}
+                  eventHandlers={{ click: () => setSelectedPointId(p.id) }}
+                >
+                  <Tooltip direction="top">{p.label}{p[nutrient] !== undefined && p[nutrient] !== "" ? ` · ${p[nutrient]}` : ""}</Tooltip>
+                </CircleMarker>
+              ))}
+            </MapContainer>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Ver no mapa:</span>
+            <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+              {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+            {form.points.map((p) => (
+              <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
+                display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
+                border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
+                background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
+                color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
+              }}>
+                {p.label}
+                {!readOnly && (
+                  <X size={11} onClick={(e) => { e.stopPropagation(); deletePoint(p.id); }} />
+                )}
+              </button>
+            ))}
+            {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
+          </div>
+
+          {selectedPoint && (
+            <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                {SOIL_NUTRIENTS.map((n) => (
+                  <div key={n.key}>
+                    <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                    {readOnly ? (
+                      <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
+                    ) : (
+                      <input
+                        type="number" style={inputStyle}
+                        value={selectedPoint[n.key] ?? ""}
+                        onChange={(e) => updateSelectedPoint({ [n.key]: e.target.value === "" ? "" : Number(e.target.value) })}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>{readOnly ? "Fechar" : "Cancelar"}</GhostBtn>
+        {!readOnly && (
+          <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function FieldDetail({ field, soilAnalyses, onBack, onAddHarvest, onEditHarvest, onDeleteHarvest, onOpenHarvest, onAddSoilAnalysis, onEditSoilAnalysis, onDeleteSoilAnalysis }) {
   if (!field) return null;
   const sorted = [...field.harvests].sort((a, b) => {
     if (a.status !== b.status) return a.status === "Em andamento" ? -1 : 1;
@@ -2014,6 +2339,40 @@ function FieldDetail({ field, onBack, onAddHarvest, onEditHarvest, onDeleteHarve
               <div style={{ display: "flex", gap: 6, marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => onEditHarvest(h)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
                 <button onClick={() => { if (confirm(`Remover a safra ${h.name}?`)) onDeleteHarvest(h.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 30, marginBottom: 14 }}>
+        <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 14, fontWeight: 700, color: "#F2F0E6", margin: 0 }}>Análises de Solo</h3>
+        {field.fieldMap?.mode === "kml" && field.fieldMap.points?.length >= 3 && (
+          <PrimaryBtn onClick={onAddSoilAnalysis}><Plus size={16} /> Nova análise de solo</PrimaryBtn>
+        )}
+      </div>
+      {field.fieldMap?.mode !== "kml" || !(field.fieldMap.points?.length >= 3) ? (
+        <div style={{ fontSize: 10.5, color: "#9BA298", background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16 }}>
+          Amostragem georreferenciada de solo só funciona com um talhão desenhado a partir de KML (coordenadas reais). Defina a área desse talhão nesse formato pra habilitar.
+        </div>
+      ) : soilAnalyses.length === 0 ? (
+        <EmptyState icon={FlaskConical} title="Nenhuma análise de solo registrada" sub="Registre a primeira coleta georreferenciada deste talhão." />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+          {[...soilAnalyses].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((s) => (
+            <div key={s.id} onClick={() => onEditSoilAnalysis(s)} style={{
+              background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                <FlaskConical size={14} color="#7BC142" />
+                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5 }}>{s.label || fmtDate(s.date)}</div>
+              </div>
+              <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>
+                {fmtDate(s.date)} · {s.points.length} ponto(s) coletado(s)
+              </div>
+              <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => onEditSoilAnalysis(s)} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Pencil size={13} /></button>
+                <button onClick={() => { if (confirm(`Remover a análise "${s.label || fmtDate(s.date)}"?`)) onDeleteSoilAnalysis(s.id); }} style={{ ...iconBtnStyle, flex: 1, display: "flex", justifyContent: "center" }}><Trash2 size={13} /></button>
               </div>
             </div>
           ))}
@@ -3260,7 +3619,7 @@ const ACTIVITY_ENTITY_LABELS = {
   visit: "a visita", task: "o item da agenda", document: "o documento",
   team: "o colaborador", clientAccess: "o acesso do cliente",
   finance: "o honorário de", bonus: "a bonificação de", settings: "a configuração",
-  bill: "a despesa",
+  bill: "a despesa", soilAnalysis: "a análise de solo de",
 };
 
 function ActivityLogView({ log }) {

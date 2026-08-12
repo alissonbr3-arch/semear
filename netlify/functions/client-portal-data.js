@@ -53,7 +53,7 @@ export const handler = async (event) => {
     return data?.value ?? fallback;
   }
 
-  const [clients, properties, fields, harvests, visits, documents, teamAvatars] = await Promise.all([
+  const [clients, properties, fields, harvests, visits, documents, teamAvatars, soilAnalyses] = await Promise.all([
     getBlob("clients", []),
     getBlob("properties", []),
     getBlob("fields", []),
@@ -61,6 +61,7 @@ export const handler = async (event) => {
     getBlob("visits", []),
     getBlob("documents", []),
     getBlob("teamAvatars", {}),
+    getBlob("soilAnalyses", []),
   ]);
 
   const client = clients.find((c) => c.id === profile.client_id);
@@ -86,6 +87,7 @@ export const handler = async (event) => {
   const myHarvestIds = myHarvests.map((h) => h.id);
   const myVisits = visits.filter((v) => myHarvestIds.includes(v.harvestId));
   const myDocuments = documents.filter((d) => d.clientId === client.id);
+  const mySoilAnalyses = soilAnalyses.filter((s) => myFieldIds.includes(s.fieldId));
 
   return json({
     client: { id: client.id, name: client.name, phone: client.phone || null, city: client.city || null },
@@ -95,5 +97,6 @@ export const handler = async (event) => {
     harvests: myHarvests,
     visits: myVisits,
     documents: myDocuments,
+    soilAnalyses: mySoilAnalyses,
   });
 };
