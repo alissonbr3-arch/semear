@@ -2227,6 +2227,32 @@ function limeNeedTonPerHa(point, desiredV) {
   return Math.max(0, (ctc * (desiredV - v)) / 100);
 }
 
+// Adubação NPK pelo método de reposição/exportação: dose (kg/ha) = quanto a
+// cultura exporta do nutriente por tonelada de grão x produtividade esperada.
+// Os coeficientes de exportação por cultura são valores de referência comuns
+// na agronomia brasileira — ficam editáveis na tela porque variam por região,
+// cultivar e histórico de adubação, e quem deve calibrá-los é o agrônomo.
+const NPK_CROPS = [
+  { key: "soja", label: "Soja", n: 0, p2o5: 14, k2o: 20 },
+  { key: "milho", label: "Milho", n: 20, p2o5: 8, k2o: 18 },
+  { key: "algodao", label: "Algodão", n: 40, p2o5: 16, k2o: 25 },
+  { key: "trigo", label: "Trigo", n: 25, p2o5: 11, k2o: 16 },
+  { key: "outra", label: "Outra cultura", n: 0, p2o5: 0, k2o: 0 },
+];
+
+function npkDoseKgPerHa(yieldGoal, exportPerTon) {
+  const y = Number(yieldGoal), e = Number(exportPerTon);
+  if (Number.isNaN(y) || Number.isNaN(e)) return null;
+  return Math.max(0, y * e);
+}
+
+function avgNutrient(points, key) {
+  const values = points
+    .filter((p) => p[key] !== undefined && p[key] !== "" && !Number.isNaN(Number(p[key])))
+    .map((p) => Number(p[key]));
+  return values.length ? values.reduce((s, v) => s + v, 0) / values.length : null;
+}
+
 const WHITE_TILE_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAADklEQVR42mP4DwYMEAoAU7oL9YXEbhEAAAAASUVORK5CYII=";
 
 function MapClickCapture({ onClick }) {
@@ -2505,7 +2531,7 @@ function generatePointsForZone(zone, targetCount) {
   return points;
 }
 
-function downloadSoilAnalysisPdf(field, form, desiredV) {
+function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   const doc = new jsPDF();
   let y = 18;
 
@@ -2578,6 +2604,41 @@ function downloadSoilAnalysisPdf(field, form, desiredV) {
   doc.text(`Volume total estimado para o talhão (${areaHa.toLocaleString("pt-BR")} ha): ${(avgNc * areaHa).toFixed(1)} toneladas`, 14, y); y += 5;
   doc.setFontSize(8);
   doc.text("Cálculo pelo método da saturação por bases (NC = CTC x (V desejado - V atual) / 100), considerando calcário com PRNT 100%.", 14, y);
+  y += 12;
+
+  if (npk) {
+    if (y > 250) { doc.addPage(); y = 20; }
+    const cropLabel = NPK_CROPS.find((c) => c.key === npk.crop)?.label || npk.crop;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(`Recomendação de Adubação NPK (${cropLabel} · produtividade esperada: ${npk.yieldGoal} t/ha)`, 14, y);
+    y += 8;
+
+    const doseN = npkDoseKgPerHa(npk.yieldGoal, npk.exportN);
+    const doseP = npkDoseKgPerHa(npk.yieldGoal, npk.exportP);
+    const doseK = npkDoseKgPerHa(npk.yieldGoal, npk.exportK);
+    autoTable(doc, {
+      startY: y,
+      head: [["Nutriente", "Exportação (kg/ton)", "Dose (kg/ha)", "Total no talhão (kg)"]],
+      body: [
+        ["N", npk.exportN, doseN !== null ? doseN.toFixed(1) : "—", doseN !== null ? (doseN * areaHa).toFixed(0) : "—"],
+        ["P₂O₅", npk.exportP, doseP !== null ? doseP.toFixed(1) : "—", doseP !== null ? (doseP * areaHa).toFixed(0) : "—"],
+        ["K₂O", npk.exportK, doseK !== null ? doseK.toFixed(1) : "—", doseK !== null ? (doseK * areaHa).toFixed(0) : "—"],
+      ],
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [30, 74, 32] },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+
+    const avgP = avgNutrient(form.points, "p_mel") ?? avgNutrient(form.points, "p_res") ?? avgNutrient(form.points, "p");
+    const avgK = avgNutrient(form.points, "k");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Fósforo médio no talhão: ${avgP !== null ? avgP.toFixed(1) + " mg/dm³" : "—"} · Potássio médio no talhão: ${avgK !== null ? avgK.toFixed(1) + " mg/dm³" : "—"}`, 14, y);
+    y += 5;
+    doc.setFontSize(8);
+    doc.text("Cálculo pelo método de reposição/exportação (dose = exportação por tonelada x produtividade esperada). Coeficientes de referência, ajustáveis conforme calibração regional.", 14, y);
+  }
 
   doc.setFontSize(8);
   doc.setTextColor(150);
@@ -2631,6 +2692,17 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const isLimeMode = nutrient === "nc_calcario";
+  const isNpkMode = nutrient === "npk";
+  const [npkCrop, setNpkCrop] = useState("soja");
+  const [npkYieldGoal, setNpkYieldGoal] = useState(3.5);
+  const [npkExportN, setNpkExportN] = useState(NPK_CROPS[0].n);
+  const [npkExportP, setNpkExportP] = useState(NPK_CROPS[0].p2o5);
+  const [npkExportK, setNpkExportK] = useState(NPK_CROPS[0].k2o);
+  function handleNpkCropChange(cropKey) {
+    setNpkCrop(cropKey);
+    const crop = NPK_CROPS.find((c) => c.key === cropKey);
+    if (crop) { setNpkExportN(crop.n); setNpkExportP(crop.p2o5); setNpkExportK(crop.k2o); }
+  }
   const [gridHectares, setGridHectares] = useState(5);
   const [gridError, setGridError] = useState("");
   const [gpsActive, setGpsActive] = useState(false);
@@ -2663,8 +2735,8 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
   function switchStep(next) {
     setStep(next);
-    if (next === "insumos" && !isLimeMode) setNutrient("nc_calcario");
-    if (next === "visualizacao" && isLimeMode) setNutrient("p");
+    if (next === "insumos" && !isLimeMode && !isNpkMode) setNutrient("nc_calcario");
+    if (next === "visualizacao" && (isLimeMode || isNpkMode)) setNutrient("p");
   }
 
   useEffect(() => {
@@ -3067,12 +3139,20 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </div>
   );
 
+  const npkDoseN = npkDoseKgPerHa(npkYieldGoal, npkExportN);
+  const npkDoseP = npkDoseKgPerHa(npkYieldGoal, npkExportP);
+  const npkDoseK = npkDoseKgPerHa(npkYieldGoal, npkExportK);
+  const npkAvgP = avgNutrient(form.points, "p_mel") ?? avgNutrient(form.points, "p_res") ?? avgNutrient(form.points, "p");
+  const npkAvgK = avgNutrient(form.points, "k");
+  const npkPdfData = { crop: npkCrop, yieldGoal: Number(npkYieldGoal) || 0, exportN: Number(npkExportN) || 0, exportP: Number(npkExportP) || 0, exportK: Number(npkExportK) || 0 };
+
   const insumosControlsEl = (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 9.5, color: "#9BA298" }}>Insumo:</span>
         <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
           <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
+          <option value="npk">Adubação NPK (kg/ha)</option>
         </select>
         {isLimeMode && (
           <>
@@ -3083,11 +3163,50 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             />
           </>
         )}
-        {form.points.length >= 3 && (
+        {!isNpkMode && form.points.length >= 3 && (
           <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
         )}
         {exportError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{exportError}</span>}
       </div>
+      {isNpkMode && (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: "1px solid #232B25", background: "#171C18" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Cultura:</span>
+            <select style={{ ...inputStyle, width: 160 }} value={npkCrop} onChange={(e) => handleNpkCropChange(e.target.value)}>
+              {NPK_CROPS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </select>
+            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Produtividade esperada (t/ha):</span>
+            <input
+              type="number" min="0" step="0.1" style={{ ...inputStyle, width: 80 }}
+              value={npkYieldGoal} onChange={(e) => setNpkYieldGoal(e.target.value)}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10 }}>
+            {[
+              { label: "N", exp: npkExportN, setExp: setNpkExportN, dose: npkDoseN },
+              { label: "P₂O₅", exp: npkExportP, setExp: setNpkExportP, dose: npkDoseP },
+              { label: "K₂O", exp: npkExportK, setExp: setNpkExportK, dose: npkDoseK },
+            ].map((n) => (
+              <div key={n.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 9.5, color: "#9BA298" }}>{n.label} — exportação (kg/ton)</span>
+                <input
+                  type="number" min="0" step="0.5" style={{ ...inputStyle, width: 90 }}
+                  value={n.exp} onChange={(e) => n.setExp(e.target.value)}
+                />
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#F2F0E6" }}>
+                  {n.dose !== null ? `${n.dose.toFixed(1)} kg/ha` : "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 9.5, color: "#9BA298" }}>
+            Fósforo médio no talhão: {npkAvgP !== null ? `${npkAvgP.toFixed(1)} mg/dm³` : "—"} · Potássio médio no talhão: {npkAvgK !== null ? `${npkAvgK.toFixed(1)} mg/dm³` : "—"}
+          </div>
+          <div style={{ fontSize: 8.5, color: "#6E756B", marginTop: 6 }}>
+            Método de reposição/exportação (dose = exportação por tonelada x produtividade esperada). Coeficientes de referência — ajuste conforme a calibração da sua região.
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -3324,7 +3443,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
               {form.points.length > 0 && (
-                <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70)}>Baixar PDF</GhostBtn>
+                <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70, npkPdfData)}>Baixar PDF</GhostBtn>
               )}
               <GhostBtn onClick={onBack}>Cancelar</GhostBtn>
               <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>
@@ -3341,7 +3460,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       {bodyEl}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         {form.points.length > 0 && (
-          <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70)}>Baixar PDF</GhostBtn>
+          <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70, npkPdfData)}>Baixar PDF</GhostBtn>
         )}
         <GhostBtn onClick={onClose}>{readOnly ? "Fechar" : "Cancelar"}</GhostBtn>
         {!readOnly && (
