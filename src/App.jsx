@@ -2719,9 +2719,14 @@ async function downloadVisitReportPdf(visits) {
     const hasThumb = v.fieldMap?.mode === "kml" && v.fieldMap.points?.length >= 3;
     const thumbSize = 30;
     const textWidth = hasThumb ? contentWidth - thumbSize - 8 : contentWidth;
+    // blockTop precisa ser capturado DEPOIS do ensureSpace do bloco da miniatura —
+    // se a quebra de página acontecer bem aqui, blockTop tem que refletir o y já
+    // corrigido (início da página nova), senão o cálculo de altura da coluna mais
+    // embaixo usa uma posição da página anterior e "empurra" o texto pra bem mais
+    // longe do que devia, deixando um vão em branco enorme na página.
+    if (hasThumb) ensureSpace(thumbSize + 6);
     const blockTop = y;
     if (hasThumb) {
-      ensureSpace(thumbSize + 6);
       drawFieldThumbnailPdf(doc, v.fieldMap.points, marginX + textWidth + 8, y, thumbSize);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(6.4);
