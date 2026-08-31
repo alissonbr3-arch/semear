@@ -2560,7 +2560,7 @@ async function loadImageInfo(url) {
 // Miniatura vetorial do contorno do talhão, fundo branco — só uma referência visual
 // de formato/posição pro relatório, desenhada direto no PDF (não depende de mapa/rede).
 function drawFieldThumbnailPdf(doc, polygonLatLng, x, y, size) {
-  doc.setDrawColor(200);
+  doc.setDrawColor(...BOLETIM_RULE);
   doc.setFillColor(255, 255, 255);
   doc.rect(x, y, size, size, "FD");
   if (!polygonLatLng || polygonLatLng.length < 3) return;
@@ -2585,101 +2585,169 @@ function drawFieldThumbnailPdf(doc, polygonLatLng, x, y, size) {
   doc.setFillColor(196, 224, 165);
   doc.lines(deltas, pts[0][0], pts[0][1], [1, 1], "F", true);
 }
+
+// Paleta do "Boletim Agronômico" — verde institucional + dourado de destaque,
+// papel levemente amarelado (não branco puro), no espírito de um boletim/circular
+// técnica impressa.
+const BOLETIM_GREEN = [27, 58, 30];
+const BOLETIM_GOLD = [173, 138, 46];
+const BOLETIM_PAPER = [247, 245, 236];
+const BOLETIM_INK = [28, 31, 26];
+const BOLETIM_INK_SOFT = [91, 97, 86];
+const BOLETIM_RULE = [214, 207, 184];
+const BOLETIM_STRIPE = [239, 234, 218];
+
+// Uma célula do "quadro de dados" do boletim: rótulo em caixa alta sobre fundo
+// listrado, ou o valor correspondente ao lado, ambos com borda fina.
+function drawBoletimCell(doc, x, y, w, h, isLabel, text) {
+  doc.setDrawColor(...BOLETIM_RULE);
+  if (isLabel) { doc.setFillColor(...BOLETIM_STRIPE); doc.rect(x, y, w, h, "FD"); }
+  else { doc.rect(x, y, w, h, "D"); }
+  if (isLabel) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.4);
+    doc.setTextColor(...BOLETIM_INK_SOFT);
+    doc.text(text.toUpperCase(), x + 2.5, y + h / 2 + 1.1);
+  } else {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...BOLETIM_INK);
+    doc.text(String(text), x + 3, y + h / 2 + 1.3);
+  }
+}
+// Relatório de visita(s) no estilo "Boletim Agronômico" — masthead formal, quadro
+// de dados listrado e faixa verde por talhão, no espírito de um boletim técnico
+// impresso (escolhido entre 4 direções apresentadas ao cliente).
 async function downloadVisitReportPdf(visits) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const marginX = 14;
-  const maxY = 278;
-  let y = 16;
+  const maxY = 274;
+  let y = 18;
+
+  function paintPageBackground() {
+    doc.setFillColor(...BOLETIM_PAPER);
+    doc.rect(0, 0, pageWidth, pageHeight, "F");
+  }
+  function ensureSpace(needed) {
+    if (y + needed > maxY) { doc.addPage(); paintPageBackground(); y = 20; }
+  }
+
+  paintPageBackground();
 
   const multiple = visits.length > 1;
   const sorted = [...visits].sort((a, b) => a.date.localeCompare(b.date) || a.fieldName.localeCompare(b.fieldName));
   const clientNames = [...new Set(sorted.map((v) => v.clientName))];
   const dates = [...new Set(sorted.map((v) => v.date))].sort();
   const dateLabel = dates.length === 1 ? fmtDate(dates[0]) : `${fmtDate(dates[0])} a ${fmtDate(dates[dates.length - 1])}`;
+  const contentWidth = pageWidth - marginX * 2;
 
-  function ensureSpace(needed) {
-    if (y + needed > maxY) { doc.addPage(); y = 20; }
-  }
-
+  // --- Masthead ---
   // Logo original é 420x136px (~3.09:1) — mantém a proporção pra não espichar.
-  doc.addImage(LOGO_SRC_GREEN, "PNG", marginX, y, 24, 24 / (420 / 136));
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.setTextColor(30, 74, 32);
-  doc.text("Semear Consultoria Agropecuária", marginX + 26, y + 8);
+  doc.addImage(LOGO_SRC_GREEN, "PNG", marginX, y, 22, 22 / (420 / 136));
+  doc.setFont("times", "bold");
+  doc.setFontSize(15);
+  doc.setTextColor(...BOLETIM_GREEN);
+  doc.text("Semear", marginX + 27, y + 6);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(110);
-  doc.text(`Relatório de Visita${multiple ? "s" : ""} Técnica${multiple ? "s" : ""}`, marginX + 26, y + 15);
-  doc.setTextColor(0);
-  y += 28;
+  doc.setFontSize(7);
+  doc.setTextColor(...BOLETIM_INK_SOFT);
+  doc.text("C O N S U L T O R I A   A G R O P E C U Á R I A", marginX + 27, y + 11);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.5);
+  doc.setTextColor(...BOLETIM_GOLD);
+  doc.text(`RELATÓRIO DE VISITA${multiple ? "S" : ""} TÉCNICA${multiple ? "S" : ""}`, pageWidth - marginX, y + 6, { align: "right" });
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...BOLETIM_INK_SOFT);
+  doc.text(`Data d${dates.length === 1 ? "a visita" : "as visitas"}: ${dateLabel}`, pageWidth - marginX, y + 11, { align: "right" });
+
+  y += 16;
+  doc.setDrawColor(...BOLETIM_GREEN);
+  doc.setLineWidth(0.9);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  doc.setLineWidth(0.2);
+  y += 9;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
+  doc.setTextColor(...BOLETIM_INK);
   doc.text(`Cliente: ${clientNames.join(", ")}`, marginX, y);
-  y += 6;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(`Data d${dates.length === 1 ? "a visita" : "as visitas"}: ${dateLabel}`, marginX, y);
-  y += 10;
+  y += 8;
 
   const intro = `Prezado(a) ${clientNames[0] || "produtor(a)"}, segue um resumo d${multiple ? "as visitas técnicas realizadas" : "a visita técnica realizada"} em sua${multiple ? "s área(s)" : " área"}, com as principais observações de campo e recomendações da nossa equipe.`;
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(9.5);
-  const introLines = doc.splitTextToSize(intro, pageWidth - marginX * 2);
+  doc.setTextColor(...BOLETIM_INK);
+  const introLines = doc.splitTextToSize(intro, contentWidth);
   doc.text(introLines, marginX, y);
   y += introLines.length * 4.3 + 8;
 
-  const contentWidth = pageWidth - marginX * 2;
+  // --- Uma seção por talhão visitado ---
   for (const v of sorted) {
     ensureSpace(16);
-    doc.setFillColor(30, 74, 32);
+    doc.setFillColor(...BOLETIM_GREEN);
     doc.rect(marginX, y, contentWidth, 8, "F");
-    doc.setTextColor(255);
-    doc.setFont("helvetica", "bold");
+    doc.setTextColor(...BOLETIM_PAPER);
+    doc.setFont("times", "bold");
     doc.setFontSize(10.5);
-    doc.text(`${v.propertyName} · ${v.fieldName}${v.culture ? " · " + v.culture : ""}`, marginX + 3, y + 5.5);
-    doc.setTextColor(0);
-    y += 13;
+    doc.text(`${v.propertyName} · ${v.fieldName}${v.culture ? " · " + v.culture : ""}`, marginX + 3, y + 5.6);
+    y += 12;
 
+    // Quadro de dados: Data + Técnico numa linha, Estágio fenológico na seguinte (se houver).
+    const rowH = 7;
+    ensureSpace(v.stage ? rowH * 2 + 4 : rowH + 4);
+    let cx = marginX;
+    const w1 = 40, w2 = 62, w3 = 30, w4 = contentWidth - w1 - w2 - w3;
+    drawBoletimCell(doc, cx, y, w1, rowH, true, "Data da visita"); cx += w1;
+    drawBoletimCell(doc, cx, y, w2, rowH, false, fmtDate(v.date)); cx += w2;
+    drawBoletimCell(doc, cx, y, w3, rowH, true, "Técnico"); cx += w3;
+    drawBoletimCell(doc, cx, y, w4, rowH, false, v.technician || "—");
+    y += rowH;
+    if (v.stage) {
+      cx = marginX;
+      const l1 = 48, l2 = contentWidth - l1;
+      drawBoletimCell(doc, cx, y, l1, rowH, true, "Estágio fenológico"); cx += l1;
+      drawBoletimCell(doc, cx, y, l2, rowH, false, v.stage);
+      y += rowH;
+    }
+    y += 7;
+
+    // Corpo em duas colunas: texto à esquerda, miniatura do talhão à direita.
     const hasThumb = v.fieldMap?.mode === "kml" && v.fieldMap.points?.length >= 3;
-    const thumbSize = 26;
-    const textWidth = hasThumb ? contentWidth - thumbSize - 6 : contentWidth;
-    ensureSpace(hasThumb ? thumbSize + 4 : 12);
+    const thumbSize = 30;
+    const textWidth = hasThumb ? contentWidth - thumbSize - 8 : contentWidth;
     const blockTop = y;
-    if (hasThumb) drawFieldThumbnailPdf(doc, v.fieldMap.points, marginX + textWidth + 6, blockTop, thumbSize);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    const headerLines = doc.splitTextToSize(
-      `Data: ${fmtDate(v.date)}    Técnico responsável: ${v.technician || "—"}${v.stage ? `    Estágio fenológico: ${v.stage}` : ""}`,
-      textWidth
-    );
-    doc.text(headerLines, marginX, y);
-    y = (hasThumb ? Math.max(blockTop + thumbSize, y + headerLines.length * 4.5) : y + headerLines.length * 4.5) + 4;
-
-    if (v.pests) {
-      ensureSpace(12);
-      doc.setFont("helvetica", "bold");
-      doc.text("Pragas / doenças observadas:", marginX, y);
-      y += 5;
+    if (hasThumb) {
+      ensureSpace(thumbSize + 6);
+      drawFieldThumbnailPdf(doc, v.fieldMap.points, marginX + textWidth + 8, y, thumbSize);
       doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(v.pests, contentWidth);
-      ensureSpace(lines.length * 4.5);
-      doc.text(lines, marginX, y);
-      y += lines.length * 4.5 + 4;
+      doc.setFontSize(6.4);
+      doc.setTextColor(...BOLETIM_INK_SOFT);
+      doc.text("Referência de talhão", marginX + textWidth + 8 + thumbSize / 2, y + thumbSize + 4, { align: "center" });
     }
-    if (v.recommendations) {
-      ensureSpace(12);
+
+    function bodyBlock(label, text) {
+      if (!text) return;
+      ensureSpace(10);
       doc.setFont("helvetica", "bold");
-      doc.text("Recomendações:", marginX, y);
-      y += 5;
+      doc.setFontSize(7);
+      doc.setTextColor(...BOLETIM_GOLD);
+      doc.text(label.toUpperCase(), marginX, y);
+      y += 4.6;
       doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(v.recommendations, contentWidth);
-      ensureSpace(lines.length * 4.5);
+      doc.setFontSize(9);
+      doc.setTextColor(...BOLETIM_INK);
+      const lines = doc.splitTextToSize(text, textWidth);
+      ensureSpace(lines.length * 4.4);
       doc.text(lines, marginX, y);
-      y += lines.length * 4.5 + 4;
+      y += lines.length * 4.4 + 5;
     }
+    bodyBlock("Pragas / doenças observadas", v.pests);
+    bodyBlock("Recomendações", v.recommendations);
+    if (hasThumb) y = Math.max(y, blockTop + thumbSize + 8);
 
     if (v.photos && v.photos.length > 0) {
       const photoW = 85, maxPhotoH = 60;
@@ -2689,21 +2757,28 @@ async function downloadVisitReportPdf(visits) {
           const ratio = info.width / info.height;
           let w = photoW, h = w / ratio;
           if (h > maxPhotoH) { h = maxPhotoH; w = h * ratio; }
-          ensureSpace(h + 4);
+          ensureSpace(h + 6);
+          doc.setDrawColor(...BOLETIM_RULE);
+          doc.rect(marginX - 1, y - 1, w + 2, h + 2, "D");
           doc.addImage(info.dataUrl, "JPEG", marginX, y, w, h);
-          y += h + 4;
+          y += h + 5;
         } catch (e) { /* pula foto que não carregou, não trava o relatório inteiro */ }
       }
     }
-    y += 6;
+    y += 5;
   }
 
   const pageCount = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(150);
-    doc.text(`Gerado em ${fmtDateTime(new Date().toISOString())} · Semear Consultoria Agropecuária`, marginX, doc.internal.pageSize.getHeight() - 10);
+    doc.setDrawColor(...BOLETIM_RULE);
+    doc.setLineWidth(0.2);
+    doc.line(marginX, pageHeight - 15, pageWidth - marginX, pageHeight - 15);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...BOLETIM_INK_SOFT);
+    doc.text(`Gerado em ${fmtDateTime(new Date().toISOString())} · Semear Consultoria Agropecuária`, marginX, pageHeight - 10);
+    doc.text(`Pág. ${i}/${pageCount}`, pageWidth - marginX, pageHeight - 10, { align: "right" });
   }
 
   const safeName = `${clientNames[0] || "visita"}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
