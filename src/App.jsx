@@ -4024,7 +4024,8 @@ function PropertyDetail({ property, fields, ajudaCusto, onBack, onAddField, onEd
             {property.location && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {property.location}</span>}
             {ajudaCustoMatch && (
               <span style={{ display: "flex", alignItems: "center", gap: 5, color: "#7BC142" }}>
-                <Wallet size={13} /> Ajuda de custo da região: R$ {Number(ajudaCustoMatch.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                <Wallet size={13} /> Ajuda de custo: R$ {(Number(ajudaCustoMatch.valor) * Number(property.areaTotal || 0)).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                {" "}({Number(ajudaCustoMatch.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/ha × {Number(property.areaTotal || 0).toLocaleString("pt-BR")} ha)
               </span>
             )}
           </div>
@@ -5186,11 +5187,11 @@ function ConfiguracoesView({
           columns={[
             { key: "municipio", label: "Município" },
             { key: "estado", label: "UF" },
-            { key: "valor", label: "Valor", render: (a) => `R$ ${Number(a.valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` },
+            { key: "valor", label: "Valor por hectare", render: (a) => `R$ ${Number(a.valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/ha` },
             { key: "distanciaKm", label: "Distância", render: (a) => a.distanciaKm ? `${a.distanciaKm} km` : "—" },
           ]}
           emptyTitle="Nenhuma ajuda de custo configurada"
-          emptySub="Defina o valor de ajuda de custo pago à equipe por município visitado (deslocamento) — separado do Pró-labore do Financeiro."
+          emptySub="Defina o valor por hectare atendido pago à equipe por município visitado (deslocamento) — separado do Pró-labore do Financeiro."
           addLabel="Nova ajuda de custo"
           onAdd={onAddAjudaCusto}
           onEdit={onEditAjudaCusto}
@@ -5259,14 +5260,14 @@ function AjudaCustoModal({ data, onSave, onClose }) {
           {municipios.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </Field>
-      <Field label="Valor da ajuda de custo (R$)">
-        <input type="number" style={inputStyle} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="Ex: 250" />
+      <Field label="Valor por hectare atendido (R$/ha)">
+        <input type="number" style={inputStyle} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="Ex: 2,50" />
       </Field>
       <Field label="Distância aproximada (km) — opcional">
         <input type="number" style={inputStyle} value={form.distanciaKm} onChange={(e) => setForm({ ...form, distanciaKm: e.target.value })} placeholder="Ex: 180" />
       </Field>
       <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
-        Isso é separado do Pró-labore do Financeiro (que é por hectare/ano, pago ao gestor) — aqui é um valor de deslocamento por município, de referência na fazenda.
+        O valor total pago numa fazenda desse município é este valor × a área (ha) da propriedade. Isso é separado do Pró-labore do Financeiro (que é por hectare/ano, pago ao gestor).
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
