@@ -2582,10 +2582,8 @@ function drawFieldThumbnailPdf(doc, polygonLatLng, x, y, size) {
     offsetY + hUsed - (lat - minLat) * scale,
   ]);
   const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
-  doc.setDrawColor(30, 74, 32);
   doc.setFillColor(196, 224, 165);
-  doc.setLineWidth(0.5);
-  doc.lines(deltas, pts[0][0], pts[0][1], [1, 1], "FD", true);
+  doc.lines(deltas, pts[0][0], pts[0][1], [1, 1], "F", true);
 }
 async function downloadVisitReportPdf(visits) {
   const doc = new jsPDF();
