@@ -953,6 +953,7 @@ export default function AgroTrackApp() {
         fieldArea: field ? fieldAreaHa(field) : 0,
         propertyName: property ? property.name : "—",
         clientName: client ? client.name : "—",
+        fieldMap: field ? field.fieldMap : null,
         status: h.harvestDate ? "Colhida" : "Em andamento",
         estimatedHarvestDate,
         lastVisit: harvestVisits[0] || null,
@@ -2556,6 +2557,36 @@ async function loadImageInfo(url) {
 // Relatório de visita(s) técnica(s) pra encaminhar ao produtor — narra o que
 // foi observado em campo (estágio, pragas/doenças, recomendações e fotos).
 // Aceita uma visita só ou várias (ex: várias áreas visitadas no mesmo dia).
+// Miniatura vetorial do contorno do talhão, fundo branco — só uma referência visual
+// de formato/posição pro relatório, desenhada direto no PDF (não depende de mapa/rede).
+function drawFieldThumbnailPdf(doc, polygonLatLng, x, y, size) {
+  doc.setDrawColor(200);
+  doc.setFillColor(255, 255, 255);
+  doc.rect(x, y, size, size, "FD");
+  if (!polygonLatLng || polygonLatLng.length < 3) return;
+  const lats = polygonLatLng.map((p) => p[0]);
+  const lngs = polygonLatLng.map((p) => p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const meanLat = (minLat + maxLat) / 2;
+  const corte = Math.cos((meanLat * Math.PI) / 180) || 1;
+  const latRange = Math.max(maxLat - minLat, 1e-9);
+  const lngRangeCorrigido = Math.max((maxLng - minLng) * corte, 1e-9);
+  const pad = size * 0.12;
+  const usable = size - pad * 2;
+  const scale = Math.min(usable / lngRangeCorrigido, usable / latRange);
+  const wUsed = lngRangeCorrigido * scale, hUsed = latRange * scale;
+  const offsetX = x + (size - wUsed) / 2, offsetY = y + (size - hUsed) / 2;
+  const pts = polygonLatLng.map(([lat, lng]) => [
+    offsetX + (lng - minLng) * corte * scale,
+    offsetY + hUsed - (lat - minLat) * scale,
+  ]);
+  const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
+  doc.setDrawColor(30, 74, 32);
+  doc.setFillColor(196, 224, 165);
+  doc.setLineWidth(0.5);
+  doc.lines(deltas, pts[0][0], pts[0][1], [1, 1], "FD", true);
+}
 async function downloadVisitReportPdf(visits) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -2573,7 +2604,8 @@ async function downloadVisitReportPdf(visits) {
     if (y + needed > maxY) { doc.addPage(); y = 20; }
   }
 
-  doc.addImage(LOGO_SRC_GREEN, "PNG", marginX, y, 20, 20);
+  // Logo original é 420x136px (~3.09:1) — mantém a proporção pra não espichar.
+  doc.addImage(LOGO_SRC_GREEN, "PNG", marginX, y, 24, 24 / (420 / 136));
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(30, 74, 32);
@@ -2612,13 +2644,21 @@ async function downloadVisitReportPdf(visits) {
     doc.setTextColor(0);
     y += 13;
 
+    const hasThumb = v.fieldMap?.mode === "kml" && v.fieldMap.points?.length >= 3;
+    const thumbSize = 26;
+    const textWidth = hasThumb ? contentWidth - thumbSize - 6 : contentWidth;
+    ensureSpace(hasThumb ? thumbSize + 4 : 12);
+    const blockTop = y;
+    if (hasThumb) drawFieldThumbnailPdf(doc, v.fieldMap.points, marginX + textWidth + 6, blockTop, thumbSize);
+
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9.5);
-    doc.text(
+    const headerLines = doc.splitTextToSize(
       `Data: ${fmtDate(v.date)}    Técnico responsável: ${v.technician || "—"}${v.stage ? `    Estágio fenológico: ${v.stage}` : ""}`,
-      marginX, y
+      textWidth
     );
-    y += 8;
+    doc.text(headerLines, marginX, y);
+    y = (hasThumb ? Math.max(blockTop + thumbSize, y + headerLines.length * 4.5) : y + headerLines.length * 4.5) + 4;
 
     if (v.pests) {
       ensureSpace(12);
@@ -3987,6 +4027,7 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
         culture: harvest ? harvest.culture : null,
         clientName: harvest ? harvest.clientName : "—",
         propertyName: harvest ? harvest.propertyName : "—",
+        fieldMap: harvest ? harvest.fieldMap : null,
       };
     });
   }, [visits, harvests]);
