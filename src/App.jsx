@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -2531,6 +2531,146 @@ function generatePointsForZone(zone, targetCount) {
   return points;
 }
 
+// Baixa uma foto (URL pública do Storage) e devolve como data URL + as
+// dimensões reais, pra dar pra encaixar no PDF sem distorcer a proporção.
+async function loadImageInfo(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Falha ao baixar a foto.");
+  const blob = await res.blob();
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Falha ao ler a foto."));
+    reader.readAsDataURL(blob);
+  });
+  const { width, height } = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth || 1, height: img.naturalHeight || 1 });
+    img.onerror = () => reject(new Error("Falha ao decodificar a foto."));
+    img.src = dataUrl;
+  });
+  return { dataUrl, width, height };
+}
+
+// Relatório de visita(s) técnica(s) pra encaminhar ao produtor — narra o que
+// foi observado em campo (estágio, pragas/doenças, recomendações e fotos).
+// Aceita uma visita só ou várias (ex: várias áreas visitadas no mesmo dia).
+async function downloadVisitReportPdf(visits) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 14;
+  const maxY = 278;
+  let y = 16;
+
+  const multiple = visits.length > 1;
+  const sorted = [...visits].sort((a, b) => a.date.localeCompare(b.date) || a.fieldName.localeCompare(b.fieldName));
+  const clientNames = [...new Set(sorted.map((v) => v.clientName))];
+  const dates = [...new Set(sorted.map((v) => v.date))].sort();
+  const dateLabel = dates.length === 1 ? fmtDate(dates[0]) : `${fmtDate(dates[0])} a ${fmtDate(dates[dates.length - 1])}`;
+
+  function ensureSpace(needed) {
+    if (y + needed > maxY) { doc.addPage(); y = 20; }
+  }
+
+  doc.addImage(LOGO_SRC, "PNG", marginX, y, 20, 20);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(30, 74, 32);
+  doc.text("Semear Consultoria Agropecuária", marginX + 26, y + 8);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(110);
+  doc.text(`Relatório de Visita${multiple ? "s" : ""} Técnica${multiple ? "s" : ""}`, marginX + 26, y + 15);
+  doc.setTextColor(0);
+  y += 28;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(`Cliente: ${clientNames.join(", ")}`, marginX, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Data d${dates.length === 1 ? "a visita" : "as visitas"}: ${dateLabel}`, marginX, y);
+  y += 10;
+
+  const intro = `Prezado(a) ${clientNames[0] || "produtor(a)"}, segue um resumo d${multiple ? "as visitas técnicas realizadas" : "a visita técnica realizada"} em sua${multiple ? "s área(s)" : " área"}, com as principais observações de campo e recomendações da nossa equipe.`;
+  doc.setFontSize(9.5);
+  const introLines = doc.splitTextToSize(intro, pageWidth - marginX * 2);
+  doc.text(introLines, marginX, y);
+  y += introLines.length * 4.3 + 8;
+
+  const contentWidth = pageWidth - marginX * 2;
+  for (const v of sorted) {
+    ensureSpace(16);
+    doc.setFillColor(30, 74, 32);
+    doc.rect(marginX, y, contentWidth, 8, "F");
+    doc.setTextColor(255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.5);
+    doc.text(`${v.propertyName} · ${v.fieldName}${v.culture ? " · " + v.culture : ""}`, marginX + 3, y + 5.5);
+    doc.setTextColor(0);
+    y += 13;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.text(
+      `Data: ${fmtDate(v.date)}    Técnico responsável: ${v.technician || "—"}${v.stage ? `    Estágio fenológico: ${v.stage}` : ""}`,
+      marginX, y
+    );
+    y += 8;
+
+    if (v.pests) {
+      ensureSpace(12);
+      doc.setFont("helvetica", "bold");
+      doc.text("Pragas / doenças observadas:", marginX, y);
+      y += 5;
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(v.pests, contentWidth);
+      ensureSpace(lines.length * 4.5);
+      doc.text(lines, marginX, y);
+      y += lines.length * 4.5 + 4;
+    }
+    if (v.recommendations) {
+      ensureSpace(12);
+      doc.setFont("helvetica", "bold");
+      doc.text("Recomendações:", marginX, y);
+      y += 5;
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(v.recommendations, contentWidth);
+      ensureSpace(lines.length * 4.5);
+      doc.text(lines, marginX, y);
+      y += lines.length * 4.5 + 4;
+    }
+
+    if (v.photos && v.photos.length > 0) {
+      const photoW = 85, maxPhotoH = 60;
+      for (const p of v.photos) {
+        try {
+          const info = await loadImageInfo(p.url);
+          const ratio = info.width / info.height;
+          let w = photoW, h = w / ratio;
+          if (h > maxPhotoH) { h = maxPhotoH; w = h * ratio; }
+          ensureSpace(h + 4);
+          doc.addImage(info.dataUrl, "JPEG", marginX, y, w, h);
+          y += h + 4;
+        } catch (e) { /* pula foto que não carregou, não trava o relatório inteiro */ }
+      }
+    }
+    y += 6;
+  }
+
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(`Gerado em ${fmtDateTime(new Date().toISOString())} · Semear Consultoria Agropecuária`, marginX, doc.internal.pageSize.getHeight() - 10);
+  }
+
+  const safeName = `${clientNames[0] || "visita"}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
+  doc.save(`relatorio-visita-${safeName}-${dates[dates.length - 1]}.pdf`);
+}
+
 function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   const doc = new jsPDF();
   let y = 18;
@@ -3849,15 +3989,57 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
       };
     });
   }, [visits, harvests]);
+  const [selected, setSelected] = useState(() => new Set());
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportError, setReportError] = useState("");
+
+  function toggleSelected(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleGenerateReport() {
+    const chosen = list.filter((v) => selected.has(v.id));
+    if (chosen.length === 0) return;
+    setReportError("");
+    setGeneratingReport(true);
+    try {
+      await downloadVisitReportPdf(chosen);
+    } catch (e) {
+      setReportError(e.message || "Não consegui gerar o relatório.");
+    } finally {
+      setGeneratingReport(false);
+    }
+  }
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
         <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Visitas técnicas</h2>
-        <PrimaryBtn onClick={onAdd} disabled={!hasHarvests} style={!hasHarvests ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
-          <Plus size={16} /> Registrar visita
-        </PrimaryBtn>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {selected.size > 0 && (
+            <GhostBtn onClick={handleGenerateReport} disabled={generatingReport}>
+              <FileText size={14} /> {generatingReport ? "Gerando…" : `Gerar relatório (${selected.size})`}
+            </GhostBtn>
+          )}
+          <PrimaryBtn onClick={onAdd} disabled={!hasHarvests} style={!hasHarvests ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+            <Plus size={16} /> Registrar visita
+          </PrimaryBtn>
+        </div>
       </div>
+      {selected.size > 0 && (
+        <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 12 }}>
+          Marque uma ou mais visitas (ex: todas de um mesmo dia) e gere um relatório único pra encaminhar ao produtor.
+        </div>
+      )}
+      {reportError && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#3A1F1C", color: "#E38B84", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+          <AlertTriangle size={15} /> {reportError}
+        </div>
+      )}
       {!hasHarvests && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Cadastre uma safra antes de registrar visitas.
@@ -3868,18 +4050,29 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {list.map((v) => (
-            <div key={v.id} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16 }}>
+            <div key={v.id} style={{
+              background: "#161D19", border: `1px solid ${selected.has(v.id) ? "#7BC142" : "#232B25"}`, borderRadius: 12, padding: 16,
+            }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5, marginBottom: 2 }}>
-                    {v.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {v.propertyName} · {v.fieldName}</span>
-                  </div>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "#9BA298" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Calendar size={12} /> {fmtDate(v.date)}</span>
-                    <span>Técnico: {v.technician}</span>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <input
+                    type="checkbox" checked={selected.has(v.id)} onChange={() => toggleSelected(v.id)}
+                    style={{ marginTop: 3, cursor: "pointer" }} title="Selecionar para o relatório"
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5, marginBottom: 2 }}>
+                      {v.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {v.propertyName} · {v.fieldName}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "#9BA298" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Calendar size={12} /> {fmtDate(v.date)}</span>
+                      <span>Técnico: {v.technician}</span>
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
+                  <GhostBtn onClick={() => downloadVisitReportPdf([v]).catch((e) => setReportError(e.message || "Não consegui gerar o relatório."))}>
+                    <FileText size={13} /> Relatório
+                  </GhostBtn>
                   <button onClick={() => onEdit(v)} style={iconBtnStyle}><Pencil size={14} /></button>
                   <button onClick={() => { if (confirm("Remover esta visita?")) onDelete(v.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
                 </div>
