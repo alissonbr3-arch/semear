@@ -94,6 +94,37 @@ repositório do GitHub:
    do seu registrador (geralmente um registro tipo `CNAME` ou `A`). Depois
    de configurado, pode levar algumas horas para propagar.
 
+## 5. Consultoria por IA nas visitas
+
+Dentro do registro de cada visita técnica tem um campo **"Consultoria IA"**:
+você digita uma pergunta de manejo (ex: "o que fazer com essa lagarta nesse
+estágio?"), a IA responde já considerando a cultura, o estágio e as
+pragas/doenças anotadas naquela visita, e a pergunta + resposta ficam salvas
+junto da visita — isso forma automaticamente um histórico de manejo. Você
+pode clicar em "Usar como recomendação" para copiar a resposta direto para o
+campo de recomendações.
+
+Isso já está publicado no seu projeto Supabase (função `consultor-ia`), mas
+falta um passo pra ativar — feito por você, com sua própria conta:
+
+1. Crie uma conta em **console.anthropic.com** (é a empresa que faz o Claude)
+   e gere uma chave de API em **API Keys** → **Create Key**. O uso é cobrado
+   por pergunta (poucos centavos cada, dependendo do tamanho da resposta) —
+   não tem plano fixo, só o que for usado.
+2. No painel do Supabase do seu projeto: **Edge Functions** → **Manage
+   secrets** (ou **Settings** → **Edge Functions** → **Secrets**, dependendo
+   da versão do painel) → adicione um segredo chamado `ANTHROPIC_API_KEY` com
+   o valor da chave que você copiou.
+3. Pronto — não precisa reimplantar nada, a função já lê essa chave
+   automaticamente na próxima pergunta.
+
+**Sobre o estilo das respostas:** hoje a IA responde num tom técnico e direto
+de consultoria agropecuária (estilo genérico, para começar). Se quiser deixar
+mais parecido com o seu jeito de escrever recomendações, me passe alguns
+exemplos de como você costuma orientar — eu ajusto o texto que define esse
+estilo (fica em `supabase/functions/consultor-ia/index.ts`, na constante
+`SYSTEM_PROMPT`) e reimplanto pra você.
+
 ## Coisas importantes para saber
 
 - **Login por pessoa** — cada colaborador tem seu próprio e-mail/senha
