@@ -1372,7 +1372,7 @@ export default function AgroTrackApp() {
         <HarvestModal data={modal.data} fields={fields} properties={properties} clients={clients} varieties={varieties} onSave={saveHarvest} onClose={() => setModal(null)} />
       )}
       {modal?.type === "visit" && (
-        <VisitModal data={modal.data} harvests={harvestsWithMeta} team={team} onSave={saveVisit} onUploadPhoto={uploadVisitPhoto} onDeletePhoto={deleteVisitPhoto} onClose={() => setModal(null)} />
+        <VisitModal data={modal.data} harvests={harvestsWithMeta} team={team} pests={pests} diseases={diseases} weeds={weeds} onSave={saveVisit} onUploadPhoto={uploadVisitPhoto} onDeletePhoto={deleteVisitPhoto} onClose={() => setModal(null)} />
       )}
       {modal?.type === "variety" && (
         <VarietyModal data={modal.data} onSave={saveVariety} onClose={() => setModal(null)} />
@@ -4713,7 +4713,15 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
   );
 }
 
-function VisitModal({ data, harvests, team, onSave, onUploadPhoto, onDeletePhoto, onClose }) {
+const PEST_CATEGORIES = [
+  { key: "praga", label: "Praga" },
+  { key: "daninha", label: "Daninha" },
+  { key: "doenca", label: "Doença" },
+];
+const PEST_SIZES = ["Pequena", "Média", "Grande"];
+const PEST_INTENSITIES = ["Baixa", "Média", "Alta"];
+
+function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUploadPhoto, onDeletePhoto, onClose }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), harvestId: harvests[0]?.id || "", date: new Date().toISOString().slice(0, 10),
     technician: "", stage: "", pests: "", recommendations: "", photos: [],
@@ -4723,6 +4731,24 @@ function VisitModal({ data, harvests, team, onSave, onUploadPhoto, onDeletePhoto
   const [photoError, setPhotoError] = useState("");
   const selectedHarvest = harvests.find((h) => h.id === form.harvestId);
   const stages = selectedHarvest ? CULTURE_META[selectedHarvest.culture]?.stages || [] : [];
+
+  const [showPestAdder, setShowPestAdder] = useState(false);
+  const [pestCategory, setPestCategory] = useState("praga");
+  const [pestItemId, setPestItemId] = useState("");
+  const [pestSize, setPestSize] = useState("Média");
+  const [pestIntensity, setPestIntensity] = useState("Baixa");
+  const pestCatalogs = { praga: pests || [], daninha: weeds || [], doenca: diseases || [] };
+  const pestCatalog = pestCatalogs[pestCategory];
+
+  function handleAddPestEntry() {
+    const item = pestCatalog.find((i) => i.id === pestItemId);
+    if (!item) return;
+    const categoryLabel = PEST_CATEGORIES.find((c) => c.key === pestCategory).label;
+    const line = `${categoryLabel}: ${item.name} — tamanho ${pestSize.toLowerCase()}, intensidade ${pestIntensity.toLowerCase()}.`;
+    setForm((f) => ({ ...f, pests: f.pests ? `${f.pests}\n${line}` : line }));
+    setPestItemId("");
+    setShowPestAdder(false);
+  }
 
   async function handlePhotoFiles(files) {
     setPhotoError("");
@@ -4773,6 +4799,52 @@ function VisitModal({ data, harvests, team, onSave, onUploadPhoto, onDeletePhoto
       </Field>
       <Field label="Pragas / doenças observadas">
         <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.pests} onChange={(e) => setForm({ ...form, pests: e.target.value })} placeholder="Ex: lagarta-do-cartucho em baixa intensidade" />
+        {!showPestAdder ? (
+          <GhostBtn onClick={() => setShowPestAdder(true)} style={{ marginTop: 8 }}>
+            <Plus size={13} /> Adicionar praga/daninha/doença
+          </GhostBtn>
+        ) : (
+          <div style={{ marginTop: 8, padding: 12, background: "#161D19", border: "1px solid #232B25", borderRadius: 10 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              {PEST_CATEGORIES.map((c) => (
+                <button
+                  key={c.key}
+                  onClick={() => { setPestCategory(c.key); setPestItemId(""); }}
+                  style={{
+                    padding: "6px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
+                    border: pestCategory === c.key ? "1px solid #7BC142" : "1px solid #2E362F",
+                    background: pestCategory === c.key ? "#1C2E19" : "transparent",
+                    color: pestCategory === c.key ? "#7BC142" : "#9BA298",
+                  }}
+                >{c.label}</button>
+              ))}
+            </div>
+            {pestCatalog.length === 0 ? (
+              <div style={{ fontSize: 10.5, color: "#6B7268", padding: "6px 0" }}>
+                Nenhum{pestCategory === "daninha" ? "a" : ""} {PEST_CATEGORIES.find((c) => c.key === pestCategory).label.toLowerCase()} cadastrada. Cadastre em Configurações.
+              </div>
+            ) : (
+              <>
+                <select style={{ ...inputStyle, marginBottom: 8 }} value={pestItemId} onChange={(e) => setPestItemId(e.target.value)}>
+                  <option value="">Selecione…</option>
+                  {pestCatalog.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+                </select>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <select style={inputStyle} value={pestSize} onChange={(e) => setPestSize(e.target.value)}>
+                    {PEST_SIZES.map((s) => <option key={s} value={s}>Tamanho: {s}</option>)}
+                  </select>
+                  <select style={inputStyle} value={pestIntensity} onChange={(e) => setPestIntensity(e.target.value)}>
+                    {PEST_INTENSITIES.map((i) => <option key={i} value={i}>Intensidade: {i}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <GhostBtn onClick={() => setShowPestAdder(false)}>Cancelar</GhostBtn>
+                  <PrimaryBtn onClick={handleAddPestEntry} disabled={!pestItemId}>Adicionar</PrimaryBtn>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </Field>
       <Field label="Recomendações">
         <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.recommendations} onChange={(e) => setForm({ ...form, recommendations: e.target.value })} placeholder="Ex: monitorar em 7 dias, sem necessidade de controle" />
