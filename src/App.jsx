@@ -897,12 +897,16 @@ export default function AgroTrackApp() {
   }
 
   function financeEntryFromService(service) {
+    const date = service.vencimento || new Date().toISOString().slice(0, 10);
     return {
       clientId: service.clientId,
       type: serviceTipoToFinanceType(service.tipo),
       amount: service.valor,
-      date: service.vencimento || new Date().toISOString().slice(0, 10),
-      referenceMonth: service.competencia || new Date().toISOString().slice(0, 7),
+      date,
+      // Usa o mês do vencimento (quando o dinheiro entra), não a competência
+      // do serviço — assim o honorário aparece no Painel/Extrato do mês em
+      // que ele realmente é esperado/recebido.
+      referenceMonth: date.slice(0, 7),
       responsibleGestorId: service.gestorId || "",
       recurring: false,
       serviceId: service.id,
