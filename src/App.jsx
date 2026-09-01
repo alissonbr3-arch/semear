@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -6184,10 +6184,15 @@ function FinanceiroView({
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile,
 }) {
-  const [tab, setTab] = useState("honorarios");
+  const [tab, setTab] = useState("painel");
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHaYear ?? 30));
   const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
+  const [extratoPeriodo, setExtratoPeriodo] = useState("mensal");
+  const [extratoDia, setExtratoDia] = useState(() => new Date().toISOString().slice(0, 10));
+  const [extratoMes, setExtratoMes] = useState(() => new Date().toISOString().slice(0, 7));
+  const [extratoAno, setExtratoAno] = useState(() => new Date().toISOString().slice(0, 4));
+  const [fluxoPeriodo, setFluxoPeriodo] = useState("mensal");
 
   const summary = useMemo(
     () => computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month }),
@@ -6206,8 +6211,9 @@ function FinanceiroView({
   const totalComissoes = summary.totalProLabore;
 
   const cashFlowMonths = useMemo(() => {
+    if (tab !== "fluxocaixa" || fluxoPeriodo !== "mensal") return [];
     const result = [];
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const m = addMonthsToReferenceMonth(month, -i);
       const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: m });
       const [y, mm] = m.split("-").map(Number);
@@ -6215,7 +6221,48 @@ function FinanceiroView({
       result.push({ month: m, label, entradas: s.totalEntradasPrevistas, saidas: s.totalSaidasPrevistas });
     }
     return result;
-  }, [finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month]);
+  }, [tab, fluxoPeriodo, finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month]);
+
+  const cashFlowYears = useMemo(() => {
+    if (tab !== "fluxocaixa" || fluxoPeriodo !== "anual") return [];
+    const currentYear = Number(month.slice(0, 4));
+    const result = [];
+    for (let y = currentYear - 4; y <= currentYear; y++) {
+      let entradas = 0, saidas = 0;
+      for (let mm = 1; mm <= 12; mm++) {
+        const m = `${y}-${String(mm).padStart(2, "0")}`;
+        const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: m });
+        entradas += s.totalEntradasPrevistas;
+        saidas += s.totalSaidasPrevistas;
+      }
+      result.push({ month: String(y), label: String(y), entradas, saidas });
+    }
+    return result;
+  }, [tab, fluxoPeriodo, finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month]);
+
+  const extratoRows = useMemo(() => {
+    const entradas = finances.map((f) => ({
+      id: `f-${f.id}`, kind: "entrada", label: clients.find((c) => c.id === f.clientId)?.name || "Honorário",
+      date: f.date, amount: Number(f.amount), status: f.status,
+    }));
+    const saidas = bills.map((b) => ({
+      id: `b-${b.id}`, kind: "saida", label: b.description, date: b.date, amount: Number(b.amount), status: b.status,
+    }));
+    return [...entradas, ...saidas]
+      .filter((m) => {
+        if (!m.date) return false;
+        if (extratoPeriodo === "diario") return m.date === extratoDia;
+        if (extratoPeriodo === "mensal") return m.date.slice(0, 7) === extratoMes;
+        return m.date.slice(0, 4) === extratoAno;
+      })
+      .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  }, [finances, bills, clients, extratoPeriodo, extratoDia, extratoMes, extratoAno]);
+
+  const extratoTotals = useMemo(() => {
+    const entradas = extratoRows.filter((m) => m.kind === "entrada").reduce((s, m) => s + m.amount, 0);
+    const saidas = extratoRows.filter((m) => m.kind === "saida").reduce((s, m) => s + m.amount, 0);
+    return { entradas, saidas, saldo: entradas - saidas };
+  }, [extratoRows]);
 
   const pendingItems = useMemo(() => {
     const fin = summary.monthFinances.filter((f) => f.status === "pendente").map((f) => ({
@@ -6243,6 +6290,16 @@ function FinanceiroView({
 
   const saldoPrevisto = summary.totalEntradasPrevistas - summary.totalSaidasPrevistas;
 
+  const FINANCEIRO_TABS = [
+    { id: "painel", label: "Painel", icon: LayoutDashboard },
+    { id: "extrato", label: "Extrato de Movimentações", icon: FileText },
+    { id: "fluxocaixa", label: "Fluxo de Caixa", icon: TrendingUp },
+    { id: "honorarios", label: "Honorários", icon: Wallet },
+    { id: "comissoes", label: "Pró-labore", icon: UserCog },
+    { id: "despesas", label: "Despesas", icon: Receipt },
+  ];
+  const showMonthPicker = tab === "painel" || tab === "honorarios" || tab === "comissoes" || tab === "despesas";
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
@@ -6250,98 +6307,170 @@ function FinanceiroView({
           <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Financeiro</h2>
           <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Honorários recebidos e pró-labore da equipe</p>
         </div>
-        <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
-      </div>
-
-      <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
-        <StatCard label="Entradas previstas no mês" value={fmtCurrency(summary.totalEntradasPrevistas)} accent="#7BC142"
-          sub={`${fmtCurrency(totalRecebido)} recebido`} />
-        <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="#E3B455"
-          sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
-        <StatCard label="Saldo previsto no mês" value={fmtCurrency(saldoPrevisto)} accent={saldoPrevisto >= 0 ? "#7BC142" : "#E38B84"} />
-      </div>
-
-      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 14 }}>
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 2, minWidth: 320 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Fluxo de caixa · últimos 6 meses</div>
-            <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: "#9BA298" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: "#7BC142", display: "inline-block" }} />Entradas
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: "#E38B84", display: "inline-block" }} />Saídas
-              </span>
-            </div>
-          </div>
-          <CashFlowChart months={cashFlowMonths} />
-        </div>
-
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Pendências do mês</div>
-          {pendingItems.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nada pendente neste mês.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 9, maxHeight: 210, overflowY: "auto" }}>
-              {pendingItems.map((item) => (
-                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10 }}>
-                  <span style={{ color: "#D6D3C7", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
-                    {item.label}
-                  </span>
-                  <strong style={{ color: "#F2F0E6", whiteSpace: "nowrap" }}>{fmtCurrency(item.amount)}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginBottom: 20 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Últimas movimentações conciliadas</div>
-        {reconciledFeed.length === 0 ? (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma conciliação bancária registrada ainda.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            {reconciledFeed.map((item) => (
-              <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10.5 }}>
-                <span style={{ color: "#D6D3C7" }}>
-                  <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
-                  {item.label} <span style={{ color: "#6B7268" }}>· {fmtDate(item.date)}</span>
-                </span>
-                <strong style={{ color: "#F2F0E6" }}>{fmtCurrency(item.amount)}</strong>
-              </div>
-            ))}
-          </div>
+        {showMonthPicker && (
+          <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        <button onClick={() => setTab("honorarios")} style={{
-          display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-          border: "1px solid " + (tab === "honorarios" ? "#1E4A20" : "#232B25"),
-          background: tab === "honorarios" ? "#1E4A20" : "#161D19", color: tab === "honorarios" ? "#F5F2E8" : "#D6D3C7",
-          fontSize: 10.5, fontWeight: 600, cursor: "pointer"
-        }}>
-          <Wallet size={15} /> Honorários
-        </button>
-        <button onClick={() => setTab("comissoes")} style={{
-          display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-          border: "1px solid " + (tab === "comissoes" ? "#1E4A20" : "#232B25"),
-          background: tab === "comissoes" ? "#1E4A20" : "#161D19", color: tab === "comissoes" ? "#F5F2E8" : "#D6D3C7",
-          fontSize: 10.5, fontWeight: 600, cursor: "pointer"
-        }}>
-          <UserCog size={15} /> Pró-labore
-        </button>
-        <button onClick={() => setTab("despesas")} style={{
-          display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-          border: "1px solid " + (tab === "despesas" ? "#1E4A20" : "#232B25"),
-          background: tab === "despesas" ? "#1E4A20" : "#161D19", color: tab === "despesas" ? "#F5F2E8" : "#D6D3C7",
-          fontSize: 10.5, fontWeight: 600, cursor: "pointer"
-        }}>
-          <Receipt size={15} /> Despesas
-        </button>
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+        {FINANCEIRO_TABS.map((t) => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+              border: "1px solid " + (active ? "#1E4A20" : "#232B25"),
+              background: active ? "#1E4A20" : "#161D19", color: active ? "#F5F2E8" : "#D6D3C7",
+              fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+            }}>
+              <Icon size={15} /> {t.label}
+            </button>
+          );
+        })}
       </div>
+
+      {tab === "painel" && (
+        <div>
+          <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+            <StatCard label="Entradas previstas no mês" value={fmtCurrency(summary.totalEntradasPrevistas)} accent="#7BC142" />
+            <StatCard label="Entradas recebidas no mês" value={fmtCurrency(totalRecebido)} accent="#7BC142" />
+            <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="#E3B455"
+              sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
+            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(totalDespesasPagas)} accent="#E38B84"
+              sub="Despesas pagas — pró-labore ainda não tem controle de pago/pendente" />
+          </div>
+
+          <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatCard label="Saldo previsto no mês" value={fmtCurrency(saldoPrevisto)} accent={saldoPrevisto >= 0 ? "#7BC142" : "#E38B84"} />
+          </div>
+
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 14 }}>
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Pendências do mês</div>
+              {pendingItems.length === 0 ? (
+                <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nada pendente neste mês.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9, maxHeight: 210, overflowY: "auto" }}>
+                  {pendingItems.map((item) => (
+                    <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10 }}>
+                      <span style={{ color: "#D6D3C7", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
+                        {item.label}
+                      </span>
+                      <strong style={{ color: "#F2F0E6", whiteSpace: "nowrap" }}>{fmtCurrency(item.amount)}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Últimas movimentações conciliadas</div>
+              {reconciledFeed.length === 0 ? (
+                <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma conciliação bancária registrada ainda.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {reconciledFeed.map((item) => (
+                    <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10.5 }}>
+                      <span style={{ color: "#D6D3C7" }}>
+                        <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
+                        {item.label} <span style={{ color: "#6B7268" }}>· {fmtDate(item.date)}</span>
+                      </span>
+                      <strong style={{ color: "#F2F0E6" }}>{fmtCurrency(item.amount)}</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "extrato" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[["diario", "Diário"], ["mensal", "Mensal"], ["anual", "Anual"]].map(([key, label]) => (
+                <button key={key} onClick={() => setExtratoPeriodo(key)} style={{
+                  padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                  border: "1px solid " + (extratoPeriodo === key ? "#1E4A20" : "#232B25"),
+                  background: extratoPeriodo === key ? "#1E4A20" : "#161D19", color: extratoPeriodo === key ? "#F5F2E8" : "#D6D3C7",
+                }}>{label}</button>
+              ))}
+            </div>
+            {extratoPeriodo === "diario" && (
+              <input type="date" style={{ ...inputStyle, width: 160 }} value={extratoDia} onChange={(e) => setExtratoDia(e.target.value)} />
+            )}
+            {extratoPeriodo === "mensal" && (
+              <input type="month" style={{ ...inputStyle, width: 160 }} value={extratoMes} onChange={(e) => setExtratoMes(e.target.value)} />
+            )}
+            {extratoPeriodo === "anual" && (
+              <input type="number" style={{ ...inputStyle, width: 100 }} value={extratoAno} onChange={(e) => setExtratoAno(e.target.value)} />
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+            <StatCard label="Entradas no período" value={fmtCurrency(extratoTotals.entradas)} accent="#7BC142" />
+            <StatCard label="Saídas no período" value={fmtCurrency(extratoTotals.saidas)} accent="#E38B84" />
+            <StatCard label="Saldo do período" value={fmtCurrency(extratoTotals.saldo)} accent={extratoTotals.saldo >= 0 ? "#7BC142" : "#E38B84"} />
+          </div>
+
+          {extratoRows.length === 0 ? (
+            <EmptyState icon={FileText} title="Nenhuma movimentação neste período" sub="Ajuste o período acima ou registre honorários e despesas." />
+          ) : (
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+              <table>
+                <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Status</th><th>Valor</th></tr></thead>
+                <tbody>
+                  {extratoRows.map((m) => (
+                    <tr key={m.id}>
+                      <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(m.date)}</td>
+                      <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{m.label}</td>
+                      <td>
+                        <span style={{ color: m.kind === "entrada" ? "#7BC142" : "#E38B84", fontWeight: 600 }}>
+                          {m.kind === "entrada" ? "↑ Entrada" : "↓ Saída"}
+                        </span>
+                      </td>
+                      <td><FinanceStatusBadge status={m.status} /></td>
+                      <td>{fmtCurrency(m.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "fluxocaixa" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            {[["mensal", "Mensal"], ["anual", "Anual"]].map(([key, label]) => (
+              <button key={key} onClick={() => setFluxoPeriodo(key)} style={{
+                padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
+                border: "1px solid " + (fluxoPeriodo === key ? "#1E4A20" : "#232B25"),
+                background: fluxoPeriodo === key ? "#1E4A20" : "#161D19", color: fluxoPeriodo === key ? "#F5F2E8" : "#D6D3C7",
+              }}>{label}</button>
+            ))}
+          </div>
+          <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>
+                {fluxoPeriodo === "mensal" ? "Fluxo de caixa · últimos 12 meses" : "Fluxo de caixa · últimos 5 anos"}
+              </div>
+              <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: "#9BA298" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: "#7BC142", display: "inline-block" }} />Entradas
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: "#E38B84", display: "inline-block" }} />Saídas
+                </span>
+              </div>
+            </div>
+            <CashFlowChart months={fluxoPeriodo === "mensal" ? cashFlowMonths : cashFlowYears} />
+          </div>
+        </div>
+      )}
 
       {tab === "honorarios" && (
         <div>
