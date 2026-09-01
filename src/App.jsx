@@ -860,16 +860,50 @@ export default function AgroTrackApp() {
     persistExpenseCategories(expenseCategories.filter((c) => c.id !== id));
   }
 
+  function serviceTipoToFinanceType(tipo) {
+    const t = (tipo || "").toLowerCase();
+    if (t.includes("solo")) return "analise_solo";
+    if (t.includes("projeto")) return "projeto";
+    return "mensalidade";
+  }
+
+  function financeEntryFromService(service) {
+    return {
+      clientId: service.clientId,
+      type: serviceTipoToFinanceType(service.tipo),
+      amount: service.valor,
+      date: service.vencimento || new Date().toISOString().slice(0, 10),
+      referenceMonth: service.competencia || new Date().toISOString().slice(0, 7),
+      status: "pago",
+      responsibleGestorId: "",
+      recurring: false,
+      serviceId: service.id,
+    };
+  }
+
   function saveService(form) {
-    if (form.id) {
-      persistServices(services.map((s) => (s.id === form.id ? form : s)));
-    } else {
-      persistServices([...services, { ...form, id: uid() }]);
+    const previous = services.find((s) => s.id === form.id);
+    const wasRecebido = previous?.status === "recebido";
+    const entry = form.id ? form : { ...form, id: uid() };
+    const isRecebido = entry.status === "recebido";
+
+    persistServices(form.id ? services.map((s) => (s.id === entry.id ? entry : s)) : [...services, entry]);
+
+    const client = clients.find((c) => c.id === entry.clientId);
+    if (isRecebido && !wasRecebido) {
+      logActivity(makeLogEntry("create", "finance", client?.name, `Gerado automaticamente do serviço "${entry.tipo}"`));
+      persistFinances([...finances, { ...financeEntryFromService(entry), id: uid() }]);
+    } else if (!isRecebido && wasRecebido) {
+      persistFinances(finances.filter((f) => f.serviceId !== entry.id));
+    } else if (isRecebido && wasRecebido) {
+      persistFinances(finances.map((f) => (f.serviceId === entry.id ? { ...f, ...financeEntryFromService(entry) } : f)));
     }
+
     setModal(null);
   }
   function deleteService(id) {
     persistServices(services.filter((s) => s.id !== id));
+    persistFinances(finances.filter((f) => f.serviceId !== id));
   }
 
   function saveServiceType(form) {
@@ -6011,6 +6045,9 @@ function ServiceModal({ data, clients, serviceTypes, onSave, onClose }) {
           {SERVICE_STATUS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
       </Field>
+      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
+        Ao marcar como "Recebido", gera automaticamente um honorário (pago) em Financeiro, contando como receita e pró-labore pro gestor do cliente. Se voltar o status ou editar o serviço depois, o honorário gerado é atualizado/removido junto.
+      </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave} style={!canSave ? { opacity: 0.5, cursor: "not-allowed" } : {}}>Salvar</PrimaryBtn>
@@ -6225,6 +6262,7 @@ function FinanceiroView({
                         <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {f.recurring && <Repeat size={12} color="#6B7268" />}
+                            {f.serviceId && <Briefcase size={12} color="#6B7268" title="Gerado automaticamente por um Serviço" />}
                             {client?.name || "—"}
                           </div>
                         </td>
