@@ -875,7 +875,7 @@ export default function AgroTrackApp() {
       date: service.vencimento || new Date().toISOString().slice(0, 10),
       referenceMonth: service.competencia || new Date().toISOString().slice(0, 7),
       status: "pago",
-      responsibleGestorId: "",
+      responsibleGestorId: service.gestorId || "",
       recurring: false,
       serviceId: service.id,
     };
@@ -1416,7 +1416,7 @@ export default function AgroTrackApp() {
 
         {view === "servicos" && isFinance && (
           <ServicosView
-            services={services} clients={clients} serviceTypes={serviceTypes}
+            services={services} clients={clients} serviceTypes={serviceTypes} team={team}
             onAdd={() => setModal({ type: "service", data: null })}
             onEdit={(s) => setModal({ type: "service", data: s })}
             onDelete={deleteService}
@@ -1527,7 +1527,7 @@ export default function AgroTrackApp() {
         <ExpenseCategoryModal data={modal.data} onSave={saveExpenseCategory} onClose={() => setModal(null)} />
       )}
       {modal?.type === "service" && (
-        <ServiceModal data={modal.data} clients={clients} serviceTypes={serviceTypes} onSave={saveService} onClose={() => setModal(null)} />
+        <ServiceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} onSave={saveService} onClose={() => setModal(null)} />
       )}
       {modal?.type === "serviceType" && (
         <ServiceTypeModal data={modal.data} onSave={saveServiceType} onClose={() => setModal(null)} />
@@ -5341,9 +5341,13 @@ function ConfiguracoesView({
         <CatalogTable
           icon={Briefcase}
           items={serviceTypes}
-          columns={[{ key: "name", label: "Tipo de serviço" }]}
+          columns={[
+            { key: "name", label: "Tipo de serviço" },
+            { key: "cobranca", label: "Forma de cobrança", render: (t) => SERVICE_COBRANCA_LABELS[t.cobranca] || "—" },
+            { key: "valores", label: "Valores", render: (t) => serviceCobrancaSummary(t) },
+          ]}
           emptyTitle="Nenhum tipo cadastrado"
-          emptySub="Cadastre os tipos de serviço oferecidos (Assistência Técnica, Projeto de Custeio, etc.) para usar em Serviços."
+          emptySub="Cadastre os tipos de serviço oferecidos (Assistência Técnica, Projeto de Custeio, etc.) e como cada um é cobrado, para usar em Serviços."
           addLabel="Novo tipo"
           onAdd={onAddServiceType}
           onEdit={onEditServiceType}
@@ -5856,7 +5860,7 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
 
   const projectShareByGestor = {};
   monthFinances
-    .filter((f) => FINANCE_TYPES_WITH_SHARE.includes(f.type) && f.status === "pago")
+    .filter((f) => (FINANCE_TYPES_WITH_SHARE.includes(f.type) || f.serviceId) && f.status === "pago")
     .forEach((f) => {
       const gestorId = f.responsibleGestorId || gestorByClientId[f.clientId];
       if (!gestorId) return;
@@ -5930,12 +5934,26 @@ function ServiceStatusBadge({ status }) {
   );
 }
 
-function ServicosView({ services, clients, serviceTypes, onAdd, onEdit, onDelete, hasClients }) {
+const SERVICE_COBRANCA_LABELS = { area: "Por área", valor: "% do valor", unidade: "Por unidade" };
+
+function serviceCobrancaSummary(type) {
+  if (!type) return "—";
+  if (type.cobranca === "area") return `R$ ${Number(type.valorPorHa || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/ha/ano`;
+  if (type.cobranca === "valor") return `${Number(type.percentual || 0).toLocaleString("pt-BR")}% do valor do projeto`;
+  if (type.cobranca === "unidade") return `R$ ${Number(type.valorPorUnidade || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} por ${type.unidadeLabel || "unidade"}`;
+  return "—";
+}
+
+function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, onDelete, hasClients }) {
   const rows = useMemo(() => {
     return [...services]
-      .map((s) => ({ ...s, clientName: clients.find((c) => c.id === s.clientId)?.name || "—" }))
+      .map((s) => ({
+        ...s,
+        clientName: clients.find((c) => c.id === s.clientId)?.name || "—",
+        gestorName: team.find((t) => t.id === s.gestorId)?.name || "—",
+      }))
       .sort((a, b) => (b.vencimento || "").localeCompare(a.vencimento || ""));
-  }, [services, clients]);
+  }, [services, clients, team]);
 
   return (
     <div>
@@ -5957,7 +5975,7 @@ function ServicosView({ services, clients, serviceTypes, onAdd, onEdit, onDelete
           <table>
             <thead>
               <tr>
-                <th>Cliente</th><th>Tipo</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th></th>
+                <th>Cliente</th><th>Tipo</th><th>Gestor</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -5965,6 +5983,7 @@ function ServicosView({ services, clients, serviceTypes, onAdd, onEdit, onDelete
                 <tr key={s.id}>
                   <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{s.clientName}</td>
                   <td>{s.tipo || "—"}</td>
+                  <td>{s.gestorName}</td>
                   <td>{fmtCurrency(Number(s.valor || 0))}</td>
                   <td>{s.competencia || "—"}</td>
                   <td>{fmtDate(s.vencimento)}</td>
@@ -5989,22 +6008,48 @@ function ServicosView({ services, clients, serviceTypes, onAdd, onEdit, onDelete
   );
 }
 
-function ServiceModal({ data, clients, serviceTypes, onSave, onClose }) {
+function ServiceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
   const [form, setForm] = useState({
-    tipo: "", clientId: clients[0]?.id || "", valor: "", competencia: new Date().toISOString().slice(0, 7),
+    tipo: "", clientId: clients[0]?.id || "", gestorId: "", valor: "",
+    areaHa: "", valorProjeto: "", quantidade: "1",
+    competencia: new Date().toISOString().slice(0, 7),
     periodicidade: "unica", recorrente: false, vencimento: new Date().toISOString().slice(0, 10), status: "negociacao",
     ...(data || {}),
   });
   const tipoOptions = Array.from(new Set([...(serviceTypes || []).map((t) => t.name), ...DEFAULT_SERVICE_TYPES]));
-  const canSave = form.tipo.trim() && form.clientId && Number(form.valor) > 0 && form.vencimento;
+  const selectedType = (serviceTypes || []).find((t) => t.name === form.tipo);
+
+  function applyTipo(tipoName) {
+    const type = (serviceTypes || []).find((t) => t.name === tipoName);
+    setForm((f) => {
+      const next = { ...f, tipo: tipoName };
+      if (type?.cobranca === "area") next.periodicidade = f.periodicidade === "unica" ? "anual" : f.periodicidade;
+      return next;
+    });
+  }
+
+  function applyCalc(patch) {
+    setForm((f) => {
+      const next = { ...f, ...patch };
+      if (!selectedType) return next;
+      if (selectedType.cobranca === "area") next.valor = String((Number(next.areaHa) || 0) * (Number(selectedType.valorPorHa) || 0));
+      if (selectedType.cobranca === "valor") next.valor = String(((Number(next.valorProjeto) || 0) * (Number(selectedType.percentual) || 0)) / 100);
+      if (selectedType.cobranca === "unidade") next.valor = String((Number(next.quantidade) || 0) * (Number(selectedType.valorPorUnidade) || 0));
+      return next;
+    });
+  }
+
+  const canSave = form.tipo.trim() && form.clientId && form.gestorId && Number(form.valor) > 0 && form.vencimento;
   return (
     <Modal title={data?.id ? "Editar serviço" : "Novo serviço"} onClose={onClose}>
       <Field label="Tipo de serviço">
-        <input style={inputStyle} list="service-types" value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} placeholder="Ex: Assistência Técnica" />
+        <input style={inputStyle} list="service-types" value={form.tipo} onChange={(e) => applyTipo(e.target.value)} placeholder="Ex: Assistência Técnica" />
         <datalist id="service-types">
           {tipoOptions.map((t) => <option key={t} value={t} />)}
         </datalist>
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>Gerencie a lista de tipos em Configurações.</div>
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>
+          {selectedType ? `Cobrança: ${serviceCobrancaSummary(selectedType)}` : "Gerencie a lista de tipos em Configurações."}
+        </div>
       </Field>
       <Field label="Contratante / Cliente">
         {clients.length === 0 ? (
@@ -6016,8 +6061,37 @@ function ServiceModal({ data, clients, serviceTypes, onSave, onClose }) {
           </select>
         )}
       </Field>
+      <Field label="Gestor responsável">
+        {team.length === 0 ? (
+          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>Nenhum colaborador cadastrado ainda. Cadastre em Configurações › Equipe.</div>
+        ) : (
+          <select style={inputStyle} value={form.gestorId} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
+            <option value="">Selecione…</option>
+            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>É quem ganha a participação sobre este serviço quando ele for recebido.</div>
+      </Field>
+
+      {selectedType?.cobranca === "area" && (
+        <Field label="Área atendida (ha)">
+          <input type="number" style={inputStyle} value={form.areaHa} onChange={(e) => applyCalc({ areaHa: e.target.value })} placeholder="Ex: 500" />
+        </Field>
+      )}
+      {selectedType?.cobranca === "valor" && (
+        <Field label="Valor do projeto (R$)">
+          <input type="number" style={inputStyle} value={form.valorProjeto} onChange={(e) => applyCalc({ valorProjeto: e.target.value })} placeholder="Ex: 200000" />
+        </Field>
+      )}
+      {selectedType?.cobranca === "unidade" && (
+        <Field label={`Quantidade${selectedType.unidadeLabel ? ` (${selectedType.unidadeLabel})` : ""}`}>
+          <input type="number" style={inputStyle} value={form.quantidade} onChange={(e) => applyCalc({ quantidade: e.target.value })} placeholder="Ex: 1" />
+        </Field>
+      )}
+
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="Ex: 3500" />
+        {selectedType && <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>Calculado a partir da forma de cobrança do tipo — pode ajustar se precisar.</div>}
       </Field>
       <Field label="Competência (mês de referência)">
         <input type="month" style={inputStyle} value={form.competencia} onChange={(e) => setForm({ ...form, competencia: e.target.value })} />
@@ -6046,7 +6120,7 @@ function ServiceModal({ data, clients, serviceTypes, onSave, onClose }) {
         </select>
       </Field>
       <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
-        Ao marcar como "Recebido", gera automaticamente um honorário (pago) em Financeiro, contando como receita e pró-labore pro gestor do cliente. Se voltar o status ou editar o serviço depois, o honorário gerado é atualizado/removido junto.
+        Ao marcar como "Recebido", gera automaticamente um honorário (pago) em Financeiro, contando como receita e como pró-labore pro gestor responsável escolhido acima. Se voltar o status ou editar o serviço depois, o honorário gerado é atualizado/removido junto.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
@@ -6057,15 +6131,47 @@ function ServiceModal({ data, clients, serviceTypes, onSave, onClose }) {
 }
 
 function ServiceTypeModal({ data, onSave, onClose }) {
-  const [form, setForm] = useState({ name: "", ...(data || {}) });
+  const [form, setForm] = useState({ name: "", cobranca: "area", valorPorHa: "", percentual: "", valorPorUnidade: "", unidadeLabel: "", ...(data || {}) });
+  const canSave = form.name.trim() && (
+    (form.cobranca === "area" && Number(form.valorPorHa) > 0) ||
+    (form.cobranca === "valor" && Number(form.percentual) > 0) ||
+    (form.cobranca === "unidade" && Number(form.valorPorUnidade) > 0 && form.unidadeLabel.trim())
+  );
   return (
     <Modal title={data?.id ? "Editar tipo" : "Novo tipo de serviço"} onClose={onClose}>
       <Field label="Nome do tipo">
         <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Assistência Técnica" />
       </Field>
+      <Field label="Forma de cobrança">
+        <select style={inputStyle} value={form.cobranca} onChange={(e) => setForm({ ...form, cobranca: e.target.value })}>
+          <option value="area">Por área (R$/hectare/ano)</option>
+          <option value="valor">% do valor (percentual sobre o valor do projeto)</option>
+          <option value="unidade">Por unidade (R$ por unidade)</option>
+        </select>
+      </Field>
+      {form.cobranca === "area" && (
+        <Field label="Valor por hectare/ano (R$)">
+          <input type="number" style={inputStyle} value={form.valorPorHa} onChange={(e) => setForm({ ...form, valorPorHa: e.target.value })} placeholder="Ex: 60" />
+        </Field>
+      )}
+      {form.cobranca === "valor" && (
+        <Field label="Percentual sobre o valor do projeto (%)">
+          <input type="number" style={inputStyle} value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} placeholder="Ex: 0,5" />
+        </Field>
+      )}
+      {form.cobranca === "unidade" && (
+        <>
+          <Field label="Valor por unidade (R$)">
+            <input type="number" style={inputStyle} value={form.valorPorUnidade} onChange={(e) => setForm({ ...form, valorPorUnidade: e.target.value })} placeholder="Ex: 200" />
+          </Field>
+          <Field label="Nome da unidade">
+            <input style={inputStyle} value={form.unidadeLabel} onChange={(e) => setForm({ ...form, unidadeLabel: e.target.value })} placeholder="Ex: limite de crédito bancário" />
+          </Field>
+        </>
+      )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
-        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave} style={!canSave ? { opacity: 0.5, cursor: "not-allowed" } : {}}>Salvar</PrimaryBtn>
       </div>
     </Modal>
   );
