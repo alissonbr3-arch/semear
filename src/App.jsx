@@ -903,7 +903,6 @@ export default function AgroTrackApp() {
       amount: service.valor,
       date: service.vencimento || new Date().toISOString().slice(0, 10),
       referenceMonth: service.competencia || new Date().toISOString().slice(0, 7),
-      status: "pago",
       responsibleGestorId: service.gestorId || "",
       recurring: false,
       serviceId: service.id,
@@ -911,21 +910,25 @@ export default function AgroTrackApp() {
   }
 
   function saveService(form) {
-    const previous = services.find((s) => s.id === form.id);
-    const wasRecebido = previous?.status === "recebido";
     const entry = form.id ? form : { ...form, id: uid() };
-    const isRecebido = entry.status === "recebido";
 
     persistServices(form.id ? services.map((s) => (s.id === entry.id ? entry : s)) : [...services, entry]);
 
+    const shouldHaveFinance = entry.status === "finalizado" || entry.status === "recebido";
+    const financeStatus = entry.status === "recebido" ? "pago" : "pendente";
+    const existing = finances.find((f) => f.serviceId === entry.id);
     const client = clients.find((c) => c.id === entry.clientId);
-    if (isRecebido && !wasRecebido) {
-      logActivity(makeLogEntry("create", "finance", client?.name, `Gerado automaticamente do serviço "${entry.tipo}"`));
-      persistFinances([...finances, { ...financeEntryFromService(entry), id: uid() }]);
-    } else if (!isRecebido && wasRecebido) {
+
+    if (shouldHaveFinance) {
+      const updated = { ...financeEntryFromService(entry), status: financeStatus };
+      if (existing) {
+        persistFinances(finances.map((f) => (f.serviceId === entry.id ? { ...f, ...updated } : f)));
+      } else {
+        logActivity(makeLogEntry("create", "finance", client?.name, `Gerado automaticamente do serviço "${entry.tipo}" (${financeStatus})`));
+        persistFinances([...finances, { ...updated, id: uid() }]);
+      }
+    } else if (existing) {
       persistFinances(finances.filter((f) => f.serviceId !== entry.id));
-    } else if (isRecebido && wasRecebido) {
-      persistFinances(finances.map((f) => (f.serviceId === entry.id ? { ...f, ...financeEntryFromService(entry) } : f)));
     }
 
     setModal(null);
@@ -6167,7 +6170,7 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
         </select>
       </Field>
       <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
-        Ao marcar como "Recebido", gera automaticamente um honorário (pago) em Financeiro, contando como receita e como pró-labore pro gestor responsável escolhido acima. Se voltar o status ou editar o serviço depois, o honorário gerado é atualizado/removido junto.
+Ao marcar como "Finalizado", gera um honorário Pendente em Financeiro (aparece em Entradas Previstas e no Extrato, com data do vencimento). Ao marcar como "Recebido", esse honorário vira Pago e conta como pró-labore pro gestor responsável escolhido acima. Voltar pra "Em negociação"/"Em andamento" ou editar o serviço atualiza/remove o honorário automaticamente.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
