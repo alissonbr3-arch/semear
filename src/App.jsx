@@ -1033,8 +1033,8 @@ export default function AgroTrackApp() {
   const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const monthFinanceSummary = useMemo(() => {
     if (!isFinance) return null;
-    return computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month: currentMonth });
-  }, [isFinance, finances, bonuses, bills, settings, clients, team, properties, fields, currentMonth]);
+    return computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: currentMonth });
+  }, [isFinance, finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentMonth]);
 
   const NAV = [
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
@@ -1333,7 +1333,7 @@ export default function AgroTrackApp() {
         {view === "financeiro" && isFinance && (
           <FinanceiroView
             finances={finances} bonuses={bonuses} bills={bills} settings={settings}
-            clients={clients} team={team} properties={properties} fields={fields}
+            clients={clients} team={team} properties={properties} fields={fields} ajudaCusto={ajudaCusto}
             onAddFinance={() => setModal({ type: "finance", data: null })}
             onEditFinance={(f) => setModal({ type: "finance", data: f })}
             onDeleteFinance={deleteFinance}
@@ -4024,8 +4024,8 @@ function PropertyDetail({ property, fields, ajudaCusto, onBack, onAddField, onEd
             {property.location && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {property.location}</span>}
             {ajudaCustoMatch && (
               <span style={{ display: "flex", alignItems: "center", gap: 5, color: "#7BC142" }}>
-                <Wallet size={13} /> Ajuda de custo: R$ {(Number(ajudaCustoMatch.valor) * Number(property.areaTotal || 0)).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                {" "}({Number(ajudaCustoMatch.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/ha × {Number(property.areaTotal || 0).toLocaleString("pt-BR")} ha)
+                <Wallet size={13} /> Ajuda de custo: R$ {((Number(ajudaCustoMatch.valor) * Number(property.areaTotal || 0)) / 12).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês
+                {" "}({Number(ajudaCustoMatch.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/ha/ano × {Number(property.areaTotal || 0).toLocaleString("pt-BR")} ha ÷ 12)
               </span>
             )}
           </div>
@@ -5191,7 +5191,7 @@ function ConfiguracoesView({
             { key: "distanciaKm", label: "Distância", render: (a) => a.distanciaKm ? `${a.distanciaKm} km` : "—" },
           ]}
           emptyTitle="Nenhuma ajuda de custo configurada"
-          emptySub="Defina o valor por hectare atendido pago à equipe por município visitado (deslocamento) — separado do Pró-labore do Financeiro."
+          emptySub="Defina o valor por hectare/ano pago ao gestor por município atendido (deslocamento) — soma no Pró-labore do Financeiro, como uma coluna separada."
           addLabel="Nova ajuda de custo"
           onAdd={onAddAjudaCusto}
           onEdit={onEditAjudaCusto}
@@ -5260,14 +5260,14 @@ function AjudaCustoModal({ data, onSave, onClose }) {
           {municipios.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </Field>
-      <Field label="Valor por hectare atendido (R$/ha)">
+      <Field label="Valor por hectare atendido (R$/ha/ano)">
         <input type="number" style={inputStyle} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="Ex: 2,50" />
       </Field>
       <Field label="Distância aproximada (km) — opcional">
         <input type="number" style={inputStyle} value={form.distanciaKm} onChange={(e) => setForm({ ...form, distanciaKm: e.target.value })} placeholder="Ex: 180" />
       </Field>
       <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
-        O valor total pago numa fazenda desse município é este valor × a área (ha) da propriedade. Isso é separado do Pró-labore do Financeiro (que é por hectare/ano, pago ao gestor).
+        É um valor por ano, igual ao Pró-labore por hectare — o cálculo mensal usa este valor ÷ 12. Some automaticamente ao Pró-labore do gestor responsável pelo cliente dono da fazenda (coluna "Ajuda de custo" em Financeiro › Pró-labore).
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
@@ -5630,7 +5630,7 @@ function matchBankTransactions(transactions, finances, bills, categoryMemory) {
   return [...credits, ...debits].sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || ""));
 }
 
-function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month }) {
+function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month }) {
   const monthFinances = finances.filter((f) => f.referenceMonth === month);
   const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
   const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
@@ -5651,6 +5651,23 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
     areaByGestor[client.gestorId] = (areaByGestor[client.gestorId] || 0) + fieldAreaHa(f);
   });
 
+  const ajudaCustoRateByProperty = {};
+  properties.forEach((p) => {
+    const match = (ajudaCusto || []).find((a) => a.estado === p.estado && a.municipio === p.municipio);
+    if (match) ajudaCustoRateByProperty[p.id] = Number(match.valor) || 0;
+  });
+
+  const ajudaCustoByGestor = {};
+  fields.forEach((f) => {
+    const property = properties.find((p) => p.id === f.propertyId);
+    if (!property) return;
+    const rate = ajudaCustoRateByProperty[property.id];
+    if (!rate) return;
+    const client = clients.find((c) => c.id === property.clientId);
+    if (!client?.gestorId) return;
+    ajudaCustoByGestor[client.gestorId] = (ajudaCustoByGestor[client.gestorId] || 0) + fieldAreaHa(f) * (rate / 12);
+  });
+
   const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month);
 
   const projectShareByGestor = {};
@@ -5667,7 +5684,8 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
     const base = areaHa * (Number(settings.commissionRatePerHaYear || 0) / 12);
     const projectShare = projectShareByGestor[t.id] || 0;
     const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
-    return { gestor: t, areaHa, base, projectShare, bonusTotal, total: base + projectShare + bonusTotal };
+    const ajudaCustoTotal = ajudaCustoByGestor[t.id] || 0;
+    return { gestor: t, areaHa, base, projectShare, bonusTotal, ajudaCustoTotal, total: base + projectShare + bonusTotal + ajudaCustoTotal };
   });
 
   const totalProLabore = proLaboreRows.reduce((s, r) => s + r.total, 0);
@@ -5708,7 +5726,7 @@ function CashFlowChart({ months }) {
 }
 
 function FinanceiroView({
-  finances, bonuses, bills, settings, clients, team, properties, fields,
+  finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto,
   onAddFinance, onEditFinance, onDeleteFinance,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
@@ -5720,8 +5738,8 @@ function FinanceiroView({
   const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
 
   const summary = useMemo(
-    () => computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month }),
-    [finances, bonuses, bills, settings, clients, team, properties, fields, month]
+    () => computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month }),
+    [finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month]
   );
   const monthFinances = [...summary.monthFinances].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const { totalRecebido, totalPendente } = summary;
@@ -5730,7 +5748,7 @@ function FinanceiroView({
   const { totalDespesasPagas, totalDespesasPendentes } = summary;
 
   const commissionRows = summary.proLaboreRows
-    .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal > 0)
+    .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal > 0 || r.ajudaCustoTotal > 0)
     .sort((a, b) => b.total - a.total);
 
   const totalComissoes = summary.totalProLabore;
@@ -5739,13 +5757,13 @@ function FinanceiroView({
     const result = [];
     for (let i = 5; i >= 0; i--) {
       const m = addMonthsToReferenceMonth(month, -i);
-      const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, month: m });
+      const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: m });
       const [y, mm] = m.split("-").map(Number);
       const label = new Date(y, mm - 1, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
       result.push({ month: m, label, entradas: s.totalEntradasPrevistas, saidas: s.totalSaidasPrevistas });
     }
     return result;
-  }, [finances, bonuses, bills, settings, clients, team, properties, fields, month]);
+  }, [finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month]);
 
   const pendingItems = useMemo(() => {
     const fin = summary.monthFinances.filter((f) => f.status === "pendente").map((f) => ({
@@ -5948,7 +5966,7 @@ function FinanceiroView({
           ) : (
             <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden", marginBottom: 24 }}>
               <table>
-                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Bonificações</th><th>Total</th></tr></thead>
+                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Ajuda de custo</th><th>Bonificações</th><th>Total</th></tr></thead>
                 <tbody>
                   {commissionRows.map((r) => (
                     <tr key={r.gestor.id}>
@@ -5956,6 +5974,7 @@ function FinanceiroView({
                       <td>{r.areaHa.toLocaleString("pt-BR")} ha</td>
                       <td>{fmtCurrency(r.base)}</td>
                       <td>{fmtCurrency(r.projectShare)}</td>
+                      <td>{fmtCurrency(r.ajudaCustoTotal)}</td>
                       <td>{fmtCurrency(r.bonusTotal)}</td>
                       <td style={{ fontWeight: 600, color: "#7BC142" }}>{fmtCurrency(r.total)}</td>
                     </tr>
