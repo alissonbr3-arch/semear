@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -370,6 +370,9 @@ export default function AgroTrackApp() {
   const [diseases, setDiseases] = useState([]);
   const [weeds, setWeeds] = useState([]);
   const [ajudaCusto, setAjudaCusto] = useState([]);
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [services, setServices] = useState([]);
+  const [serviceTypes, setServiceTypes] = useState([]);
   const [team, setTeam] = useState([]);
   const [clientProfiles, setClientProfiles] = useState([]);
   const [teamAvatars, setTeamAvatars] = useState({});
@@ -392,6 +395,7 @@ export default function AgroTrackApp() {
   const [search, setSearch] = useState("");
   const [propSearch, setPropSearch] = useState("");
   const [cultureFilter, setCultureFilter] = useState("Todas");
+  const [propriedadesTab, setPropriedadesTab] = useState("fazendas");
   const [teamError, setTeamError] = useState("");
 
   useEffect(() => {
@@ -425,10 +429,11 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
-        safeGet("pests"), safeGet("diseases"), safeGet("weeds"), safeGet("ajudaCusto"), listProfiles(),
+        safeGet("pests"), safeGet("diseases"), safeGet("weeds"), safeGet("ajudaCusto"), safeGet("expenseCategories"),
+        safeGet("services"), safeGet("serviceTypes"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
         safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory"),
         safeGet("soilAnalyses")
@@ -445,6 +450,9 @@ export default function AgroTrackApp() {
       setDiseases(ds || []);
       setWeeds(ws || []);
       setAjudaCusto(ac || []);
+      setExpenseCategories(ec || []);
+      setServices(sv || []);
+      setServiceTypes(st2 || []);
       setTeam((allProfiles || []).filter((pr) => pr.role !== "cliente"));
       setClientProfiles((allProfiles || []).filter((pr) => pr.role === "cliente"));
       setTeamAvatars(ta || {});
@@ -473,6 +481,9 @@ export default function AgroTrackApp() {
   async function persistDiseases(data) { setDiseases(data); await safeSet("diseases", data); }
   async function persistWeeds(data) { setWeeds(data); await safeSet("weeds", data); }
   async function persistAjudaCusto(data) { setAjudaCusto(data); await safeSet("ajudaCusto", data); }
+  async function persistExpenseCategories(data) { setExpenseCategories(data); await safeSet("expenseCategories", data); }
+  async function persistServices(data) { setServices(data); await safeSet("services", data); }
+  async function persistServiceTypes(data) { setServiceTypes(data); await safeSet("serviceTypes", data); }
   async function persistTeamAvatars(data) { setTeamAvatars(data); await safeSet("teamAvatars", data); }
   async function persistTasks(data) { setTasks(data); await safeSet("tasks", data); }
   async function persistDocuments(data) { setDocuments(data); await safeSet("documents", data); }
@@ -837,6 +848,42 @@ export default function AgroTrackApp() {
     persistAjudaCusto(ajudaCusto.filter((a) => a.id !== id));
   }
 
+  function saveExpenseCategory(form) {
+    if (form.id) {
+      persistExpenseCategories(expenseCategories.map((c) => (c.id === form.id ? form : c)));
+    } else {
+      persistExpenseCategories([...expenseCategories, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteExpenseCategory(id) {
+    persistExpenseCategories(expenseCategories.filter((c) => c.id !== id));
+  }
+
+  function saveService(form) {
+    if (form.id) {
+      persistServices(services.map((s) => (s.id === form.id ? form : s)));
+    } else {
+      persistServices([...services, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteService(id) {
+    persistServices(services.filter((s) => s.id !== id));
+  }
+
+  function saveServiceType(form) {
+    if (form.id) {
+      persistServiceTypes(serviceTypes.map((t) => (t.id === form.id ? form : t)));
+    } else {
+      persistServiceTypes([...serviceTypes, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteServiceType(id) {
+    persistServiceTypes(serviceTypes.filter((t) => t.id !== id));
+  }
+
   async function saveTeamMember(form) {
     if (form.id) {
       const r = await updateColaborador({ id: form.id, name: form.name, phone: form.phone, title: form.title });
@@ -1040,12 +1087,10 @@ export default function AgroTrackApp() {
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
     { id: "clientes", label: "Clientes", icon: Users },
     { id: "propriedades", label: "Propriedades", icon: Home },
-    { id: "talhoes", label: "Talhões", icon: Sprout },
     { id: "agenda", label: "Agenda", icon: Calendar },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "solo", label: "Análise de Solo", icon: FlaskConical },
-    { id: "equipe", label: "Equipe", icon: UserCog },
-    { id: "atividade", label: "Atividade", icon: History },
+    ...(isFinance ? [{ id: "servicos", label: "Serviços", icon: Briefcase }] : []),
     ...(isFinance ? [{ id: "financeiro", label: "Financeiro", icon: Wallet }] : []),
     { id: "configuracoes", label: "Configurações", icon: Settings },
   ];
@@ -1262,26 +1307,47 @@ export default function AgroTrackApp() {
           />
         )}
 
-        {view === "propriedades" && !selectedPropertyId && (
-          <PropriedadesView
-            properties={filteredProperties} clients={clients} search={propSearch} setSearch={setPropSearch}
-            onAdd={() => setModal({ type: "property", data: null })}
-            onEdit={(p) => setModal({ type: "property", data: p })}
-            onDelete={deleteProperty}
-            onOpen={openPropertyFromList}
-            hasClients={clients.length > 0}
-          />
-        )}
+        {view === "propriedades" && !selectedPropertyId && !selectedFieldId && (
+          <div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              <button onClick={() => setPropriedadesTab("fazendas")} style={{
+                display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+                border: "1px solid " + (propriedadesTab === "fazendas" ? "#1E4A20" : "#232B25"),
+                background: propriedadesTab === "fazendas" ? "#1E4A20" : "#161D19", color: propriedadesTab === "fazendas" ? "#F5F2E8" : "#D6D3C7",
+                fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+              }}>
+                <Home size={15} /> Fazendas
+              </button>
+              <button onClick={() => setPropriedadesTab("talhoes")} style={{
+                display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
+                border: "1px solid " + (propriedadesTab === "talhoes" ? "#1E4A20" : "#232B25"),
+                background: propriedadesTab === "talhoes" ? "#1E4A20" : "#161D19", color: propriedadesTab === "talhoes" ? "#F5F2E8" : "#D6D3C7",
+                fontSize: 10.5, fontWeight: 600, cursor: "pointer"
+              }}>
+                <Sprout size={15} /> Talhões
+              </button>
+            </div>
 
-        {view === "talhoes" && !selectedFieldId && (
-          <TalhoesView
-            fields={filteredFields} cultureFilter={cultureFilter} setCultureFilter={setCultureFilter}
-            onAdd={() => setModal({ type: "field", data: null })}
-            onEdit={(f) => setModal({ type: "field", data: f })}
-            onDelete={deleteField}
-            onOpen={openField}
-            hasProperties={properties.length > 0}
-          />
+            {propriedadesTab === "fazendas" ? (
+              <PropriedadesView
+                properties={filteredProperties} clients={clients} search={propSearch} setSearch={setPropSearch}
+                onAdd={() => setModal({ type: "property", data: null })}
+                onEdit={(p) => setModal({ type: "property", data: p })}
+                onDelete={deleteProperty}
+                onOpen={openPropertyFromList}
+                hasClients={clients.length > 0}
+              />
+            ) : (
+              <TalhoesView
+                fields={filteredFields} cultureFilter={cultureFilter} setCultureFilter={setCultureFilter}
+                onAdd={() => setModal({ type: "field", data: null })}
+                onEdit={(f) => setModal({ type: "field", data: f })}
+                onDelete={deleteField}
+                onOpen={openField}
+                hasProperties={properties.length > 0}
+              />
+            )}
+          </div>
         )}
 
         {view === "agenda" && (
@@ -1313,21 +1379,15 @@ export default function AgroTrackApp() {
           />
         )}
 
-        {view === "equipe" && (
-          <EquipeView
-            team={team}
-            teamAvatars={teamAvatars}
-            isMaster={isMaster}
-            onAdd={() => { setTeamError(""); setModal({ type: "team", data: null }); }}
-            onEdit={(t) => { setTeamError(""); setModal({ type: "team", data: t }); }}
-            onDelete={deleteTeamMember}
-            onPromote={promoteToAdmin}
-            onDemote={demoteToTecnico}
-          />
-        )}
 
-        {view === "atividade" && (
-          <ActivityLogView log={activityLog} />
+        {view === "servicos" && isFinance && (
+          <ServicosView
+            services={services} clients={clients} serviceTypes={serviceTypes}
+            onAdd={() => setModal({ type: "service", data: null })}
+            onEdit={(s) => setModal({ type: "service", data: s })}
+            onDelete={deleteService}
+            hasClients={clients.length > 0}
+          />
         )}
 
         {view === "financeiro" && isFinance && (
@@ -1352,10 +1412,23 @@ export default function AgroTrackApp() {
         {view === "configuracoes" && (
           <ConfiguracoesView
             varieties={varieties} pesticides={pesticides} fertilizers={fertilizers}
-            pests={pests} diseases={diseases} weeds={weeds} ajudaCusto={ajudaCusto}
+            pests={pests} diseases={diseases} weeds={weeds} ajudaCusto={ajudaCusto} expenseCategories={expenseCategories} serviceTypes={serviceTypes}
+            team={team} teamAvatars={teamAvatars} isMaster={isMaster}
+            onAddTeam={() => { setTeamError(""); setModal({ type: "team", data: null }); }}
+            onEditTeam={(t) => { setTeamError(""); setModal({ type: "team", data: t }); }}
+            onDeleteTeam={deleteTeamMember}
+            onPromoteTeam={promoteToAdmin}
+            onDemoteTeam={demoteToTecnico}
+            activityLog={activityLog}
             onAddAjudaCusto={() => setModal({ type: "ajudaCusto", data: null })}
             onEditAjudaCusto={(a) => setModal({ type: "ajudaCusto", data: a })}
             onDeleteAjudaCusto={deleteAjudaCusto}
+            onAddExpenseCategory={() => setModal({ type: "expenseCategory", data: null })}
+            onEditExpenseCategory={(c) => setModal({ type: "expenseCategory", data: c })}
+            onDeleteExpenseCategory={deleteExpenseCategory}
+            onAddServiceType={() => setModal({ type: "serviceType", data: null })}
+            onEditServiceType={(t) => setModal({ type: "serviceType", data: t })}
+            onDeleteServiceType={deleteServiceType}
             onAddVariety={() => setModal({ type: "variety", data: null })}
             onEditVariety={(v) => setModal({ type: "variety", data: v })}
             onDeleteVariety={deleteVariety}
@@ -1416,6 +1489,15 @@ export default function AgroTrackApp() {
       {modal?.type === "ajudaCusto" && (
         <AjudaCustoModal data={modal.data} onSave={saveAjudaCusto} onClose={() => setModal(null)} />
       )}
+      {modal?.type === "expenseCategory" && (
+        <ExpenseCategoryModal data={modal.data} onSave={saveExpenseCategory} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "service" && (
+        <ServiceModal data={modal.data} clients={clients} serviceTypes={serviceTypes} onSave={saveService} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "serviceType" && (
+        <ServiceTypeModal data={modal.data} onSave={saveServiceType} onClose={() => setModal(null)} />
+      )}
       {modal?.type === "team" && (
         <TeamMemberModal data={modal.data} avatarUrl={modal.data ? teamAvatars[modal.data.id] : null} error={teamError} onSave={saveTeamMember} onClose={() => setModal(null)} />
       )}
@@ -1441,7 +1523,7 @@ export default function AgroTrackApp() {
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bill" && (
-        <BillModal data={modal.data} categoryMemory={categoryMemory} onSave={saveBill} onClose={() => setModal(null)} />
+        <BillModal data={modal.data} categoryMemory={categoryMemory} expenseCategories={expenseCategories} onSave={saveBill} onClose={() => setModal(null)} />
       )}
       {modal?.type === "reconcile" && (
         <ReconciliationModal
@@ -5032,17 +5114,23 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
 const PESTICIDE_TYPES = ["Herbicida", "Fungicida", "Inseticida", "Acaricida", "Outro"];
 
 function ConfiguracoesView({
-  varieties, pesticides, fertilizers, pests, diseases, weeds, ajudaCusto,
+  varieties, pesticides, fertilizers, pests, diseases, weeds, ajudaCusto, expenseCategories, serviceTypes,
+  team, teamAvatars, isMaster, activityLog,
   onAddVariety, onEditVariety, onDeleteVariety,
   onAddPesticide, onEditPesticide, onDeletePesticide,
   onAddFertilizer, onEditFertilizer, onDeleteFertilizer,
   onAddPest, onEditPest, onDeletePest,
   onAddDisease, onEditDisease, onDeleteDisease,
   onAddWeed, onEditWeed, onDeleteWeed,
-  onAddAjudaCusto, onEditAjudaCusto, onDeleteAjudaCusto
+  onAddAjudaCusto, onEditAjudaCusto, onDeleteAjudaCusto,
+  onAddExpenseCategory, onEditExpenseCategory, onDeleteExpenseCategory,
+  onAddServiceType, onEditServiceType, onDeleteServiceType,
+  onAddTeam, onEditTeam, onDeleteTeam, onPromoteTeam, onDemoteTeam
 }) {
   const [tab, setTab] = useState("variedades");
   const TABS = [
+    { id: "equipe", label: "Equipe", icon: UserCog },
+    { id: "atividade", label: "Atividade", icon: History },
     { id: "variedades", label: "Cultivares", icon: Wheat },
     { id: "defensivos", label: "Defensivos", icon: FlaskConical },
     { id: "fertilizantes", label: "Fertilizantes", icon: Package },
@@ -5050,6 +5138,8 @@ function ConfiguracoesView({
     { id: "doencas", label: "Doenças", icon: Microscope },
     { id: "daninhas", label: "Daninhas", icon: Flower2 },
     { id: "ajudacusto", label: "Ajuda de Custo", icon: Wallet },
+    { id: "categoriasdespesa", label: "Categorias de Despesa", icon: Receipt },
+    { id: "tiposservico", label: "Tipos de Serviço", icon: Briefcase },
   ];
 
   return (
@@ -5198,6 +5288,51 @@ function ConfiguracoesView({
           onDelete={(item) => { if (confirm(`Remover a ajuda de custo de ${item.municipio}?`)) onDeleteAjudaCusto(item.id); }}
         />
       )}
+
+      {tab === "categoriasdespesa" && (
+        <CatalogTable
+          icon={Receipt}
+          items={expenseCategories}
+          columns={[{ key: "name", label: "Categoria" }]}
+          emptyTitle="Nenhuma categoria cadastrada"
+          emptySub="Cadastre as categorias usadas para classificar as despesas em Financeiro."
+          addLabel="Nova categoria"
+          onAdd={onAddExpenseCategory}
+          onEdit={onEditExpenseCategory}
+          onDelete={(item) => { if (confirm(`Remover a categoria ${item.name}?`)) onDeleteExpenseCategory(item.id); }}
+        />
+      )}
+
+      {tab === "tiposservico" && (
+        <CatalogTable
+          icon={Briefcase}
+          items={serviceTypes}
+          columns={[{ key: "name", label: "Tipo de serviço" }]}
+          emptyTitle="Nenhum tipo cadastrado"
+          emptySub="Cadastre os tipos de serviço oferecidos (Assistência Técnica, Projeto de Custeio, etc.) para usar em Serviços."
+          addLabel="Novo tipo"
+          onAdd={onAddServiceType}
+          onEdit={onEditServiceType}
+          onDelete={(item) => { if (confirm(`Remover o tipo ${item.name}?`)) onDeleteServiceType(item.id); }}
+        />
+      )}
+
+      {tab === "equipe" && (
+        <EquipeView
+          team={team}
+          teamAvatars={teamAvatars}
+          isMaster={isMaster}
+          onAdd={onAddTeam}
+          onEdit={onEditTeam}
+          onDelete={onDeleteTeam}
+          onPromote={onPromoteTeam}
+          onDemote={onDemoteTeam}
+        />
+      )}
+
+      {tab === "atividade" && (
+        <ActivityLogView log={activityLog} />
+      )}
     </div>
   );
 }
@@ -5240,6 +5375,21 @@ function CatalogTable({ icon, items, columns, emptyTitle, emptySub, addLabel, on
         </div>
       )}
     </div>
+  );
+}
+
+function ExpenseCategoryModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar categoria" : "Nova categoria de despesa"} onClose={onClose}>
+      <Field label="Nome da categoria">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Combustível" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
   );
 }
 
@@ -5722,6 +5872,165 @@ function CashFlowChart({ months }) {
         );
       })}
     </svg>
+  );
+}
+
+const SERVICE_STATUS = [
+  { key: "negociacao", label: "Em negociação", color: "#9BA298", bg: "#232B25" },
+  { key: "andamento", label: "Em andamento", color: "#E3B455", bg: "#332811" },
+  { key: "finalizado", label: "Finalizado", color: "#7FB3D5", bg: "#1B2A33" },
+  { key: "recebido", label: "Recebido", color: "#7BC142", bg: "#1C2E19" },
+];
+const SERVICE_PERIODICIDADE_LABELS = { unica: "Única", mensal: "Mensal", anual: "Anual" };
+const DEFAULT_SERVICE_TYPES = ["Assistência Técnica", "Projeto de Custeio", "Projeto de Investimento", "Análise de Solo"];
+
+function ServiceStatusBadge({ status }) {
+  const meta = SERVICE_STATUS.find((s) => s.key === status) || SERVICE_STATUS[0];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", padding: "3px 9px",
+      borderRadius: 20, background: meta.bg, color: meta.color, fontSize: 9.5, fontWeight: 600
+    }}>
+      {meta.label}
+    </span>
+  );
+}
+
+function ServicosView({ services, clients, serviceTypes, onAdd, onEdit, onDelete, hasClients }) {
+  const rows = useMemo(() => {
+    return [...services]
+      .map((s) => ({ ...s, clientName: clients.find((c) => c.id === s.clientId)?.name || "—" }))
+      .sort((a, b) => (b.vencimento || "").localeCompare(a.vencimento || ""));
+  }, [services, clients]);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Serviços</h2>
+        <PrimaryBtn onClick={onAdd} disabled={!hasClients} style={!hasClients ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+          <Plus size={16} /> Novo serviço
+        </PrimaryBtn>
+      </div>
+      {!hasClients && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+          <AlertTriangle size={15} /> Cadastre um cliente antes de adicionar um serviço.
+        </div>
+      )}
+      {rows.length === 0 ? (
+        <EmptyState icon={Briefcase} title="Nenhum serviço cadastrado" sub="Cadastre os serviços contratados por cada cliente para acompanhar o andamento e o recebimento." />
+      ) : (
+        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th><th>Tipo</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((s) => (
+                <tr key={s.id}>
+                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{s.clientName}</td>
+                  <td>{s.tipo || "—"}</td>
+                  <td>{fmtCurrency(Number(s.valor || 0))}</td>
+                  <td>{s.competencia || "—"}</td>
+                  <td>{fmtDate(s.vencimento)}</td>
+                  <td>
+                    {SERVICE_PERIODICIDADE_LABELS[s.periodicidade] || "—"}
+                    {s.periodicidade !== "unica" && s.recorrente ? " · recorrente" : ""}
+                  </td>
+                  <td><ServiceStatusBadge status={s.status} /></td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => onEdit(s)} style={iconBtnStyle}><Pencil size={14} /></button>
+                      <button onClick={() => { if (confirm(`Remover este serviço de ${s.clientName}?`)) onDelete(s.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServiceModal({ data, clients, serviceTypes, onSave, onClose }) {
+  const [form, setForm] = useState({
+    tipo: "", clientId: clients[0]?.id || "", valor: "", competencia: new Date().toISOString().slice(0, 7),
+    periodicidade: "unica", recorrente: false, vencimento: new Date().toISOString().slice(0, 10), status: "negociacao",
+    ...(data || {}),
+  });
+  const tipoOptions = Array.from(new Set([...(serviceTypes || []).map((t) => t.name), ...DEFAULT_SERVICE_TYPES]));
+  const canSave = form.tipo.trim() && form.clientId && Number(form.valor) > 0 && form.vencimento;
+  return (
+    <Modal title={data?.id ? "Editar serviço" : "Novo serviço"} onClose={onClose}>
+      <Field label="Tipo de serviço">
+        <input style={inputStyle} list="service-types" value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} placeholder="Ex: Assistência Técnica" />
+        <datalist id="service-types">
+          {tipoOptions.map((t) => <option key={t} value={t} />)}
+        </datalist>
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>Gerencie a lista de tipos em Configurações.</div>
+      </Field>
+      <Field label="Contratante / Cliente">
+        {clients.length === 0 ? (
+          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>Nenhum cliente cadastrado ainda. Cadastre em Clientes.</div>
+        ) : (
+          <select style={inputStyle} value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
+            <option value="">Selecione…</option>
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Valor (R$)">
+        <input type="number" style={inputStyle} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="Ex: 3500" />
+      </Field>
+      <Field label="Competência (mês de referência)">
+        <input type="month" style={inputStyle} value={form.competencia} onChange={(e) => setForm({ ...form, competencia: e.target.value })} />
+      </Field>
+      <Field label="Periodicidade">
+        <select style={inputStyle} value={form.periodicidade} onChange={(e) => setForm({ ...form, periodicidade: e.target.value, recorrente: e.target.value === "unica" ? false : form.recorrente })}>
+          <option value="unica">Única</option>
+          <option value="mensal">Mensal</option>
+          <option value="anual">Anual</option>
+        </select>
+      </Field>
+      {form.periodicidade !== "unica" && (
+        <Field label="Recorrente?">
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#D6D3C7" }}>
+            <input type="checkbox" checked={!!form.recorrente} onChange={(e) => setForm({ ...form, recorrente: e.target.checked })} />
+            Lançar automaticamente os próximos períodos
+          </label>
+        </Field>
+      )}
+      <Field label="Vencimento">
+        <input type="date" style={inputStyle} value={form.vencimento} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} />
+      </Field>
+      <Field label="Status">
+        <select style={inputStyle} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+          {SERVICE_STATUS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+        </select>
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave} style={!canSave ? { opacity: 0.5, cursor: "not-allowed" } : {}}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function ServiceTypeModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar tipo" : "Novo tipo de serviço"} onClose={onClose}>
+      <Field label="Nome do tipo">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Assistência Técnica" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
   );
 }
 
@@ -6336,7 +6645,7 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
 
 const BILL_CATEGORY_SUGGESTIONS = ["Salários", "Energia Elétrica", "Água", "Aluguel", "Manutenção de Máquinas e Equipamentos", "Combustível", "Internet/Telefone", "Material de Escritório", "Impostos", "Outros"];
 
-function BillModal({ data, categoryMemory, onSave, onClose }) {
+function BillModal({ data, categoryMemory, expenseCategories, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState({
     description: "", category: "", amount: "", date: new Date().toISOString().slice(0, 10),
@@ -6344,6 +6653,7 @@ function BillModal({ data, categoryMemory, onSave, onClose }) {
     ...(data || {}),
   });
   const canSave = form.description.trim() && Number(form.amount) > 0 && form.date;
+  const categoryOptions = Array.from(new Set([...(expenseCategories || []).map((c) => c.name), ...BILL_CATEGORY_SUGGESTIONS]));
   return (
     <Modal title={isEdit ? "Editar despesa" : "Nova despesa"} onClose={onClose}>
       <Field label="Descrição">
@@ -6359,8 +6669,9 @@ function BillModal({ data, categoryMemory, onSave, onClose }) {
       <Field label="Categoria">
         <input style={inputStyle} list="bill-categories" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Ex: Energia Elétrica" />
         <datalist id="bill-categories">
-          {BILL_CATEGORY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
+          {categoryOptions.map((c) => <option key={c} value={c} />)}
         </datalist>
+        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>Gerencie a lista de categorias em Configurações.</div>
       </Field>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 350" />
