@@ -581,6 +581,35 @@ export default function AgroTrackApp() {
     persistBills(bills.filter((b) => b.id !== id));
   }
 
+  function generateProLaboreBills(month, rows) {
+    const [y, m] = month.split("-").map(Number);
+    const mesLabel = new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    const paymentMonth = addMonthsToReferenceMonth(month, 1);
+    const dueDate = `${paymentMonth}-10`;
+    const alreadyGenerated = new Set(bills.filter((b) => b.proLaboreMonth === month).map((b) => b.proLaboreGestorId));
+    const newBills = rows
+      .filter((r) => r.total > 0 && !alreadyGenerated.has(r.gestor.id))
+      .map((r) => ({
+        id: uid(),
+        description: `Pró-labore de ${mesLabel} — ${r.gestor.name}`,
+        category: "Pró-labore",
+        amount: r.total,
+        date: dueDate,
+        referenceMonth: paymentMonth,
+        status: "pendente",
+        recurring: false,
+        proLaboreMonth: month,
+        proLaboreGestorId: r.gestor.id,
+      }));
+    if (newBills.length === 0) {
+      alert("As despesas de pró-labore desta competência já foram geradas para todos os gestores.");
+      return;
+    }
+    logActivity(makeLogEntry("create", "bill", "Pró-labore", `${newBills.length} gestor(es) · competência ${mesLabel} · vencimento ${fmtDate(dueDate)}`));
+    persistBills([...bills, ...newBills]);
+    alert(`${newBills.length} despesa(s) de pró-labore gerada(s) em Despesas, com vencimento em ${fmtDate(dueDate)}.`);
+  }
+
   function saveBonus(form) {
     const gestor = team.find((t) => t.id === form.gestorId);
     logActivity(makeLogEntry(form.id ? "update" : "create", "bonus", gestor?.name, `${form.description} · R$ ${Number(form.amount).toLocaleString("pt-BR")}`));
@@ -1440,6 +1469,7 @@ export default function AgroTrackApp() {
             onChangeRate={updateCommissionRate}
             onChangeProjectRate={updateProjectShareRate}
             onReconcile={() => setModal({ type: "reconcile", data: null })}
+            onGenerateProLaboreBills={generateProLaboreBills}
           />
         )}
 
@@ -5975,12 +6005,13 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
           <table>
             <thead>
               <tr>
-                <th>Cliente</th><th>Tipo</th><th>Gestor</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th></th>
+                <th>Código</th><th>Cliente</th><th>Tipo</th><th>Gestor</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((s) => (
                 <tr key={s.id}>
+                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#9BC98A" }}>{s.codigo || "—"}</td>
                   <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{s.clientName}</td>
                   <td>{s.tipo || "—"}</td>
                   <td>{s.gestorName}</td>
@@ -5995,7 +6026,7 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
                   <td>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                       <button onClick={() => onEdit(s)} style={iconBtnStyle}><Pencil size={14} /></button>
-                      <button onClick={() => { if (confirm(`Remover este serviço de ${s.clientName}?`)) onDelete(s.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
+                      <button onClick={() => { if (confirm(`Remover o serviço ${s.codigo || ""} de ${s.clientName}?`)) onDelete(s.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>
@@ -6008,8 +6039,21 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
   );
 }
 
-function ServiceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
+function nextServiceCode(services) {
+  const year = new Date().getFullYear();
+  const prefix = `CS-${year}-`;
+  const maxN = (services || [])
+    .map((s) => s.codigo)
+    .filter((c) => c && c.startsWith(prefix))
+    .map((c) => parseInt(c.slice(prefix.length), 10))
+    .filter((n) => !Number.isNaN(n))
+    .reduce((max, n) => Math.max(max, n), 0);
+  return `${prefix}${String(maxN + 1).padStart(3, "0")}`;
+}
+
+function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onClose }) {
   const [form, setForm] = useState({
+    codigo: data?.codigo || nextServiceCode(services),
     tipo: "", clientId: clients[0]?.id || "", gestorId: "", valor: "",
     areaHa: "", valorProjeto: "", quantidade: "1",
     competencia: new Date().toISOString().slice(0, 7),
@@ -6039,9 +6083,12 @@ function ServiceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
     });
   }
 
-  const canSave = form.tipo.trim() && form.clientId && form.gestorId && Number(form.valor) > 0 && form.vencimento;
+  const canSave = form.codigo.trim() && form.tipo.trim() && form.clientId && form.gestorId && Number(form.valor) > 0 && form.vencimento;
   return (
     <Modal title={data?.id ? "Editar serviço" : "Novo serviço"} onClose={onClose}>
+      <Field label="Código do serviço">
+        <input style={inputStyle} value={form.codigo} onChange={(e) => setForm({ ...form, codigo: e.target.value })} placeholder="Ex: CS-2026-001" />
+      </Field>
       <Field label="Tipo de serviço">
         <input style={inputStyle} list="service-types" value={form.tipo} onChange={(e) => applyTipo(e.target.value)} placeholder="Ex: Assistência Técnica" />
         <datalist id="service-types">
@@ -6182,7 +6229,7 @@ function FinanceiroView({
   onAddFinance, onEditFinance, onDeleteFinance,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
-  onChangeRate, onChangeProjectRate, onReconcile,
+  onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
 }) {
   const [tab, setTab] = useState("painel");
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -6209,6 +6256,11 @@ function FinanceiroView({
     .sort((a, b) => b.total - a.total);
 
   const totalComissoes = summary.totalProLabore;
+
+  const proLaboreGeneratedIds = useMemo(
+    () => new Set(bills.filter((b) => b.proLaboreMonth === month).map((b) => b.proLaboreGestorId)),
+    [bills, month]
+  );
 
   const cashFlowMonths = useMemo(() => {
     if (tab !== "fluxocaixa" || fluxoPeriodo !== "mensal") return [];
@@ -6546,9 +6598,9 @@ function FinanceiroView({
           {commissionRows.length === 0 ? (
             <div style={{ color: "#6B7268", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos, honorário de projeto ou bonificação neste mês.</div>
           ) : (
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden", marginBottom: 24 }}>
+            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
               <table>
-                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Ajuda de custo</th><th>Bonificações</th><th>Total</th></tr></thead>
+                <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Ajuda de custo</th><th>Bonificações</th><th>Total</th><th>Pagamento</th></tr></thead>
                 <tbody>
                   {commissionRows.map((r) => (
                     <tr key={r.gestor.id}>
@@ -6559,12 +6611,25 @@ function FinanceiroView({
                       <td>{fmtCurrency(r.ajudaCustoTotal)}</td>
                       <td>{fmtCurrency(r.bonusTotal)}</td>
                       <td style={{ fontWeight: 600, color: "#7BC142" }}>{fmtCurrency(r.total)}</td>
+                      <td>
+                        {proLaboreGeneratedIds.has(r.gestor.id) ? (
+                          <span style={{ color: "#7BC142", fontSize: 10, fontWeight: 600 }}>✓ Gerado</span>
+                        ) : (
+                          <span style={{ color: "#6B7268", fontSize: 10 }}>—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 24 }}>
+            <GhostBtn onClick={() => onGenerateProLaboreBills(month, commissionRows)} disabled={commissionRows.length === 0} style={commissionRows.length === 0 ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
+              <Receipt size={14} /> Gerar despesas de pró-labore (vence dia 10 do mês seguinte)
+            </GhostBtn>
+          </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Bonificações do mês</div>
@@ -6622,6 +6687,7 @@ function FinanceiroView({
                       <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           {b.recurring && <Repeat size={12} color="#6B7268" />}
+                          {b.proLaboreMonth && <UserCog size={12} color="#6B7268" title="Gerado automaticamente pelo Pró-labore" />}
                           {b.description}
                         </div>
                       </td>
