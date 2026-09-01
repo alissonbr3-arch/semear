@@ -1527,7 +1527,7 @@ export default function AgroTrackApp() {
         <ExpenseCategoryModal data={modal.data} onSave={saveExpenseCategory} onClose={() => setModal(null)} />
       )}
       {modal?.type === "service" && (
-        <ServiceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} onSave={saveService} onClose={() => setModal(null)} />
+        <ServiceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} services={services} onSave={saveService} onClose={() => setModal(null)} />
       )}
       {modal?.type === "serviceType" && (
         <ServiceTypeModal data={modal.data} onSave={saveServiceType} onClose={() => setModal(null)} />
@@ -6336,8 +6336,8 @@ function FinanceiroView({
             <StatCard label="Entradas recebidas no mês" value={fmtCurrency(totalRecebido)} accent="#7BC142" />
             <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="#E3B455"
               sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
-            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(totalDespesasPagas)} accent="#E38B84"
-              sub="Despesas pagas — pró-labore ainda não tem controle de pago/pendente" />
+            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(totalDespesasPagas + summary.totalProLabore)} accent="#E38B84"
+              sub={`Despesas pagas ${fmtCurrency(totalDespesasPagas)} + pró-labore ${fmtCurrency(summary.totalProLabore)}`} />
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
