@@ -2355,13 +2355,33 @@ function heatColor(t) {
   return stops[stops.length - 1][1];
 }
 
-function buildHeatOverlay(polygon, points, valueKey, resolution = 70) {
+const HEAT_NUM_CLASSES = 5;
+
+// Mapa de calor "em blocos" (classificado em faixas de igual amplitude), no
+// estilo de mapa de prescrição usado no mercado (Geodata etc.) — cores sólidas
+// por faixa em vez de gradiente contínuo, com área/porcentagem por faixa pra
+// dar dimensão real de quanto do talhão cai em cada nível.
+function buildHeatOverlay(polygon, points, valueKey, resolution = 70, numClasses = HEAT_NUM_CLASSES) {
   if (!polygon || polygon.length < 3) return null;
   const values = points
     .map((p) => Number(p[valueKey]))
     .filter((v) => isValidNumber(v));
   if (values.length === 0) return null;
   const minV = Math.min(...values), maxV = Math.max(...values);
+  const range = maxV > minV ? maxV - minV : 1;
+  const breaks = [];
+  for (let i = 0; i <= numClasses; i++) breaks.push(minV + (range * i) / numClasses);
+  function classify(val) {
+    if (maxV <= minV) return 0;
+    const idx = Math.floor(((val - minV) / range) * numClasses);
+    return Math.max(0, Math.min(numClasses - 1, idx));
+  }
+  const classColors = [];
+  for (let i = 0; i < numClasses; i++) {
+    const t = numClasses > 1 ? i / (numClasses - 1) : 0.5;
+    classColors.push(heatColor(t));
+  }
+
   const lats = polygon.map((p) => p[0]);
   const lngs = polygon.map((p) => p[1]);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -2372,6 +2392,9 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 70) {
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   const imgData = ctx.createImageData(w, h);
+  const classCounts = new Array(numClasses).fill(0);
+  let totalCount = 0;
+  let sumVal = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const lat = maxLat - (y / (h - 1)) * (maxLat - minLat);
@@ -2380,16 +2403,23 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 70) {
       if (!pointInPolygon(lat, lng, polygon)) continue;
       const val = idwInterpolate(lat, lng, points, valueKey);
       if (val === null) continue;
-      const t = maxV > minV ? (val - minV) / (maxV - minV) : 0.5;
-      const [r, g, b] = heatColor(t);
+      const cls = classify(val);
+      const [r, g, b] = classColors[cls];
       imgData.data[idx] = r;
       imgData.data[idx + 1] = g;
       imgData.data[idx + 2] = b;
       imgData.data[idx + 3] = 210;
+      classCounts[cls]++;
+      totalCount++;
+      sumVal += val;
     }
   }
   ctx.putImageData(imgData, 0, 0);
-  return { dataUrl: canvas.toDataURL(), bounds: [[minLat, minLng], [maxLat, maxLng]], minV, maxV };
+  return {
+    dataUrl: canvas.toDataURL(), bounds: [[minLat, minLng], [maxLat, maxLng]], minV, maxV,
+    avgV: totalCount > 0 ? sumVal / totalCount : (minV + maxV) / 2,
+    breaks, classColors, classCounts, totalCount, numClasses,
+  };
 }
 
 function isValidNumber(v) {
@@ -3470,19 +3500,49 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </MapContainer>
   );
 
+  const heatUnit = isLimeMode ? "t/ha" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.unit || "";
   const legendEl = heatOverlay && (
     <div style={{
       position: "absolute", bottom: 10, right: 10, zIndex: 1000,
-      background: "rgba(14,19,16,0.9)", border: "1px solid #232B25", borderRadius: 8,
-      padding: "8px 10px", fontSize: 9, color: "#D6D3C7", minWidth: 100,
+      background: "rgba(14,19,16,0.92)", border: "1px solid #232B25", borderRadius: 8,
+      padding: "9px 11px", fontSize: 9, color: "#D6D3C7", minWidth: 175,
     }}>
-      <div style={{ fontWeight: 600, marginBottom: 5, whiteSpace: "nowrap" }}>
+      <div style={{ fontWeight: 600, marginBottom: 6, whiteSpace: "nowrap" }}>
         {isLimeMode ? "Necessidade de Calcário (t/ha)" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label}
       </div>
-      <div style={{ height: 8, borderRadius: 4, background: "linear-gradient(to right, #D64541, #E3B455, #7BC142)", marginBottom: 4 }} />
-      <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "'IBM Plex Mono', monospace" }}>
-        <span>{heatOverlay.minV.toFixed(1)}</span>
-        <span>{heatOverlay.maxV.toFixed(1)}</span>
+      {heatOverlay.classColors.map((c, i) => {
+        if (heatOverlay.classCounts[i] === 0) return null;
+        const areaHa = heatOverlay.totalCount > 0 ? (heatOverlay.classCounts[i] / heatOverlay.totalCount) * fieldAreaHaValue : 0;
+        const pct = heatOverlay.totalCount > 0 ? (heatOverlay.classCounts[i] / heatOverlay.totalCount) * 100 : 0;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: `rgb(${c[0]},${c[1]},${c[2]})`, flexShrink: 0 }} />
+            <span>{heatOverlay.breaks[i].toFixed(1)}–{heatOverlay.breaks[i + 1].toFixed(1)}</span>
+            <span style={{ color: "#6B7268", marginLeft: "auto" }}>{areaHa.toFixed(1)}ha · {pct.toFixed(0)}%</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const statsEl = heatOverlay && (
+    <div style={{
+      position: "absolute", bottom: 10, left: 10, zIndex: 1000,
+      background: "rgba(14,19,16,0.92)", border: "1px solid #232B25", borderRadius: 8,
+      padding: "9px 11px", fontSize: 9, color: "#D6D3C7", minWidth: 130,
+    }}>
+      <div style={{ fontWeight: 600, marginBottom: 6 }}>Resumo</div>
+      <div style={{ display: "grid", gridTemplateColumns: "auto auto", gap: "3px 12px", fontFamily: "'IBM Plex Mono', monospace" }}>
+        <span style={{ color: "#6B7268" }}>Área do talhão</span><span>{fieldAreaHaValue.toFixed(1)} ha</span>
+        {isLimeMode && (
+          <>
+            <span style={{ color: "#6B7268" }}>Total necessário</span>
+            <span>{(heatOverlay.avgV * fieldAreaHaValue).toFixed(1)} t</span>
+          </>
+        )}
+        <span style={{ color: "#6B7268" }}>Média</span><span>{heatOverlay.avgV.toFixed(1)} {heatUnit}</span>
+        <span style={{ color: "#6B7268" }}>Mínima</span><span>{heatOverlay.minV.toFixed(1)} {heatUnit}</span>
+        <span style={{ color: "#6B7268" }}>Máxima</span><span>{heatOverlay.maxV.toFixed(1)} {heatUnit}</span>
       </div>
     </div>
   );
@@ -3683,7 +3743,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           </div>
         </div>
         <div style={{ padding: "10px 16px 0" }}>{tabsEl}</div>
-        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}{legendEl}</div>
+        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}{legendEl}{statsEl}</div>
         <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid #232B25" }}>
           {step === "coleta" ? (
             <>
@@ -3843,6 +3903,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14, position: "relative" }}>
             {mapEl}
             {legendEl}
+            {statsEl}
           </div>
 
           {step === "coleta" && coletaControlsEl}
