@@ -2250,7 +2250,25 @@ const SOIL_NUTRIENTS = [
   { key: "v", label: "Saturação de bases (V%)", unit: "%" },
   { key: "mo", label: "Matéria orgânica", unit: "g/dm³" },
   { key: "s", label: "Enxofre (S)", unit: "mg/dm³" },
+  { key: "b", label: "Boro (B)", unit: "mg/dm³" },
+  { key: "cu", label: "Cobre (Cu)", unit: "mg/dm³" },
+  { key: "fe", label: "Ferro (Fe)", unit: "mg/dm³" },
+  { key: "mn", label: "Manganês (Mn)", unit: "mg/dm³" },
+  { key: "zn", label: "Zinco (Zn)", unit: "mg/dm³" },
 ];
+
+// Duas camadas de coleta (0-20cm é a padrão/principal, já usada em tudo do
+// jeito que sempre foi; 20-40cm é opcional — só existe quando a planilha
+// importada traz uma segunda coluna por nutriente pra essa profundidade).
+// A camada funda usa a mesma chave do nutriente com o sufixo "_20_40".
+const SOIL_DEPTHS = [
+  { key: "0-20", label: "0-20cm", suffix: "" },
+  { key: "20-40", label: "20-40cm", suffix: "_20_40" },
+];
+function soilDepthKey(nutrientKey, depth) {
+  const d = SOIL_DEPTHS.find((x) => x.key === depth) || SOIL_DEPTHS[0];
+  return `${nutrientKey}${d.suffix}`;
+}
 
 const SOIL_COLUMN_ALIASES = {
   label: ["ponto", "amostra", "id", "point", "label", "identificacao", "numero", "número", "no"],
@@ -2266,6 +2284,11 @@ const SOIL_COLUMN_ALIASES = {
   v: ["v", "v%", "saturacaodebases", "saturaçãodebases", "satbases"],
   mo: ["mo", "materiaorganica", "matériaorgânica"],
   s: ["s", "enxofre"],
+  b: ["b", "boro"],
+  cu: ["cu", "cobre"],
+  fe: ["fe", "ferro"],
+  mn: ["mn", "manganes", "manganês"],
+  zn: ["zn", "zinco"],
 };
 
 function normalizeSpreadsheetHeader(h) {
@@ -2276,12 +2299,26 @@ function normalizeSpreadsheetHeader(h) {
     .replace(/[^a-z0-9%]/g, "");
 }
 
+// Marcas de profundidade dentro do cabeçalho já normalizado (sem espaços/
+// hífen/parênteses) — cobrem "20-40", "20 a 40", "20/40" (viram "2040" ou
+// "20a40") e também "0-20", "0 a 20" (viram "020" ou "0a20"), pro caso da
+// planilha rotular a camada padrão explicitamente também, não só a funda.
+const SOIL_DEPTH1_MARKER = /0a?20/;
+const SOIL_DEPTH2_MARKER = /20a?40/;
+
 function mapSoilColumns(headerRow) {
   const normalized = headerRow.map((h) => normalizeSpreadsheetHeader(h));
   const mapping = {};
-  Object.entries(SOIL_COLUMN_ALIASES).forEach(([key, aliases]) => {
-    const idx = normalized.findIndex((h) => aliases.includes(h));
-    if (idx !== -1) mapping[key] = idx;
+  normalized.forEach((h, idx) => {
+    if (!h) return;
+    const isDepth2 = SOIL_DEPTH2_MARKER.test(h);
+    const stripped = isDepth2 ? h.replace(SOIL_DEPTH2_MARKER, "") : h.replace(SOIL_DEPTH1_MARKER, "");
+    for (const [key, aliases] of Object.entries(SOIL_COLUMN_ALIASES)) {
+      if (!aliases.includes(stripped)) continue;
+      const finalKey = isDepth2 && key !== "label" ? soilDepthKey(key, "20-40") : key;
+      if (mapping[finalKey] === undefined) mapping[finalKey] = idx;
+      break;
+    }
   });
   // Quase todo laudo de laboratório traz o identificador do ponto na
   // primeira coluna, mesmo quando o cabeçalho usa um nome que não está na
@@ -3154,6 +3191,8 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const [step, setStep] = useState(initialStep || (readOnly ? "visualizacao" : "coleta"));
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   const [nutrient, setNutrient] = useState("p");
+  const [soilDepth, setSoilDepth] = useState("0-20");
+  const [showDeepPoint, setShowDeepPoint] = useState(false);
   const [desiredV, setDesiredV] = useState(70);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -3284,7 +3323,10 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         if (!row.label) return;
         const point = nextPoints.find((p) => p.label.trim().toLowerCase() === row.label.trim().toLowerCase());
         if (!point) { notFound.push(row.label); return; }
-        Object.keys(SOIL_COLUMN_ALIASES).forEach((key) => {
+        // Itera as chaves que a planilha realmente trouxe (row), não as chaves-base de
+        // SOIL_COLUMN_ALIASES — senão as colunas de 20-40cm (que viram "<nutriente>_20_40",
+        // uma chave que não existe em SOIL_COLUMN_ALIASES) ficariam de fora silenciosamente.
+        Object.keys(row).forEach((key) => {
           if (key === "label") return;
           if (row[key] !== undefined && row[key] !== null && !Number.isNaN(row[key])) {
             point[key] = row[key];
@@ -3397,23 +3439,27 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
   const selectedPoint = form.points.find((p) => p.id === selectedPointId);
   const showHeatMap = step !== "coleta";
-  const pointValue = (p) => (isLimeMode ? limeNeedTonPerHa(p, Number(desiredV)) : p[nutrient] !== undefined && p[nutrient] !== "" ? Number(p[nutrient]) : null);
+  // Só faz sentido escolher profundidade quando é um nutriente de verdade (não
+  // no modo calcário nem NPK, que não têm camada).
+  const effectiveNutrientKey = !isLimeMode && !isNpkMode ? soilDepthKey(nutrient, soilDepth) : nutrient;
+  const pointValue = (p) => (isLimeMode ? limeNeedTonPerHa(p, Number(desiredV)) : p[effectiveNutrientKey] !== undefined && p[effectiveNutrientKey] !== "" ? Number(p[effectiveNutrientKey]) : null);
   const heatOverlay = useMemo(() => {
     if (!showHeatMap) return null;
     if (isLimeMode) {
       const withLime = form.points.map((p) => ({ ...p, __lime: limeNeedTonPerHa(p, Number(desiredV)) }));
       return buildHeatOverlay(polygon, withLime, "__lime");
     }
-    return buildHeatOverlay(polygon, form.points, nutrient);
-  }, [polygon, form.points, nutrient, isLimeMode, desiredV, showHeatMap]);
+    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey);
+  }, [polygon, form.points, effectiveNutrientKey, isLimeMode, desiredV, showHeatMap]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
   async function handleExportShp() {
     setExportError("");
     setExporting(true);
     try {
-      const fieldName = isLimeMode ? "RATE" : nutrient.toUpperCase();
-      const prefix = isLimeMode ? "calcario" : nutrient;
+      const depthSuffix = !isLimeMode && !isNpkMode && soilDepth === "20-40" ? "_2040" : "";
+      const fieldName = isLimeMode ? "RATE" : (nutrient.toUpperCase() + depthSuffix);
+      const prefix = isLimeMode ? "calcario" : (nutrient + depthSuffix);
       await downloadPrescriptionShapefile(field, form.points, fieldName, pointValue, prefix);
     } catch (e) {
       setExportError(e.message || "Não consegui gerar o arquivo SHP.");
@@ -3627,11 +3673,48 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
               </div>
             ))}
           </div>
+          {!readOnly && !showDeepPoint && (
+            <GhostBtn onClick={() => setShowDeepPoint(true)} style={{ marginTop: 10 }}>
+              <Plus size={13} /> Adicionar dados de 20-40cm
+            </GhostBtn>
+          )}
+          {(showDeepPoint || (readOnly && SOIL_NUTRIENTS.some((n) => selectedPoint[soilDepthKey(n.key, "20-40")]))) && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #232B25" }}>
+              <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 8 }}>Camada 20-40cm</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
+                {SOIL_NUTRIENTS.map((n) => {
+                  const deepKey = soilDepthKey(n.key, "20-40");
+                  return (
+                    <div key={deepKey}>
+                      <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                      {readOnly ? (
+                        <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[deepKey] ?? "—"}</div>
+                      ) : (
+                        <input
+                          type="number" style={inputStyle}
+                          value={selectedPoint[deepKey] ?? ""}
+                          onChange={(e) => updateSelectedPoint({ [deepKey]: e.target.value === "" ? "" : Number(e.target.value) })}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>
   );
 
+  // Só mostra o seletor de profundidade quando o talhão realmente tem dado de
+  // 20-40cm importado — pra não mudar nada da tela pra quem só coleta 0-20cm.
+  const hasDeepData = form.points.some((p) =>
+    SOIL_NUTRIENTS.some((n) => {
+      const v = p[soilDepthKey(n.key, "20-40")];
+      return v !== undefined && v !== null && v !== "";
+    })
+  );
   const visualizacaoControlsEl = (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -3639,6 +3722,14 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
           {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
         </select>
+        {hasDeepData && (
+          <>
+            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Profundidade:</span>
+            <select style={{ ...inputStyle, width: 110 }} value={soilDepth} onChange={(e) => setSoilDepth(e.target.value)}>
+              {SOIL_DEPTHS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </select>
+          </>
+        )}
         {form.points.length >= 3 && (
           <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
         )}
