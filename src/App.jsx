@@ -41,34 +41,6 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// Formata CPF (11 dígitos) ou CNPJ (14 dígitos) conforme a quantidade de dígitos digitados —
-// até 11 dígitos usa a máscara de CPF (000.000.000-00), a partir do 12º dígito passa a usar
-// a máscara de CNPJ (00.000.000/0000-00).
-function formatCpfCnpj(value) {
-  const digits = String(value || "").replace(/\D/g, "").slice(0, 14);
-  if (digits.length <= 11) {
-    return digits
-      .replace(/(\d{3})(\d)/, "$1.$2")
-      .replace(/(\d{3})(\d)/, "$1.$2")
-      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-  }
-  return digits
-    .replace(/(\d{2})(\d)/, "$1.$2")
-    .replace(/(\d{3})(\d)/, "$1.$2")
-    .replace(/(\d{3})(\d)/, "$1/$2")
-    .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
-}
-
-// Diz se um CPF/CNPJ formatado é do tipo CPF (até 11 dígitos) ou CNPJ (mais de 11 dígitos),
-// pros lugares que precisam rotular o dado (ex: "CPF: ..." vs "CNPJ: ...").
-function tipoCpfCnpj(value) {
-  const digits = String(value || "").replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.length <= 11) return "CPF";
-  return "CNPJ";
-  return "";
-}
-
 function fieldAreaHa(f) {
   const manual = Number(f?.area);
   if (manual > 0) return manual;
@@ -1115,7 +1087,6 @@ export default function AgroTrackApp() {
         fieldArea: field ? fieldAreaHa(field) : 0,
         propertyName: property ? property.name : "—",
         clientName: client ? client.name : "—",
-        clientCpfCnpj: client ? client.cpfCnpj : null,
         fieldMap: field ? field.fieldMap : null,
         status: h.harvestDate ? "Colhida" : "Em andamento",
         estimatedHarvestDate,
@@ -1138,7 +1109,6 @@ export default function AgroTrackApp() {
         propertyName: property ? property.name : "—",
         clientName: client ? client.name : "—",
         clientId: client ? client.id : null,
-        clientCpfCnpj: client ? client.cpfCnpj : null,
         harvests: fieldHarvests,
         harvestCount: fieldHarvests.length,
         activeHarvest,
@@ -2142,7 +2112,6 @@ function ClientDetail({
         <div>
           <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{client.name}</h2>
           <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298", marginBottom: 8 }}>
-            {client.cpfCnpj && <span>{tipoCpfCnpj(client.cpfCnpj)}: {client.cpfCnpj}</span>}
             {client.phone && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Phone size={13} /> {client.phone}</span>}
             {client.city && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {client.city}</span>}
           </div>
@@ -2914,16 +2883,6 @@ async function downloadVisitReportPdf(visits) {
   const multiple = visits.length > 1;
   const sorted = [...visits].sort((a, b) => a.date.localeCompare(b.date) || a.fieldName.localeCompare(b.fieldName));
   const clientNames = [...new Set(sorted.map((v) => v.clientName))];
-  // CPF/CNPJ de cada cliente envolvido no relatório, um por nome (sem repetir), já rotulado
-  // conforme o tamanho do documento — pra imprimir junto do nome logo abaixo do cabeçalho.
-  const clientDocs = [];
-  const seenClientNames = new Set();
-  for (const v of sorted) {
-    if (v.clientCpfCnpj && !seenClientNames.has(v.clientName)) {
-      seenClientNames.add(v.clientName);
-      clientDocs.push({ name: v.clientName, doc: v.clientCpfCnpj });
-    }
-  }
   const dates = [...new Set(sorted.map((v) => v.date))].sort();
   const dateLabel = dates.length === 1 ? fmtDate(dates[0]) : `${fmtDate(dates[0])} a ${fmtDate(dates[dates.length - 1])}`;
   const contentWidth = pageWidth - marginX * 2;
@@ -2960,19 +2919,7 @@ async function downloadVisitReportPdf(visits) {
   doc.setFontSize(11);
   doc.setTextColor(...BOLETIM_INK);
   doc.text(`Cliente: ${clientNames.join(", ")}`, marginX, y);
-  y += 6;
-
-  if (clientDocs.length > 0) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...BOLETIM_INK_SOFT);
-    const docLine = clientDocs.length === 1
-      ? `${tipoCpfCnpj(clientDocs[0].doc)}: ${clientDocs[0].doc}`
-      : clientDocs.map((c) => `${c.name} — ${tipoCpfCnpj(c.doc)}: ${c.doc}`).join("  ·  ");
-    doc.text(docLine, marginX, y);
-    y += 6;
-  }
-  y += 2;
+  y += 8;
 
   const intro = `Prezado(a) ${clientNames[0] || "produtor(a)"}, segue um resumo d${multiple ? "as visitas técnicas realizadas" : "a visita técnica realizada"} em sua${multiple ? "s área(s)" : " área"}, com as principais observações de campo e recomendações da nossa equipe.`;
   doc.setFont("helvetica", "normal");
@@ -3215,9 +3162,6 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.text(`Cliente: ${field.clientName || "—"}`, 14, y); y += 5;
-  if (field.clientCpfCnpj) {
-    doc.text(`${tipoCpfCnpj(field.clientCpfCnpj)}: ${field.clientCpfCnpj}`, 14, y); y += 5;
-  }
   doc.text(`Propriedade: ${field.propertyName || "—"}`, 14, y); y += 5;
   doc.text(`Talhão: ${field.name} (${fieldAreaHa(field).toLocaleString("pt-BR")} ha)`, 14, y); y += 5;
   doc.text(`Data da coleta: ${fmtDate(form.date)}${form.label ? " · " + form.label : ""} · ${form.points.length} ponto(s)`, 14, y);
@@ -4702,7 +4646,6 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
         fieldName: harvest ? harvest.fieldName : "(safra removida)",
         culture: harvest ? harvest.culture : null,
         clientName: harvest ? harvest.clientName : "—",
-        clientCpfCnpj: harvest ? harvest.clientCpfCnpj : null,
         propertyName: harvest ? harvest.propertyName : "—",
         fieldMap: harvest ? harvest.fieldMap : null,
       };
@@ -5099,14 +5042,11 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
 }
 
 function ClientModal({ data, team, onSave, onClose }) {
-  const [form, setForm] = useState(data || { name: "", phone: "", city: "", gestorId: "", cpfCnpj: "" });
+  const [form, setForm] = useState(data || { name: "", phone: "", city: "", gestorId: "" });
   return (
     <Modal title={data ? "Editar cliente" : "Novo cliente"} onClose={onClose}>
       <Field label="Nome do produtor">
         <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: João da Silva" />
-      </Field>
-      <Field label="CPF/CNPJ">
-        <input style={inputStyle} value={form.cpfCnpj || ""} onChange={(e) => setForm({ ...form, cpfCnpj: formatCpfCnpj(e.target.value) })} placeholder="000.000.000-00 ou 00.000.000/0000-00" inputMode="numeric" maxLength={18} />
       </Field>
       <Field label="Telefone">
         <input style={inputStyle} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(00) 00000-0000" />
@@ -7295,7 +7235,7 @@ function ReconciliationModal({
                     </div>
                     {r.transaction.counterpartyDoc && (
                       <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 6 }}>
-                        {tipoCpfCnpj(r.transaction.counterpartyDoc)} da contraparte: {r.transaction.counterpartyDoc}
+                        CPF/CNPJ da contraparte: {r.transaction.counterpartyDoc}
                       </div>
                     )}
 
