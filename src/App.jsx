@@ -3034,9 +3034,125 @@ async function downloadVisitReportPdf(visits) {
   doc.save(`relatorio-visita-${safeName}-${dates[dates.length - 1]}.pdf`);
 }
 
+// Desenha o contorno do talhão preenchido dentro de uma caixa (x,y,maxW,maxH),
+// preservando a proporção real (corrige a compressão de longitude pela
+// latitude) — devolve a função de projeção lat/lng -> ponto do PDF, pra dar
+// pra plotar outras coisas (pontos, zonas) na mesma escala/posição.
+function drawFieldOutlinePdf(doc, polygonLatLng, x, y, maxW, maxH, opts = {}) {
+  const lats = polygonLatLng.map((p) => p[0]);
+  const lngs = polygonLatLng.map((p) => p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const meanLat = (minLat + maxLat) / 2;
+  const corte = Math.cos((meanLat * Math.PI) / 180) || 1;
+  const latRange = Math.max(maxLat - minLat, 1e-9);
+  const lngRangeCorrigido = Math.max((maxLng - minLng) * corte, 1e-9);
+  const scale = Math.min(maxW / lngRangeCorrigido, maxH / latRange);
+  const wUsed = lngRangeCorrigido * scale, hUsed = latRange * scale;
+  const offsetX = x + (maxW - wUsed) / 2, offsetY = y + (maxH - hUsed) / 2;
+  const project = ([lat, lng]) => [
+    offsetX + (lng - minLng) * corte * scale,
+    offsetY + hUsed - (lat - minLat) * scale,
+  ];
+  const pts = polygonLatLng.map(project);
+  const deltas = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
+  doc.setFillColor(...(opts.fill || [225, 237, 210]));
+  doc.setDrawColor(...(opts.stroke || [20, 20, 20]));
+  doc.setLineWidth(opts.lineWidth || 0.35);
+  doc.lines(deltas, pts[0][0], pts[0][1], [1, 1], opts.filled === false ? "S" : "FD", true);
+  return { project, offsetX, offsetY, wUsed, hUsed, scale };
+}
+
+// Uma página completa de mapa classificado por nutriente — mesma lógica de
+// classificação em faixas já usada na tela (buildHeatOverlay), só que
+// renderizada em resolução maior pro PDF, com legenda e caixa de resumo.
+function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, pageWidth, marginX }) {
+  doc.addPage();
+  let y = 18;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(title, marginX, y);
+  y += 8;
+
+  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260);
+  const contentWidth = pageWidth - marginX * 2;
+  if (!overlay) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(120);
+    doc.text("Sem dados suficientes pra gerar o mapa desse nutriente.", marginX, y);
+    doc.setTextColor(0);
+    return;
+  }
+
+  const [[minLat, minLng], [maxLat, maxLng]] = overlay.bounds;
+  const meanLat = (minLat + maxLat) / 2;
+  const corte = Math.cos((meanLat * Math.PI) / 180) || 1;
+  const realW = Math.max((maxLng - minLng) * corte, 1e-9), realH = Math.max(maxLat - minLat, 1e-9);
+  const mapMaxH = 145;
+  const scale = Math.min(contentWidth / realW, mapMaxH / realH);
+  const imgW = realW * scale, imgH = realH * scale;
+  const imgX = marginX + (contentWidth - imgW) / 2;
+  doc.setDrawColor(210);
+  doc.setLineWidth(0.3);
+  doc.rect(imgX, y, imgW, imgH, "S");
+  doc.addImage(overlay.dataUrl, "PNG", imgX, y, imgW, imgH);
+  y += imgH + 9;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(20);
+  doc.text("Legenda", marginX, y);
+  y += 2;
+  doc.setDrawColor(220);
+  doc.line(marginX, y, pageWidth - marginX, y);
+  y += 7;
+  const legW = contentWidth / overlay.numClasses;
+  for (let i = 0; i < overlay.numClasses; i++) {
+    const cx = marginX + i * legW;
+    const [r, g, b] = overlay.classColors[i];
+    doc.setFillColor(r, g, b);
+    doc.circle(cx + 2.5, y - 1.3, 1.6, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.3);
+    doc.setTextColor(20);
+    doc.text(`${overlay.breaks[i].toFixed(1)} - ${overlay.breaks[i + 1].toFixed(1)}`, cx + 6, y);
+    const areaHaClass = overlay.totalCount > 0 ? (overlay.classCounts[i] / overlay.totalCount) * areaHa : 0;
+    const pct = overlay.totalCount > 0 ? (overlay.classCounts[i] / overlay.totalCount) * 100 : 0;
+    doc.setFontSize(6.8);
+    doc.setTextColor(130);
+    doc.text(`${areaHaClass.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha - ${pct.toFixed(2)}%`, cx + 6, y + 4);
+  }
+  y += 15;
+
+  const boxH = 26;
+  doc.setDrawColor(210);
+  doc.setLineWidth(0.3);
+  doc.rect(marginX, y, contentWidth, boxH, "S");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(20);
+  doc.text("Informações", marginX + 4, y + 6);
+  doc.setDrawColor(220);
+  doc.line(marginX, y + 9, marginX + contentWidth, y + 9);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  const unit = nutrientDef.unit ? ` ${nutrientDef.unit}` : "";
+  doc.text(`Área: ${areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha`, marginX + 4, y + 16);
+  doc.text(`Mínima: ${overlay.minV.toFixed(1)}${unit}`, marginX + 4, y + 22);
+  doc.text(`Média: ${overlay.avgV.toFixed(1)}${unit}`, marginX + 70, y + 16);
+  doc.text(`Máxima: ${overlay.maxV.toFixed(1)}${unit}`, marginX + 70, y + 22);
+  doc.setTextColor(0);
+}
+
 function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 14;
   let y = 18;
+
+  const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
+  const areaHa = fieldAreaHa(field);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
@@ -3051,6 +3167,50 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   doc.text(`Data da coleta: ${fmtDate(form.date)}${form.label ? " · " + form.label : ""} · ${form.points.length} ponto(s)`, 14, y);
   y += 9;
 
+  // Mapa do talhão (contorno + área), igual à primeira seção de um "livro" de
+  // mapas — só entra quando o talhão tem um polígono desenhado (modo KML).
+  if (polygon.length >= 3) {
+    doc.addPage();
+    let py = 18;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Mapa do Talhão", marginX, py);
+    py += 8;
+    const contentWidth = pageWidth - marginX * 2;
+    const { project } = drawFieldOutlinePdf(doc, polygon, marginX, py, contentWidth, 200);
+    const [labelX, labelY] = project([
+      polygon.reduce((s, p) => s + p[0], 0) / polygon.length,
+      polygon.reduce((s, p) => s + p[1], 0) / polygon.length,
+    ]);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(40);
+    doc.text(`${field.name}`, labelX, labelY - 2, { align: "center" });
+    doc.text(`${areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha`, labelX, labelY + 2, { align: "center" });
+    doc.setTextColor(0);
+
+    // Mapa dos pontos de coleta, no mesmo contorno.
+    doc.addPage();
+    py = 18;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Mapa dos Pontos de Coleta", marginX, py);
+    py += 8;
+    const pointsProj = drawFieldOutlinePdf(doc, polygon, marginX, py, contentWidth, 200, { fill: [255, 255, 255] });
+    doc.setFillColor(20, 20, 20);
+    form.points.forEach((p) => {
+      const [px, py2] = pointsProj.project([p.lat, p.lng]);
+      doc.circle(px, py2, 0.9, "F");
+    });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(90);
+    doc.text(`${form.points.length} ponto(s) de coleta`, marginX, py + 205);
+    doc.setTextColor(0);
+  }
+
+  doc.addPage();
+  y = 18;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text("Resultados de laboratório por ponto", 14, y);
@@ -3077,7 +3237,21 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   });
   y = doc.lastAutoTable.finalY + 10;
 
-  if (y > 240) { doc.addPage(); y = 20; }
+  // Uma página de mapa classificado por nutriente, só pros que têm dado —
+  // mesma lógica de faixas/cores já usada na tela de Visualização.
+  if (polygon.length >= 3) {
+    SOIL_NUTRIENTS.forEach((n) => {
+      const hasData = form.points.some((p) => p[n.key] !== undefined && p[n.key] !== "" && !Number.isNaN(Number(p[n.key])));
+      if (!hasData) return;
+      addNutrientMapPage(doc, {
+        polygon, points: form.points, nutrientDef: n,
+        title: `${n.label} — ${field.name}`, areaHa, pageWidth, marginX,
+      });
+    });
+  }
+
+  doc.addPage();
+  y = 20;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text(`Recomendação de Calcário (saturação de bases desejada: ${desiredV}%)`, 14, y);
@@ -3100,7 +3274,6 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
 
   const ncValues = ncByPoint.map(({ nc }) => nc).filter((v) => v !== null);
   const avgNc = ncValues.length ? ncValues.reduce((s, v) => s + v, 0) / ncValues.length : 0;
-  const areaHa = fieldAreaHa(field);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.text(`Necessidade média de calcário: ${avgNc.toFixed(2)} t/ha`, 14, y); y += 5;
@@ -3143,9 +3316,17 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
     doc.text("Cálculo pelo método de reposição/exportação (dose = exportação por tonelada x produtividade esperada). Coeficientes de referência, ajustáveis conforme calibração regional.", 14, y);
   }
 
-  doc.setFontSize(8);
-  doc.setTextColor(150);
-  doc.text(`Gerado em ${fmtDateTime(new Date().toISOString())} · Semear Consultoria Agropecuária`, 14, doc.internal.pageSize.getHeight() - 10);
+  const pageHeightFinal = doc.internal.pageSize.getHeight();
+  const pageCountFinal = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCountFinal; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text(`Gerado em ${fmtDateTime(new Date().toISOString())} · Semear Consultoria Agropecuária`, marginX, pageHeightFinal - 10);
+    doc.text(`Pág. ${i}/${pageCountFinal}`, pageWidth - marginX, pageHeightFinal - 10, { align: "right" });
+  }
+  doc.setTextColor(0);
 
   const safeName = `${field.name}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
   doc.save(`analise-solo-${safeName}-${form.date}.pdf`);
