@@ -41,6 +41,33 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Formata CPF (11 dígitos) ou CNPJ (14 dígitos) conforme a quantidade de dígitos digitados —
+// até 11 dígitos usa a máscara de CPF (000.000.000-00), a partir do 12º dígito passa a usar
+// a máscara de CNPJ (00.000.000/0000-00).
+function formatCpfCnpj(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 14);
+  if (digits.length <= 11) {
+    return digits
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  }
+  return digits
+    .replace(/(\d{2})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1/$2")
+    .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+}
+
+// Diz se um CPF/CNPJ formatado é do tipo CPF (11 dígitos) ou CNPJ (14 dígitos), pros lugares
+// que precisam rotular o dado (ex: "CPF: ..." vs "CNPJ: ...").
+function tipoCpfCnpj(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 11) return "CPF";
+  if (digits.length === 14) return "CNPJ";
+  return "";
+}
+
 function fieldAreaHa(f) {
   const manual = Number(f?.area);
   if (manual > 0) return manual;
@@ -2112,6 +2139,7 @@ function ClientDetail({
         <div>
           <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{client.name}</h2>
           <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298", marginBottom: 8 }}>
+            {client.cpfCnpj && <span>{tipoCpfCnpj(client.cpfCnpj)}: {client.cpfCnpj}</span>}
             {client.phone && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Phone size={13} /> {client.phone}</span>}
             {client.city && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {client.city}</span>}
           </div>
@@ -5042,11 +5070,14 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
 }
 
 function ClientModal({ data, team, onSave, onClose }) {
-  const [form, setForm] = useState(data || { name: "", phone: "", city: "", gestorId: "" });
+  const [form, setForm] = useState(data || { name: "", phone: "", city: "", gestorId: "", cpfCnpj: "" });
   return (
     <Modal title={data ? "Editar cliente" : "Novo cliente"} onClose={onClose}>
       <Field label="Nome do produtor">
         <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: João da Silva" />
+      </Field>
+      <Field label="CPF/CNPJ">
+        <input style={inputStyle} value={form.cpfCnpj || ""} onChange={(e) => setForm({ ...form, cpfCnpj: formatCpfCnpj(e.target.value) })} placeholder="000.000.000-00 ou 00.000.000/0000-00" inputMode="numeric" maxLength={18} />
       </Field>
       <Field label="Telefone">
         <input style={inputStyle} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(00) 00000-0000" />
