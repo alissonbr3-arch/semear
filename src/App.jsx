@@ -3451,6 +3451,16 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       {step === "coleta" && ndviShowLayer && ndviZones && ndviZones.zones.map((zone) => {
         const t = ndviZones.zones.length > 1 ? zone.classIndex / (ndviZones.zones.length - 1) : 0.5;
         const [r, g, b] = ndviColor(t);
+        // Zonas de NDVI podem virar vários pedaços desconectados depois do union — rotula
+        // só o maior pedaço de cada zona, senão o rótulo "Zona N" se repete em cada
+        // fragmento pequeno e polui o mapa.
+        const largestIdx = zone.polygons.reduce((best, polyRings, i) => {
+          const ring = polyRings[0];
+          let area = 0;
+          for (let k = 0; k < ring.length - 1; k++) area += ring[k][0] * ring[k + 1][1] - ring[k + 1][0] * ring[k][1];
+          area = Math.abs(area) / 2;
+          return area > best.area ? { i, area } : best;
+        }, { i: 0, area: -1 }).i;
         return (
           <React.Fragment key={zone.classIndex}>
             {zone.polygons.map((polyRings, i) => (
@@ -3458,7 +3468,9 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
                 key={i}
                 positions={polyRings[0].map(([lng, lat]) => [lat, lng])}
                 pathOptions={{ color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: overlayOpacity }}
-              />
+              >
+                {i === largestIdx && <Tooltip permanent direction="center" className="soil-value-label">Zona {zone.classIndex + 1}</Tooltip>}
+              </Polygon>
             ))}
           </React.Fragment>
         );
