@@ -59,12 +59,13 @@ function formatCpfCnpj(value) {
     .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
 }
 
-// Diz se um CPF/CNPJ formatado é do tipo CPF (11 dígitos) ou CNPJ (14 dígitos), pros lugares
-// que precisam rotular o dado (ex: "CPF: ..." vs "CNPJ: ...").
+// Diz se um CPF/CNPJ formatado é do tipo CPF (até 11 dígitos) ou CNPJ (mais de 11 dígitos),
+// pros lugares que precisam rotular o dado (ex: "CPF: ..." vs "CNPJ: ...").
 function tipoCpfCnpj(value) {
   const digits = String(value || "").replace(/\D/g, "");
-  if (digits.length === 11) return "CPF";
-  if (digits.length === 14) return "CNPJ";
+  if (!digits) return "";
+  if (digits.length <= 11) return "CPF";
+  return "CNPJ";
   return "";
 }
 
@@ -7266,7 +7267,7 @@ function ReconciliationModal({
                     </div>
                     {r.transaction.counterpartyDoc && (
                       <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 6 }}>
-                        CPF/CNPJ da contraparte: {r.transaction.counterpartyDoc}
+                        {tipoCpfCnpj(r.transaction.counterpartyDoc)} da contraparte: {r.transaction.counterpartyDoc}
                       </div>
                     )}
 
