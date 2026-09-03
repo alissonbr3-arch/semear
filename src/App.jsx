@@ -1088,6 +1088,7 @@ export default function AgroTrackApp() {
         propertyName: property ? property.name : "—",
         clientName: client ? client.name : "—",
         fieldMap: field ? field.fieldMap : null,
+        gestorId: client?.gestorId || null,
         status: h.harvestDate ? "Colhida" : "Em andamento",
         estimatedHarvestDate,
         lastVisit: harvestVisits[0] || null,
@@ -1432,7 +1433,7 @@ export default function AgroTrackApp() {
 
         {view === "visitas" && (
           <VisitasView
-            visits={visits} harvests={harvestsWithMeta}
+            visits={visits} harvests={harvestsWithMeta} team={team} currentUserId={profile?.id}
             onAdd={() => setModal({ type: "visit", data: null })}
             onEdit={(v) => setModal({ type: "visit", data: v })}
             onDelete={deleteVisit}
@@ -4637,7 +4638,9 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
   );
 }
 
-function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests }) {
+const NO_GESTOR_FILTER_KEY = "__sem_gestor__";
+
+function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onDelete, hasHarvests }) {
   const list = useMemo(() => {
     return [...visits].sort((a, b) => b.date.localeCompare(a.date)).map((v) => {
       const harvest = harvests.find((h) => h.id === v.harvestId);
@@ -4648,12 +4651,40 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
         clientName: harvest ? harvest.clientName : "—",
         propertyName: harvest ? harvest.propertyName : "—",
         fieldMap: harvest ? harvest.fieldMap : null,
+        gestorId: harvest ? harvest.gestorId : null,
       };
     });
   }, [visits, harvests]);
   const [selected, setSelected] = useState(() => new Set());
   const [generatingReport, setGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState("");
+
+  // Filtro por gestor: começa só com o gestor logado marcado (se ele for um
+  // gestor de verdade), mas dá pra marcar os outros também.
+  const [selectedGestorIds, setSelectedGestorIds] = useState(() => new Set(currentUserId ? [currentUserId] : []));
+  function toggleGestorFilter(id) {
+    setSelectedGestorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const gestorNameById = useMemo(() => {
+    const map = {};
+    team.forEach((t) => { map[t.id] = t.name; });
+    return map;
+  }, [team]);
+  // Só entram na lista de filtros os gestores que realmente têm visita — evita
+  // poluir com colaboradores sem nenhum cliente/visita ainda.
+  const gestorFilterOptions = useMemo(() => {
+    const ids = new Set(list.map((v) => v.gestorId || NO_GESTOR_FILTER_KEY));
+    const named = team.filter((t) => ids.has(t.id)).map((t) => ({ id: t.id, name: t.name }));
+    if (ids.has(NO_GESTOR_FILTER_KEY)) named.push({ id: NO_GESTOR_FILTER_KEY, name: "Sem gestor" });
+    return named;
+  }, [list, team]);
+  const filteredList = selectedGestorIds.size === 0
+    ? list
+    : list.filter((v) => selectedGestorIds.has(v.gestorId || NO_GESTOR_FILTER_KEY));
 
   function toggleSelected(id) {
     setSelected((prev) => {
@@ -4692,6 +4723,36 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
           </PrimaryBtn>
         </div>
       </div>
+      {gestorFilterOptions.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+          <span style={{ fontSize: 9.5, color: "#9BA298", marginRight: 2 }}>Gestor:</span>
+          {gestorFilterOptions.map((g) => {
+            const active = selectedGestorIds.has(g.id);
+            return (
+              <button
+                key={g.id}
+                onClick={() => toggleGestorFilter(g.id)}
+                style={{
+                  padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
+                  border: active ? "1px solid #7BC142" : "1px solid #2E362F",
+                  background: active ? "#1C2E19" : "transparent",
+                  color: active ? "#7BC142" : "#9BA298",
+                }}
+              >
+                {g.id === currentUserId ? `${g.name} (você)` : g.name}
+              </button>
+            );
+          })}
+          {selectedGestorIds.size > 0 && (
+            <button
+              onClick={() => setSelectedGestorIds(new Set())}
+              style={{ padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer", border: "1px dashed #2E362F", background: "transparent", color: "#6B7268" }}
+            >
+              Todos
+            </button>
+          )}
+        </div>
+      )}
       {selected.size > 0 && (
         <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 12 }}>
           Marque uma ou mais visitas (ex: todas de um mesmo dia) e gere um relatório único pra encaminhar ao produtor.
@@ -4707,11 +4768,15 @@ function VisitasView({ visits, harvests, onAdd, onEdit, onDelete, hasHarvests })
           <AlertTriangle size={15} /> Cadastre uma safra antes de registrar visitas.
         </div>
       )}
-      {list.length === 0 ? (
-        <EmptyState icon={ClipboardList} title="Nenhuma visita registrada" sub="Registre a primeira visita técnica para começar o histórico." />
+      {filteredList.length === 0 ? (
+        <EmptyState
+          icon={ClipboardList}
+          title={list.length === 0 ? "Nenhuma visita registrada" : "Nenhuma visita para esse filtro"}
+          sub={list.length === 0 ? "Registre a primeira visita técnica para começar o histórico." : "Marque outro gestor ou clique em \"Todos\" pra ver mais visitas."}
+        />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {list.map((v) => (
+          {filteredList.map((v) => (
             <div key={v.id} style={{
               background: "#161D19", border: `1px solid ${selected.has(v.id) ? "#7BC142" : "#232B25"}`, borderRadius: 12, padding: 16,
             }}>
