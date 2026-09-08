@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -6176,6 +6176,27 @@ function fmtCurrency(n) {
   return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// CSV com separador ";" (padrão BR, abre certo no Excel) e valores com vírgula decimal —
+// formato pronto pra importar em qualquer ferramenta de contabilidade/BI (ex: consultoria
+// financeira subindo pro Ultradash/Conta Azul).
+function downloadCsv(filename, header, rows) {
+  const escapeCell = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [header, ...rows].map((row) => row.map(escapeCell).join(";"));
+  const csv = "﻿" + lines.join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo" };
 const FINANCE_TYPES_WITH_SHARE = ["projeto", "analise_solo"];
 
@@ -6759,6 +6780,19 @@ function FinanceiroView({
 
   const saldoPrevisto = summary.totalEntradasPrevistas - summary.totalSaidasPrevistas;
 
+  function handleExportExtrato() {
+    const header = ["Data", "Descrição", "Tipo", "Status", "Valor"];
+    const rows = extratoRows.map((m) => [
+      fmtDate(m.date),
+      m.label,
+      m.kind === "entrada" ? "Entrada" : "Saída",
+      m.status === "pago" ? "Pago" : "Pendente",
+      m.amount.toFixed(2).replace(".", ","),
+    ]);
+    const periodoLabel = extratoPeriodo === "diario" ? extratoDia : extratoPeriodo === "mensal" ? extratoMes : extratoAno;
+    downloadCsv(`extrato_semear_${periodoLabel}.csv`, header, rows);
+  }
+
   const FINANCEIRO_TABS = [
     { id: "painel", label: "Painel", icon: LayoutDashboard },
     { id: "extrato", label: "Extrato de Movimentações", icon: FileText },
@@ -6876,6 +6910,20 @@ function FinanceiroView({
             {extratoPeriodo === "anual" && (
               <input type="number" style={{ ...inputStyle, width: 100 }} value={extratoAno} onChange={(e) => setExtratoAno(e.target.value)} />
             )}
+            <button
+              onClick={handleExportExtrato}
+              disabled={extratoRows.length === 0}
+              style={{
+                marginLeft: "auto", display: "flex", alignItems: "center", gap: 6,
+                padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600,
+                cursor: extratoRows.length === 0 ? "default" : "pointer",
+                border: "1px solid #232B25", background: "#161D19", color: "#D6D3C7",
+                opacity: extratoRows.length === 0 ? 0.5 : 1,
+              }}
+              title="Exporta as movimentações do período em CSV — pronto pra importar na sua consultoria financeira/Ultradash."
+            >
+              <Download size={13} /> Exportar CSV
+            </button>
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
