@@ -3,7 +3,8 @@ import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
-  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download
+  Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download,
+  Sun, Moon
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -33,8 +34,8 @@ const SOJA_STAGES = ["Pré Plantio","VE","VC","V1","V2","V3","V4","V5","V6","R1"
 const MILHO_STAGES = ["Pré Plantio","VE","V1","V2","V3","V4","V6","V8","V10","V12","V14","V16","V18","VT","R1","R2","R3","R4","R5","R6"];
 
 const CULTURE_META = {
-  Soja: { color: "#7BC142", bg: "#1C2E19", icon: Leaf, stages: SOJA_STAGES },
-  Milho: { color: "#D6A93A", bg: "#332811", icon: Wheat, stages: MILHO_STAGES },
+  Soja: { color: "var(--green)", bg: "var(--green-soft-bg)", icon: Leaf, stages: SOJA_STAGES },
+  Milho: { color: "var(--gold-text)", bg: "var(--gold-bg)", icon: Wheat, stages: MILHO_STAGES },
 };
 
 function uid() {
@@ -164,7 +165,7 @@ function Avatar({ name, url, size = 28 }) {
   }
   return (
     <div style={{
-      width: size, height: size, borderRadius: "50%", background: "#232B25", color: "#9BA298",
+      width: size, height: size, borderRadius: "50%", background: "var(--border)", color: "var(--ink-dim)",
       display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.38,
       fontWeight: 700, fontFamily: "'Manrope', sans-serif", flexShrink: 0
     }}>
@@ -181,7 +182,7 @@ function StageProgress({ culture, stage }) {
   const pct = idx >= 0 ? (idx / (meta.stages.length - 1)) * 100 : 0;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 140 }}>
-      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "#26302A", position: "relative" }}>
+      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--track-bg)", position: "relative" }}>
         <div style={{
           position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 3,
           width: pct + "%", background: meta.color, transition: "width .3s"
@@ -195,9 +196,9 @@ function StageProgress({ culture, stage }) {
 }
 
 const VISIT_STATUS_META = {
-  ok: { label: "Em dia", bg: "#16301A", color: "#7BC142" },
-  late: { label: "Atrasado", bg: "#3A1414", color: "#E38B84" },
-  none: { label: "Sem visitas", bg: "#232B25", color: "#9BA298" },
+  ok: { label: "Em dia", bg: "var(--green-soft-bg2)", color: "var(--green)" },
+  late: { label: "Atrasado", bg: "var(--red-bg)", color: "var(--red)" },
+  none: { label: "Sem visitas", bg: "var(--border)", color: "var(--ink-dim)" },
 };
 
 function VisitStatusBadge({ status }) {
@@ -227,7 +228,7 @@ function CultureBadge({ culture }) {
 }
 
 function AffectedCultureBadge({ value }) {
-  if (!value) return <span style={{ color: "#6B7268", fontSize: 9.5 }}>—</span>;
+  if (!value) return <span style={{ color: "var(--ink-faint)", fontSize: 9.5 }}>—</span>;
   if (value === "Ambas") {
     return (
       <span style={{ display: "inline-flex", gap: 5 }}>
@@ -242,7 +243,7 @@ function AffectedCultureBadge({ value }) {
 function Field({ label, children }) {
   return (
     <label style={{ display: "block", marginBottom: 14 }}>
-      <span style={{ display: "block", fontSize: 9.5, fontWeight: 600, color: "#8B9188", marginBottom: 5, textTransform: "uppercase", letterSpacing: ".03em" }}>
+      <span style={{ display: "block", fontSize: 9.5, fontWeight: 600, color: "var(--ink-dim)", marginBottom: 5, textTransform: "uppercase", letterSpacing: ".03em" }}>
         {label}
       </span>
       {children}
@@ -251,8 +252,8 @@ function Field({ label, children }) {
 }
 
 const inputStyle = {
-  width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid #2E362F",
-  fontSize: 11, fontFamily: "inherit", background: "#10140F", color: "#EDEBE0", boxSizing: "border-box"
+  width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--border-input)",
+  fontSize: 11, fontFamily: "inherit", background: "var(--bg-inset)", color: "var(--select-text)", boxSizing: "border-box"
 };
 
 function Modal({ title, onClose, children, maxWidth = 460 }) {
@@ -262,15 +263,15 @@ function Modal({ title, onClose, children, maxWidth = 460 }) {
       alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20
     }} onClick={onClose}>
       <div style={{
-        background: "#161D19", borderRadius: 14, width: "100%", maxWidth,
-        maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", border: "1px solid #232B25"
+        background: "var(--card)", borderRadius: 14, width: "100%", maxWidth,
+        maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", border: "1px solid var(--border)"
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
-          padding: "18px 22px", borderBottom: "1px solid #212922", position: "sticky", top: 0, background: "#161D19", borderRadius: "14px 14px 0 0"
+          padding: "18px 22px", borderBottom: "1px solid var(--border-soft)", position: "sticky", top: 0, background: "var(--card)", borderRadius: "14px 14px 0 0"
         }}>
-          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14.5, fontWeight: 700, color: "#F2F0E6" }}>{title}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7268", padding: 4 }}>
+          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14.5, fontWeight: 700, color: "var(--ink)" }}>{title}</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", padding: 4 }}>
             <X size={20} />
           </button>
         </div>
@@ -283,7 +284,7 @@ function Modal({ title, onClose, children, maxWidth = 460 }) {
 function PrimaryBtn({ children, ...props }) {
   return (
     <button {...props} style={{
-      background: "#3E7A3F", color: "#F5F2E8", border: "none", borderRadius: 8,
+      background: "var(--green-solid)", color: "var(--cream)", border: "none", borderRadius: 8,
       padding: "10px 18px", fontSize: 11, fontWeight: 600, cursor: "pointer",
       display: "inline-flex", alignItems: "center", gap: 6, ...props.style
     }}>
@@ -295,7 +296,7 @@ function PrimaryBtn({ children, ...props }) {
 function GhostBtn({ children, ...props }) {
   return (
     <button {...props} style={{
-      background: "transparent", color: "#D6D3C7", border: "1px solid #2E362F", borderRadius: 8,
+      background: "transparent", color: "var(--ink-soft)", border: "1px solid var(--border-input)", borderRadius: 8,
       padding: "9px 16px", fontSize: 11, fontWeight: 500, cursor: "pointer",
       display: "inline-flex", alignItems: "center", gap: 6, ...props.style
     }}>
@@ -304,7 +305,7 @@ function GhostBtn({ children, ...props }) {
   );
 }
 
-const iconBtnStyle = { background: "none", border: "1px solid #232B25", borderRadius: 6, padding: 6, cursor: "pointer", color: "#8B9188" };
+const iconBtnStyle = { background: "none", border: "1px solid var(--border)", borderRadius: 6, padding: 6, cursor: "pointer", color: "var(--ink-dim)" };
 
 function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -324,12 +325,12 @@ function LoginScreen() {
   return (
     <div style={{
       minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: "#0E1310", fontFamily: "'Inter', sans-serif"
+      background: "var(--bg)", fontFamily: "'Inter', sans-serif"
     }}>
-      <form onSubmit={handleSubmit} style={{ width: 320, background: "#161D19", border: "1px solid #232B25", borderRadius: 14, padding: 28 }}>
-        <img src={LOGO_MARK_SRC} alt="Semear" style={{ height: 34, marginBottom: 18 }} />
-        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 16, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Entrar</h2>
-        <p style={{ color: "#9BA298", fontSize: 10.5, margin: "0 0 18px" }}>
+      <form onSubmit={handleSubmit} style={{ width: 320, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 28 }}>
+        <img src={LOGO_MARK_SRC} alt="Semear" className="theme-invert" style={{ height: 34, marginBottom: 18 }} />
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 16, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Entrar</h2>
+        <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: "0 0 18px" }}>
           Acesse com o e-mail e senha cadastrados pelo administrador.
         </p>
         <Field label="E-mail">
@@ -339,7 +340,7 @@ function LoginScreen() {
           <input type="password" required style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
         </Field>
         {error && (
-          <div style={{ background: "#3A1414", color: "#E38B84", padding: "9px 12px", borderRadius: 8, fontSize: 10.5, marginBottom: 14 }}>
+          <div style={{ background: "var(--red-bg)", color: "var(--red)", padding: "9px 12px", borderRadius: 8, fontSize: 10.5, marginBottom: 14 }}>
             {error}
           </div>
         )}
@@ -397,6 +398,14 @@ export default function AgroTrackApp() {
   const [cultureFilter, setCultureFilter] = useState("Todas");
   const [propriedadesTab, setPropriedadesTab] = useState("fazendas");
   const [teamError, setTeamError] = useState("");
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem("semear_theme") || "dark"; } catch { return "dark"; }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("semear_theme", theme); } catch {}
+  }, [theme]);
 
   useEffect(() => {
     getSession().then(setSession);
@@ -1206,7 +1215,7 @@ export default function AgroTrackApp() {
 
   if (session === undefined) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, fontFamily: "Inter, sans-serif", color: "#9BA298" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, fontFamily: "Inter, sans-serif", color: "var(--ink-dim)" }}>
         Verificando sessão…
       </div>
     );
@@ -1218,7 +1227,7 @@ export default function AgroTrackApp() {
 
   if (loading) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, fontFamily: "Inter, sans-serif", color: "#9BA298" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 400, fontFamily: "Inter, sans-serif", color: "var(--ink-dim)" }}>
         Carregando dados…
       </div>
     );
@@ -1231,17 +1240,17 @@ export default function AgroTrackApp() {
   return (
     <div style={{
       fontFamily: "'Inter', -apple-system, sans-serif", display: "flex", minHeight: 640,
-      background: "#0E1310", borderRadius: 14, overflow: "hidden", border: "1px solid #232B25"
+      background: "var(--bg)", borderRadius: 14, overflow: "hidden", border: "1px solid var(--border)"
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         * { box-sizing: border-box; }
         button:hover { opacity: 0.92; }
         table { border-collapse: collapse; width: 100%; }
-        th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6B7268; padding: 10px 12px; border-bottom: 1px solid #232B25; }
-        td { padding: 12px; border-bottom: 1px solid #212922; font-size: 10.5px; color: #D6D3C7; vertical-align: middle; }
+        th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); padding: 10px 12px; border-bottom: 1px solid var(--border); }
+        td { padding: 12px; border-bottom: 1px solid var(--border-soft); font-size: 10.5px; color: var(--ink-soft); vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
-        select option { background: #161D19; color: #EDEBE0; }
+        select option { background: var(--card); color: var(--select-text); }
         .at-sidebar { width: 60px; transition: width .18s ease; overflow: hidden; }
         .at-sidebar:hover { width: 210px; }
         .at-sidebar .nav-label { display: inline-block; max-width: 0; overflow: hidden; opacity: 0; white-space: nowrap; transition: max-width .18s ease, opacity .12s ease; }
@@ -1252,13 +1261,13 @@ export default function AgroTrackApp() {
         .at-sidebar .logo-mark { display: block; height: 24px; width: 24px; object-fit: contain; }
         .at-sidebar:hover .logo-full { display: block; }
         .at-sidebar:hover .logo-mark { display: none; }
-        .leaflet-container { background: #0E1310; font-family: 'IBM Plex Mono', monospace; }
-        .leaflet-control-layers { background: #161D19 !important; border: 1px solid #232B25 !important; color: #D6D3C7; }
+        .leaflet-container { background: var(--bg); font-family: 'IBM Plex Mono', monospace; }
+        .leaflet-control-layers { background: var(--card) !important; border: 1px solid var(--border) !important; color: var(--ink-soft); }
         .leaflet-control-layers-toggle { filter: invert(1); }
-        .leaflet-control-layers label { color: #D6D3C7; font-size: 11px; }
-        .leaflet-control-zoom a { background: #161D19 !important; color: #D6D3C7 !important; border-color: #232B25 !important; }
-        .leaflet-control-attribution { background: rgba(14,19,16,0.75) !important; color: #6B7268 !important; }
-        .leaflet-control-attribution a { color: #9BA298 !important; }
+        .leaflet-control-layers label { color: var(--ink-soft); font-size: 11px; }
+        .leaflet-control-zoom a { background: var(--card) !important; color: var(--ink-soft) !important; border-color: var(--border) !important; }
+        .leaflet-control-attribution { background: rgba(14,19,16,0.75) !important; color: var(--ink-faint) !important; }
+        .leaflet-control-attribution a { color: var(--ink-dim) !important; }
         .field-map-label { background: rgba(14,19,16,0.85) !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 10px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px !important; }
         .field-map-label::before { display: none !important; }
         .soil-value-label { background: transparent !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 8px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; padding: 0 !important; text-shadow: 0 0 3px #0E1310, 0 0 3px #0E1310, 0 0 3px #0E1310; }
@@ -1266,7 +1275,7 @@ export default function AgroTrackApp() {
       `}</style>
 
       {/* Sidebar */}
-      <div className="at-sidebar" style={{ background: "#0A1C0C", color: "#DAD7C9", padding: "22px 14px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+      <div className="at-sidebar" style={{ background: "var(--bg-sidebar)", color: "var(--sidebar-text)", padding: "22px 14px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "6px 4px", margin: "0 0 22px" }}>
           <img src="/favicon.png" alt="Semear" className="logo-mark" />
           <img src={LOGO_SRC} alt="Semear Consultoria Agropecuária" className="logo-full" />
@@ -1278,16 +1287,28 @@ export default function AgroTrackApp() {
             <button key={n.id} onClick={() => goToView(n.id)} style={{
               display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px",
               marginBottom: 4, borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
-              background: active ? "#1E4A20" : "transparent", color: active ? "#F5F2E8" : "#9BA298",
+              background: active ? "var(--green-deep)" : "transparent", color: active ? "var(--cream)" : "var(--ink-dim)",
               fontSize: 11, fontWeight: active ? 600 : 500, flexShrink: 0
             }}>
               <Icon size={17} style={{ flexShrink: 0 }} /> <span className="nav-label">{n.label}</span>
             </button>
           );
         })}
-        <div className="sidebar-footer-text" style={{ marginTop: "auto", padding: "14px 8px 0", fontSize: 9.5, color: "#6F776C", borderTop: "1px solid #1E4A20" }}>
-          <div style={{ marginBottom: 6, color: "#9BA298" }}>{profile?.name || session.user.email}</div>
-          <button onClick={() => signOut()} style={{ background: "none", border: "none", color: "#E3B455", cursor: "pointer", fontSize: 9.5, padding: 0 }}>
+        <button
+          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          style={{
+            marginTop: "auto", display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px",
+            borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
+            background: "transparent", color: "var(--ink-dim)", fontSize: 11, fontWeight: 500, flexShrink: 0,
+          }}
+          title={theme === "dark" ? "Mudar pro tema claro" : "Mudar pro tema escuro"}
+        >
+          {theme === "dark" ? <Sun size={17} style={{ flexShrink: 0 }} /> : <Moon size={17} style={{ flexShrink: 0 }} />}
+          <span className="nav-label">{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
+        </button>
+        <div className="sidebar-footer-text" style={{ padding: "14px 8px 0", fontSize: 9.5, color: "var(--ink-faint)", borderTop: "1px solid var(--green-deep)" }}>
+          <div style={{ marginBottom: 6, color: "var(--ink-dim)" }}>{profile?.name || session.user.email}</div>
+          <button onClick={() => signOut()} style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 9.5, padding: 0 }}>
             Sair
           </button>
         </div>
@@ -1383,16 +1404,16 @@ export default function AgroTrackApp() {
             <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
               <button onClick={() => setPropriedadesTab("fazendas")} style={{
                 display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-                border: "1px solid " + (propriedadesTab === "fazendas" ? "#1E4A20" : "#232B25"),
-                background: propriedadesTab === "fazendas" ? "#1E4A20" : "#161D19", color: propriedadesTab === "fazendas" ? "#F5F2E8" : "#D6D3C7",
+                border: "1px solid " + (propriedadesTab === "fazendas" ? "var(--green-deep)" : "var(--border)"),
+                background: propriedadesTab === "fazendas" ? "var(--green-deep)" : "var(--card)", color: propriedadesTab === "fazendas" ? "var(--cream)" : "var(--ink-soft)",
                 fontSize: 10.5, fontWeight: 600, cursor: "pointer"
               }}>
                 <Home size={15} /> Fazendas
               </button>
               <button onClick={() => setPropriedadesTab("talhoes")} style={{
                 display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-                border: "1px solid " + (propriedadesTab === "talhoes" ? "#1E4A20" : "#232B25"),
-                background: propriedadesTab === "talhoes" ? "#1E4A20" : "#161D19", color: propriedadesTab === "talhoes" ? "#F5F2E8" : "#D6D3C7",
+                border: "1px solid " + (propriedadesTab === "talhoes" ? "var(--green-deep)" : "var(--border)"),
+                background: propriedadesTab === "talhoes" ? "var(--green-deep)" : "var(--card)", color: propriedadesTab === "talhoes" ? "var(--cream)" : "var(--ink-soft)",
                 fontSize: 10.5, fontWeight: 600, cursor: "pointer"
               }}>
                 <Sprout size={15} /> Talhões
@@ -1613,10 +1634,10 @@ export default function AgroTrackApp() {
 
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px", flex: 1, minWidth: 140 }}>
-      <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
-      <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 19, fontWeight: 800, color: accent || "#F2F0E6" }}>{value}</div>
-      {sub && <div style={{ fontSize: 9.5, color: "#9BA298", marginTop: 3 }}>{sub}</div>}
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px", flex: 1, minWidth: 140 }}>
+      <div style={{ fontSize: 9.5, color: "var(--ink-dim)", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
+      <div style={{ fontFamily: "'Manrope', sans-serif", fontSize: 19, fontWeight: 800, color: accent || "var(--ink)" }}>{value}</div>
+      {sub && <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginTop: 3 }}>{sub}</div>}
     </div>
   );
 }
@@ -1629,32 +1650,32 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
   const monthLabel = new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   return (
     <div>
-      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Painel geral</h2>
-      <p style={{ color: "#9BA298", fontSize: 11, margin: "0 0 22px" }}>Visão geral das lavouras acompanhadas</p>
+      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Painel geral</h2>
+      <p style={{ color: "var(--ink-dim)", fontSize: 11, margin: "0 0 22px" }}>Visão geral das lavouras acompanhadas</p>
 
       <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
         <StatCard label="Clientes" value={clients.length} />
         <StatCard label="Propriedades" value={properties.length} />
         <StatCard label="Talhões" value={fields.length} />
-        <StatCard label="Safras ativas" value={totals.activeHarvestCount} accent="#7BC142" />
+        <StatCard label="Safras ativas" value={totals.activeHarvestCount} accent="var(--green)" />
         <StatCard label="Área total" value={totals.areaTotal.toLocaleString("pt-BR") + " ha"} sub={totals.areaPlantada > 0 ? `${totals.areaPlantada.toLocaleString("pt-BR")} ha plantados` : "nenhuma área plantada ainda"} />
         <StatCard label="Visitas · 7 dias" value={totals.visitsWeek} />
       </div>
 
       {isFinance && monthFinanceSummary && (
         <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
-          <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="#7BC142"
+          <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="var(--green)"
             sub={monthFinanceSummary.totalPendente > 0 ? `${fmtCurrency(monthFinanceSummary.totalPendente)} pendente` : "tudo recebido"} />
-          <StatCard label={`Saídas previstas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalSaidasPrevistas)} accent="#E3B455"
+          <StatCard label={`Saídas previstas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalSaidasPrevistas)} accent="var(--gold)"
             sub={`Pró-labore ${fmtCurrency(monthFinanceSummary.totalProLabore)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasDoMes)}`} />
         </div>
       )}
 
       <div style={{ display: "flex", gap: 18, alignItems: "stretch", marginBottom: 24, flexWrap: "wrap" }}>
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Área por cultura</div>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Área por cultura</div>
           {totals.areaPlantada === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma safra em andamento ainda.</div>
+            <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma safra em andamento ainda.</div>
           ) : (
             <>
               <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", marginBottom: 10 }}>
@@ -1662,11 +1683,11 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
                 <div style={{ width: (100 - pctSoja) + "%", background: CULTURE_META.Milho.color }} />
               </div>
               <div style={{ display: "flex", gap: 18, fontSize: 10.5 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#D6D3C7" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-soft)" }}>
                   <span style={{ width: 9, height: 9, borderRadius: 3, background: CULTURE_META.Soja.color, display: "inline-block" }} />
                   Soja — {totals.areaSoja.toLocaleString("pt-BR")} ha
                 </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#D6D3C7" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-soft)" }}>
                   <span style={{ width: 9, height: 9, borderRadius: 3, background: CULTURE_META.Milho.color, display: "inline-block" }} />
                   Milho — {totals.areaMilho.toLocaleString("pt-BR")} ha
                 </span>
@@ -1675,10 +1696,10 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
           )}
         </div>
 
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Visita semanal por gestor</div>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Visita semanal por gestor</div>
           {lateClients.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Todos os clientes estão em dia com a visita semanal.</div>
+            <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Todos os clientes estão em dia com a visita semanal.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {lateClients.map((c) => (
@@ -1690,8 +1711,8 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
                   <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
                     {c.gestorName && <Avatar name={c.gestorName} url={c.gestorAvatar} size={26} />}
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{c.name}</div>
-                      <div style={{ fontSize: 9.5, color: "#6B7268" }}>
+                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 600 }}>{c.name}</div>
+                      <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>
                         {c.gestorName ? `Gestor: ${c.gestorName}` : "Sem gestor definido"}
                         {c.lastVisitDate ? ` · última visita ${fmtDate(c.lastVisitDate)}` : ""}
                       </div>
@@ -1707,10 +1728,10 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
 
       <FieldsOverviewMap fields={fields} onOpenField={onOpenField} />
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Visitas recentes</div>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>Visitas recentes</div>
         {recentVisits.length === 0 ? (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
+          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
         ) : (
           <table>
             <thead><tr><th>Data</th><th>Cliente / Propriedade / Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th></tr></thead>
@@ -1718,7 +1739,7 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
               {recentVisits.map((v) => (
                 <tr key={v.id}>
                   <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(v.date)}</td>
-                  <td>{v.clientName} <span style={{ color: "#6B7268" }}>· {v.propertyName} · {v.fieldName}</span></td>
+                  <td>{v.clientName} <span style={{ color: "var(--ink-faint)" }}>· {v.propertyName} · {v.fieldName}</span></td>
                   <td>{v.culture && <CultureBadge culture={v.culture} />}</td>
                   <td>{v.culture && <StageProgress culture={v.culture} stage={v.stage} />}</td>
                   <td>{v.technician}</td>
@@ -1739,17 +1760,17 @@ function FieldsOverviewMap({ fields, onOpenField }) {
   const bounds = geoFields.flatMap((f) => f.fieldMap.points.map(([lat, lng]) => [lat, lng]));
 
   return (
-    <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18 }}>
-      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>Mapa dos talhões</div>
-      <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 12 }}>
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>Mapa dos talhões</div>
+      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 12 }}>
         Só mostra talhões com área definida por KML — coordenadas reais, então dá pra combinar todos num mapa só.
       </div>
       {geoFields.length === 0 ? (
-        <div style={{ color: "#6B7268", fontSize: 10.5 }}>
+        <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>
           Nenhum talhão com KML importado ainda. Defina a área de um talhão usando KML para ele aparecer aqui.
         </div>
       ) : (
-        <div style={{ height: 380, borderRadius: 8, overflow: "hidden", border: "1px solid #232B25" }}>
+        <div style={{ height: 380, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
           <MapContainer bounds={bounds} boundsOptions={{ padding: [24, 24] }} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
             <LayersControl position="topright">
               <LayersControl.BaseLayer checked name="Satélite">
@@ -1769,7 +1790,7 @@ function FieldsOverviewMap({ fields, onOpenField }) {
             </LayersControl>
             {geoFields.map((f) => {
               const positions = f.fieldMap.points.map(([lat, lng]) => [lat, lng]);
-              const color = f.activeHarvest ? CULTURE_META[f.activeHarvest.culture]?.color || "#7BC142" : "#9BA298";
+              const color = f.activeHarvest ? CULTURE_META[f.activeHarvest.culture]?.color || "var(--green)" : "var(--ink-dim)";
               const isHovered = hovered === f.id;
               return (
                 <Polygon
@@ -1790,7 +1811,7 @@ function FieldsOverviewMap({ fields, onOpenField }) {
         </div>
       )}
       {imageFields.length > 0 && (
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 10 }}>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 10 }}>
           {imageFields.length} talhão(ões) com área definida por imagem não {imageFields.length > 1 ? "entram" : "entra"} neste mapa (sem coordenadas reais) — abra cada um para visualizar.
         </div>
       )}
@@ -1802,35 +1823,35 @@ function ClientPortalApp({ data, error, onSignOut }) {
   const [viewingAnalysisId, setViewingAnalysisId] = useState(null);
   const shellStyle = {
     fontFamily: "'Inter', -apple-system, sans-serif", minHeight: 640,
-    background: "#0E1310", borderRadius: 14, border: "1px solid #232B25", padding: "26px 32px",
+    background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", padding: "26px 32px",
   };
   const fontImport = (
     <style>{`
       @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
       * { box-sizing: border-box; }
       table { border-collapse: collapse; width: 100%; }
-      th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #6B7268; padding: 10px 12px; border-bottom: 1px solid #232B25; }
-      td { padding: 12px; border-bottom: 1px solid #212922; font-size: 10.5px; color: #D6D3C7; vertical-align: middle; }
+      th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-faint); padding: 10px 12px; border-bottom: 1px solid var(--border); }
+      td { padding: 12px; border-bottom: 1px solid var(--border-soft); font-size: 10.5px; color: var(--ink-soft); vertical-align: middle; }
       tr:last-child td { border-bottom: none; }
-      .leaflet-container { background: #0E1310; font-family: 'IBM Plex Mono', monospace; }
-      .leaflet-control-layers { background: #161D19 !important; border: 1px solid #232B25 !important; color: #D6D3C7; }
+      .leaflet-container { background: var(--bg); font-family: 'IBM Plex Mono', monospace; }
+      .leaflet-control-layers { background: var(--card) !important; border: 1px solid var(--border) !important; color: var(--ink-soft); }
       .leaflet-control-layers-toggle { filter: invert(1); }
-      .leaflet-control-layers label { color: #D6D3C7; font-size: 11px; }
-      .leaflet-control-zoom a { background: #161D19 !important; color: #D6D3C7 !important; border-color: #232B25 !important; }
-      .leaflet-control-attribution { background: rgba(14,19,16,0.75) !important; color: #6B7268 !important; }
-      .leaflet-control-attribution a { color: #9BA298 !important; }
-      .field-map-label { background: rgba(14,19,16,0.85) !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 10px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px !important; }
+      .leaflet-control-layers label { color: var(--ink-soft); font-size: 11px; }
+      .leaflet-control-zoom a { background: var(--card) !important; color: var(--ink-soft) !important; border-color: var(--border) !important; }
+      .leaflet-control-attribution { background: rgba(14,19,16,0.75) !important; color: var(--ink-faint) !important; }
+      .leaflet-control-attribution a { color: var(--ink-dim) !important; }
+      .field-map-label { background: rgba(14,19,16,0.85) !important; border: none !important; box-shadow: none !important; color: var(--ink) !important; font-size: 10px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px !important; }
       .field-map-label::before { display: none !important; }
-      .soil-value-label { background: transparent !important; border: none !important; box-shadow: none !important; color: #F2F0E6 !important; font-size: 8px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; padding: 0 !important; text-shadow: 0 0 3px #0E1310, 0 0 3px #0E1310, 0 0 3px #0E1310; }
+      .soil-value-label { background: transparent !important; border: none !important; box-shadow: none !important; color: var(--ink) !important; font-size: 8px; font-weight: 700; font-family: 'IBM Plex Mono', monospace; padding: 0 !important; text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg), 0 0 3px var(--bg); }
       .soil-value-label::before { display: none !important; }
     `}</style>
   );
 
   if (error) {
     return (
-      <div style={{ ...shellStyle, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: "#9BA298" }}>
+      <div style={{ ...shellStyle, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, color: "var(--ink-dim)" }}>
         {fontImport}
-        <AlertTriangle size={28} color="#E38B84" />
+        <AlertTriangle size={28} color="var(--red)" />
         <div style={{ fontSize: 12, textAlign: "center", maxWidth: 320 }}>{error}</div>
         <GhostBtn onClick={onSignOut}>Sair</GhostBtn>
       </div>
@@ -1838,7 +1859,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
   }
   if (!data) {
     return (
-      <div style={{ ...shellStyle, display: "flex", alignItems: "center", justifyContent: "center", color: "#9BA298" }}>
+      <div style={{ ...shellStyle, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ink-dim)" }}>
         {fontImport}
         Carregando seus dados…
       </div>
@@ -1877,10 +1898,10 @@ function ClientPortalApp({ data, error, onSignOut }) {
       {fontImport}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 26, flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src={LOGO_MARK_SRC} alt="Semear" style={{ height: 32 }} />
+          <img src={LOGO_MARK_SRC} alt="Semear" className="theme-invert" style={{ height: 32 }} />
           <div>
-            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 2px" }}>{client.name}</h2>
-            <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Painel do cliente · Semear Consultoria Agropecuária</p>
+            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 2px" }}>{client.name}</h2>
+            <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Painel do cliente · Semear Consultoria Agropecuária</p>
           </div>
         </div>
         <GhostBtn onClick={onSignOut}>Sair</GhostBtn>
@@ -1894,37 +1915,37 @@ function ClientPortalApp({ data, error, onSignOut }) {
       </div>
 
       {gestor && (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, marginBottom: 22, display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 22, display: "flex", alignItems: "center", gap: 12 }}>
           <Avatar name={gestor.name} url={gestor.avatar} size={40} />
           <div>
-            <div style={{ fontSize: 11.5, fontWeight: 600, color: "#F2F0E6" }}>{gestor.name}</div>
-            <div style={{ fontSize: 10, color: "#9BA298" }}>{gestor.title || "Gestor responsável"}{gestor.phone ? ` · ${gestor.phone}` : ""}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink)" }}>{gestor.name}</div>
+            <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>{gestor.title || "Gestor responsável"}{gestor.phone ? ` · ${gestor.phone}` : ""}</div>
           </div>
         </div>
       )}
 
       <FieldsOverviewMap fields={fieldsWithMeta} onOpenField={null} />
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Propriedades e talhões</div>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Propriedades e talhões</div>
         {propertiesWithMeta.length === 0 ? (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma propriedade cadastrada ainda.</div>
+          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma propriedade cadastrada ainda.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {propertiesWithMeta.map((p) => (
               <div key={p.id}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#F2F0E6", marginBottom: 6 }}>
-                  {p.name} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {p.areaTotal.toLocaleString("pt-BR")} ha</span>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)", marginBottom: 6 }}>
+                  {p.name} <span style={{ color: "var(--ink-faint)", fontWeight: 500 }}>· {p.areaTotal.toLocaleString("pt-BR")} ha</span>
                 </div>
                 {p.fields.length === 0 ? (
-                  <div style={{ color: "#6B7268", fontSize: 10, marginBottom: 6 }}>Nenhum talhão cadastrado.</div>
+                  <div style={{ color: "var(--ink-faint)", fontSize: 10, marginBottom: 6 }}>Nenhum talhão cadastrado.</div>
                 ) : (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                     {p.fields.map((f) => (
-                      <div key={f.id} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 10 }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>{f.name}</div>
-                        <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 6 }}>{f.areaHa.toLocaleString("pt-BR")} ha</div>
-                        {f.activeHarvest ? <CultureBadge culture={f.activeHarvest.culture} /> : <span style={{ fontSize: 9, color: "#6B7268" }}>Sem safra ativa</span>}
+                      <div key={f.id} style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>{f.name}</div>
+                        <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 6 }}>{f.areaHa.toLocaleString("pt-BR")} ha</div>
+                        {f.activeHarvest ? <CultureBadge culture={f.activeHarvest.culture} /> : <span style={{ fontSize: 9, color: "var(--ink-faint)" }}>Sem safra ativa</span>}
                       </div>
                     ))}
                   </div>
@@ -1935,10 +1956,10 @@ function ClientPortalApp({ data, error, onSignOut }) {
         )}
       </div>
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Visitas recentes</div>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>Visitas recentes</div>
         {recentVisits.length === 0 ? (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
+          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
         ) : (
           <table>
             <thead><tr><th>Data</th><th>Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th><th>Fotos</th></tr></thead>
@@ -1958,7 +1979,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
                             <img src={p.url} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 4, display: "block" }} />
                           </a>
                         ))}
-                        {v.photos.length > 3 && <span style={{ fontSize: 9, color: "#9BA298" }}>+{v.photos.length - 3}</span>}
+                        {v.photos.length > 3 && <span style={{ fontSize: 9, color: "var(--ink-dim)" }}>+{v.photos.length - 3}</span>}
                       </div>
                     ) : "—"}
                   </td>
@@ -1969,10 +1990,10 @@ function ClientPortalApp({ data, error, onSignOut }) {
         )}
       </div>
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Análises de Solo</div>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>Análises de Solo</div>
         {soilAnalyses.length === 0 ? (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma análise de solo registrada ainda.</div>
+          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma análise de solo registrada ainda.</div>
         ) : (
           <table>
             <thead><tr><th>Data</th><th>Talhão</th><th>Identificação</th><th>Pontos</th><th></th></tr></thead>
@@ -1996,19 +2017,19 @@ function ClientPortalApp({ data, error, onSignOut }) {
         )}
       </div>
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Documentos</div>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>Documentos</div>
         {documents.length === 0 ? (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum documento disponível ainda.</div>
+          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhum documento disponível ainda.</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {documents.map((d) => (
               <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center", textDecoration: "none",
-                background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: "10px 12px"
+                background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "10px 12px"
               }}>
-                <span style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{d.title}</span>
-                <span style={{ fontSize: 9.5, color: "#6B7268" }}>{fmtDate(d.uploadedAt?.slice(0, 10))}</span>
+                <span style={{ fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 600 }}>{d.title}</span>
+                <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>{fmtDate(d.uploadedAt?.slice(0, 10))}</span>
               </a>
             ))}
           </div>
@@ -2032,9 +2053,9 @@ function ClientPortalApp({ data, error, onSignOut }) {
 
 function EmptyState({ icon: Icon, title, sub, action }) {
   return (
-    <div style={{ textAlign: "center", padding: "60px 20px", color: "#9BA298" }}>
+    <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--ink-dim)" }}>
       <Icon size={30} style={{ marginBottom: 10, opacity: 0.5 }} />
-      <div style={{ fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>{title}</div>
+      <div style={{ fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>{title}</div>
       <div style={{ fontSize: 10.5, marginBottom: 16 }}>{sub}</div>
       {action}
     </div>
@@ -2046,12 +2067,12 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Clientes</h2>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>Clientes</h2>
         </div>
         <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo cliente</PrimaryBtn>
       </div>
       <div style={{ position: "relative", maxWidth: 320, marginBottom: 16 }}>
-        <Search size={15} style={{ position: "absolute", left: 10, top: 10, color: "#6B7268" }} />
+        <Search size={15} style={{ position: "absolute", left: 10, top: 10, color: "var(--ink-faint)" }} />
         <input placeholder="Buscar cliente…" value={search} onChange={(e) => setSearch(e.target.value)}
           style={{ ...inputStyle, paddingLeft: 32 }} />
       </div>
@@ -2059,7 +2080,7 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
         <EmptyState icon={Users} title="Nenhum cliente cadastrado" sub="Cadastre o primeiro produtor para começar a acompanhar as lavouras."
           action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo cliente</PrimaryBtn>} />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Propriedades</th><th>Gestor</th><th>Visita</th><th></th></tr></thead>
             <tbody>
@@ -2067,7 +2088,7 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
                 const count = properties.filter((p) => p.clientId === c.id).length;
                 return (
                   <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => onOpen(c.id)}>
-                    <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{c.name}</td>
+                    <td style={{ fontWeight: 600, color: "var(--ink)" }}>{c.name}</td>
                     <td>{c.phone || "—"}</td>
                     <td>{c.city || "—"}</td>
                     <td>{count}</td>
@@ -2084,7 +2105,7 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                         <button onClick={() => onEdit(c)} style={iconBtnStyle}><Pencil size={14} /></button>
                         <button onClick={() => { if (confirm(`Remover ${c.name} e todas as propriedades/talhões/visitas vinculados?`)) onDelete(c.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
-                        <ChevronRight size={16} color="#6B7268" />
+                        <ChevronRight size={16} color="var(--ink-faint)" />
                       </div>
                     </td>
                   </tr>
@@ -2106,17 +2127,17 @@ function ClientDetail({
   if (!client) return null;
   return (
     <div>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
         <ArrowLeft size={14} /> Todos os clientes
       </button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{client.name}</h2>
-          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298", marginBottom: 8 }}>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 6px" }}>{client.name}</h2>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 8 }}>
             {client.phone && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><Phone size={13} /> {client.phone}</span>}
             {client.city && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {client.city}</span>}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10.5, color: "#9BA298" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10.5, color: "var(--ink-dim)" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
               {client.gestorName ? <Avatar name={client.gestorName} url={client.gestorAvatar} size={18} /> : <UserCog size={13} />}
               {client.gestorName ? `Gestor: ${client.gestorName}` : "Sem gestor definido"}
@@ -2132,17 +2153,17 @@ function ClientDetail({
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
           {properties.map((p) => (
-            <div key={p.id} onClick={() => onOpenProperty(p.id)} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer" }}>
+            <div key={p.id} onClick={() => onOpenProperty(p.id)} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5 }}>{p.name}</div>
-                <ChevronRight size={16} color="#6B7268" />
+                <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 11.5 }}>{p.name}</div>
+                <ChevronRight size={16} color="var(--ink-faint)" />
               </div>
               {p.location && (
-                <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
                   <MapPin size={12} /> {p.location}
                 </div>
               )}
-              <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 12 }}>
                 {p.fieldCount} talhão(ões) · {p.areaTotal.toLocaleString("pt-BR")} ha
               </div>
               <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
@@ -2154,9 +2175,9 @@ function ClientDetail({
         </div>
       )}
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Acesso do cliente ao painel</div>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)" }}>Acesso do cliente ao painel</div>
           {isMaster && !clientAccess && (
             <GhostBtn onClick={onCreateAccess}><Plus size={14} /> Criar acesso</GhostBtn>
           )}
@@ -2164,15 +2185,15 @@ function ClientDetail({
         {clientAccess ? (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <div style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600 }}>{clientAccess.name}</div>
-              <div style={{ fontSize: 9.5, color: "#6B7268" }}>{clientAccess.email}</div>
+              <div style={{ fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 600 }}>{clientAccess.name}</div>
+              <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>{clientAccess.email}</div>
             </div>
             {isMaster && (
               <button onClick={() => { if (confirm("Remover o acesso deste cliente ao painel?")) onDeleteAccess(clientAccess.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
             )}
           </div>
         ) : (
-          <div style={{ color: "#6B7268", fontSize: 10.5 }}>
+          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>
             Este cliente ainda não tem login — ele não consegue ver as próprias fazendas, talhões, visitas e documentos no painel.
           </div>
         )}
@@ -2209,25 +2230,25 @@ function ClientDocuments({ clientId, documents, onUpload, onDelete }) {
   }
 
   return (
-    <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, marginTop: 24 }}>
-      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Documentos (laudos, contratos, fotos)</div>
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Documentos (laudos, contratos, fotos)</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-        <input ref={fileInputRef} type="file" onChange={(e) => setFile(e.target.files[0] || null)} style={{ fontSize: 10.5, color: "#D6D3C7" }} />
+        <input ref={fileInputRef} type="file" onChange={(e) => setFile(e.target.files[0] || null)} style={{ fontSize: 10.5, color: "var(--ink-soft)" }} />
         <input style={{ ...inputStyle, width: 180 }} placeholder="Nome do documento (opcional)" value={title} onChange={(e) => setTitle(e.target.value)} />
         <PrimaryBtn onClick={handleUpload} disabled={!file || uploading}>
           {uploading ? "Enviando…" : "Enviar"}
         </PrimaryBtn>
       </div>
-      {error && <div style={{ fontSize: 10.5, color: "#E38B84", marginBottom: 10 }}>{error}</div>}
+      {error && <div style={{ fontSize: 10.5, color: "var(--red)", marginBottom: 10 }}>{error}</div>}
       {documents.length === 0 ? (
-        <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum documento enviado ainda.</div>
+        <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhum documento enviado ainda.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {documents.map((d) => (
-            <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: "9px 12px" }}>
-              <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: "#D6D3C7", fontWeight: 600, textDecoration: "none" }}>{d.title}</a>
+            <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "9px 12px" }}>
+              <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 600, textDecoration: "none" }}>{d.title}</a>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 9.5, color: "#6B7268" }}>{fmtSize(d.sizeBytes)} · {fmtDate(d.uploadedAt?.slice(0, 10))}</span>
+                <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>{fmtSize(d.sizeBytes)} · {fmtDate(d.uploadedAt?.slice(0, 10))}</span>
                 <button onClick={() => { if (confirm(`Remover o documento "${d.title}"?`)) onDelete(d); }} style={iconBtnStyle}><Trash2 size={13} /></button>
               </div>
             </div>
@@ -3715,7 +3736,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             center={[p.lat, p.lng]}
             radius={isSelected ? 10 : showValue ? 9 : 7}
             pathOptions={{
-              color: isSelected ? "#0E1310" : "transparent",
+              color: isSelected ? "var(--bg)" : "transparent",
               weight: isSelected ? 2.5 : 0,
               fillColor: showValue ? "transparent" : hasValue ? "#F2F0E6" : "#9BA298",
               fillOpacity: showValue ? 0 : 0.9,
@@ -3744,8 +3765,8 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const legendEl = heatOverlay && (
     <div style={{
       position: "absolute", bottom: 10, right: 10, zIndex: 1000,
-      background: "rgba(14,19,16,0.92)", border: "1px solid #232B25", borderRadius: 8,
-      padding: "9px 11px", fontSize: 9, color: "#D6D3C7", minWidth: 175,
+      background: "rgba(14,19,16,0.92)", border: "1px solid var(--border)", borderRadius: 8,
+      padding: "9px 11px", fontSize: 9, color: "var(--ink-soft)", minWidth: 175,
     }}>
       <div style={{ fontWeight: 600, marginBottom: 6, whiteSpace: "nowrap" }}>
         {isLimeMode ? "Necessidade de Calcário (t/ha)" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label}
@@ -3758,7 +3779,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: `rgb(${c[0]},${c[1]},${c[2]})`, flexShrink: 0 }} />
             <span>{heatOverlay.breaks[i].toFixed(1)}–{heatOverlay.breaks[i + 1].toFixed(1)}</span>
-            <span style={{ color: "#6B7268", marginLeft: "auto" }}>{areaHa.toFixed(1)}ha · {pct.toFixed(0)}%</span>
+            <span style={{ color: "var(--ink-faint)", marginLeft: "auto" }}>{areaHa.toFixed(1)}ha · {pct.toFixed(0)}%</span>
           </div>
         );
       })}
@@ -3768,21 +3789,21 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const statsEl = heatOverlay && (
     <div style={{
       position: "absolute", bottom: 10, left: 10, zIndex: 1000,
-      background: "rgba(14,19,16,0.92)", border: "1px solid #232B25", borderRadius: 8,
-      padding: "9px 11px", fontSize: 9, color: "#D6D3C7", minWidth: 130,
+      background: "rgba(14,19,16,0.92)", border: "1px solid var(--border)", borderRadius: 8,
+      padding: "9px 11px", fontSize: 9, color: "var(--ink-soft)", minWidth: 130,
     }}>
       <div style={{ fontWeight: 600, marginBottom: 6 }}>Resumo</div>
       <div style={{ display: "grid", gridTemplateColumns: "auto auto", gap: "3px 12px", fontFamily: "'IBM Plex Mono', monospace" }}>
-        <span style={{ color: "#6B7268" }}>Área do talhão</span><span>{fieldAreaHaValue.toFixed(1)} ha</span>
+        <span style={{ color: "var(--ink-faint)" }}>Área do talhão</span><span>{fieldAreaHaValue.toFixed(1)} ha</span>
         {isLimeMode && (
           <>
-            <span style={{ color: "#6B7268" }}>Total necessário</span>
+            <span style={{ color: "var(--ink-faint)" }}>Total necessário</span>
             <span>{(heatOverlay.avgV * fieldAreaHaValue).toFixed(1)} t</span>
           </>
         )}
-        <span style={{ color: "#6B7268" }}>Média</span><span>{heatOverlay.avgV.toFixed(1)} {heatUnit}</span>
-        <span style={{ color: "#6B7268" }}>Mínima</span><span>{heatOverlay.minV.toFixed(1)} {heatUnit}</span>
-        <span style={{ color: "#6B7268" }}>Máxima</span><span>{heatOverlay.maxV.toFixed(1)} {heatUnit}</span>
+        <span style={{ color: "var(--ink-faint)" }}>Média</span><span>{heatOverlay.avgV.toFixed(1)} {heatUnit}</span>
+        <span style={{ color: "var(--ink-faint)" }}>Mínima</span><span>{heatOverlay.minV.toFixed(1)} {heatUnit}</span>
+        <span style={{ color: "var(--ink-faint)" }}>Máxima</span><span>{heatOverlay.maxV.toFixed(1)} {heatUnit}</span>
       </div>
     </div>
   );
@@ -3790,7 +3811,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const hasColorOverlay = !!heatOverlay || (step === "coleta" && (!!ndviOverlay || !!ndviZones));
   const opacitySliderEl = hasColorOverlay && (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <Volume2 size={14} color="#9BA298" />
+      <Volume2 size={14} color="var(--ink-dim)" />
       <input
         type="range" min="0.1" max="1" step="0.05" value={overlayOpacity}
         onChange={(e) => setOverlayOpacity(Number(e.target.value))}
@@ -3807,11 +3828,11 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           <GhostBtn onClick={toggleGps}>
             <MapPin size={14} /> {gpsActive ? "Desativar GPS ao vivo" : "Ativar GPS ao vivo"}
           </GhostBtn>
-          {gpsError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{gpsError}</span>}
+          {gpsError && <span style={{ fontSize: 9.5, color: "var(--red)" }}>{gpsError}</span>}
         </div>
       )}
       {gpsActive && (
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 8 }}>
           {liveLocation ? "Pontos ordenados do mais perto pro mais longe da sua posição atual." : "Localizando…"}
         </div>
       )}
@@ -3822,9 +3843,9 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           return (
             <button key={p.id} onClick={() => setSelectedPointId(p.id)} style={{
               display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 16,
-              border: "1px solid " + (selectedPointId === p.id ? "#3E7A3F" : "#232B25"),
-              background: selectedPointId === p.id ? "#1E4A20" : "#161D19",
-              color: selectedPointId === p.id ? "#F5F2E8" : "#D6D3C7", fontSize: 10, cursor: "pointer",
+              border: "1px solid " + (selectedPointId === p.id ? "var(--green-solid)" : "var(--border)"),
+              background: selectedPointId === p.id ? "var(--green-deep)" : "var(--card)",
+              color: selectedPointId === p.id ? "var(--cream)" : "var(--ink-soft)", fontSize: 10, cursor: "pointer",
             }}>
               {p.label}{dist !== null ? ` · ${dist}m` : ""}
               {!readOnly && (
@@ -3833,18 +3854,18 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             </button>
           );
         })}
-        {form.points.length === 0 && <span style={{ fontSize: 10, color: "#6B7268" }}>Nenhum ponto ainda.</span>}
+        {form.points.length === 0 && <span style={{ fontSize: 10, color: "var(--ink-faint)" }}>Nenhum ponto ainda.</span>}
       </div>
 
       {selectedPoint && (
-        <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
+        <div style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>Resultado — {selectedPoint.label}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
             {SOIL_NUTRIENTS.map((n) => (
               <div key={n.key}>
-                <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                <div style={{ fontSize: 9, color: "var(--ink-faint)", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
                 {readOnly ? (
-                  <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[n.key] ?? "—"}</div>
+                  <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{selectedPoint[n.key] ?? "—"}</div>
                 ) : (
                   <input
                     type="number" style={inputStyle}
@@ -3861,16 +3882,16 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             </GhostBtn>
           )}
           {(showDeepPoint || (readOnly && SOIL_NUTRIENTS.some((n) => selectedPoint[soilDepthKey(n.key, "20-40")]))) && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #232B25" }}>
-              <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 8 }}>Camada 20-40cm</div>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed var(--border)" }}>
+              <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 8 }}>Camada 20-40cm</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 10 }}>
                 {SOIL_NUTRIENTS.map((n) => {
                   const deepKey = soilDepthKey(n.key, "20-40");
                   return (
                     <div key={deepKey}>
-                      <div style={{ fontSize: 9, color: "#6B7268", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
+                      <div style={{ fontSize: 9, color: "var(--ink-faint)", marginBottom: 3 }}>{n.label}{n.unit ? ` (${n.unit})` : ""}</div>
                       {readOnly ? (
-                        <div style={{ fontSize: 11, color: "#D6D3C7" }}>{selectedPoint[deepKey] ?? "—"}</div>
+                        <div style={{ fontSize: 11, color: "var(--ink-soft)" }}>{selectedPoint[deepKey] ?? "—"}</div>
                       ) : (
                         <input
                           type="number" style={inputStyle}
@@ -3900,13 +3921,13 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const visualizacaoControlsEl = (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 9.5, color: "#9BA298" }}>Nutriente:</span>
+        <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Nutriente:</span>
         <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
           {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
         </select>
         {hasDeepData && (
           <>
-            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Profundidade:</span>
+            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Profundidade:</span>
             <select style={{ ...inputStyle, width: 110 }} value={soilDepth} onChange={(e) => setSoilDepth(e.target.value)}>
               {SOIL_DEPTHS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
             </select>
@@ -3915,7 +3936,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         {form.points.length >= 3 && (
           <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
         )}
-        {exportError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{exportError}</span>}
+        {exportError && <span style={{ fontSize: 9.5, color: "var(--red)" }}>{exportError}</span>}
       </div>
     </div>
   );
@@ -3930,14 +3951,14 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const insumosControlsEl = (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 9.5, color: "#9BA298" }}>Insumo:</span>
+        <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Insumo:</span>
         <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
           <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
           <option value="npk">Adubação NPK (kg/ha)</option>
         </select>
         {isLimeMode && (
           <>
-            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Saturação de bases (V%) desejada:</span>
+            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Saturação de bases (V%) desejada:</span>
             <input
               type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
               value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
@@ -3947,16 +3968,16 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         {!isNpkMode && form.points.length >= 3 && (
           <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
         )}
-        {exportError && <span style={{ fontSize: 9.5, color: "#E38B84" }}>{exportError}</span>}
+        {exportError && <span style={{ fontSize: 9.5, color: "var(--red)" }}>{exportError}</span>}
       </div>
       {isNpkMode && (
-        <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: "1px solid #232B25", background: "#171C18" }}>
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-alt)" }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Cultura:</span>
+            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Cultura:</span>
             <select style={{ ...inputStyle, width: 160 }} value={npkCrop} onChange={(e) => handleNpkCropChange(e.target.value)}>
               {NPK_CROPS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
-            <span style={{ fontSize: 9.5, color: "#9BA298" }}>Produtividade esperada (t/ha):</span>
+            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Produtividade esperada (t/ha):</span>
             <input
               type="number" min="0" step="0.1" style={{ ...inputStyle, width: 80 }}
               value={npkYieldGoal} onChange={(e) => setNpkYieldGoal(e.target.value)}
@@ -3969,21 +3990,21 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
               { label: "K₂O", exp: npkExportK, setExp: setNpkExportK, dose: npkDoseK },
             ].map((n) => (
               <div key={n.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 9.5, color: "#9BA298" }}>{n.label} — exportação (kg/ton)</span>
+                <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>{n.label} — exportação (kg/ton)</span>
                 <input
                   type="number" min="0" step="0.5" style={{ ...inputStyle, width: 90 }}
                   value={n.exp} onChange={(e) => n.setExp(e.target.value)}
                 />
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#F2F0E6" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>
                   {n.dose !== null ? `${n.dose.toFixed(1)} kg/ha` : "—"}
                 </span>
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 9.5, color: "#9BA298" }}>
+          <div style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>
             Fósforo médio no talhão: {npkAvgP !== null ? `${npkAvgP.toFixed(1)} mg/dm³` : "—"} · Potássio médio no talhão: {npkAvgK !== null ? `${npkAvgK.toFixed(1)} mg/dm³` : "—"}
           </div>
-          <div style={{ fontSize: 8.5, color: "#6E756B", marginTop: 6 }}>
+          <div style={{ fontSize: 8.5, color: "var(--ink-faint)", marginTop: 6 }}>
             Método de reposição/exportação (dose = exportação por tonelada x produtividade esperada). Coeficientes de referência — ajuste conforme a calibração da sua região.
           </div>
         </div>
@@ -4005,8 +4026,8 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         return (
           <button key={t.id} onClick={() => switchStep(t.id)} style={{
             display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 20,
-            border: "1px solid " + (active ? "#1E4A20" : "#232B25"),
-            background: active ? "#1E4A20" : "#161D19", color: active ? "#F5F2E8" : "#D6D3C7",
+            border: "1px solid " + (active ? "var(--green-deep)" : "var(--border)"),
+            background: active ? "var(--green-deep)" : "var(--card)", color: active ? "var(--cream)" : "var(--ink-soft)",
             fontSize: 10, fontWeight: 600, cursor: "pointer",
           }}>
             <Icon size={14} /> {t.label}
@@ -4018,9 +4039,9 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
   if (fullscreen && bounds) {
     return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "#0E1310", display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #232B25", flexShrink: 0, gap: 8, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#F2F0E6" }}>{form.label || fmtDate(form.date)}</div>
+      <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--border)", flexShrink: 0, gap: 8, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>{form.label || fmtDate(form.date)}</div>
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
             {opacitySliderEl}
             {!readOnly && <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>}
@@ -4029,7 +4050,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         </div>
         <div style={{ padding: "10px 16px 0" }}>{tabsEl}</div>
         <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}{legendEl}{statsEl}</div>
-        <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid #232B25" }}>
+        <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid var(--border)" }}>
           {step === "coleta" ? (
             <>
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: detailsOpen ? 12 : 0 }}>
@@ -4054,7 +4075,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           <div style={{ flex: 1, minWidth: 140 }}>
             <Field label="Data da coleta">
               {readOnly ? (
-                <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{fmtDate(form.date)}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-soft)", padding: "9px 0" }}>{fmtDate(form.date)}</div>
               ) : (
                 <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
               )}
@@ -4063,7 +4084,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           <div style={{ flex: 2, minWidth: 200 }}>
             <Field label="Identificação (opcional)">
               {readOnly ? (
-                <div style={{ fontSize: 11, color: "#D6D3C7", padding: "9px 0" }}>{form.label || "—"}</div>
+                <div style={{ fontSize: 11, color: "var(--ink-soft)", padding: "9px 0" }}>{form.label || "—"}</div>
               ) : (
                 <input style={inputStyle} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Ex: Análise pré-plantio safra 25/26" />
               )}
@@ -4073,7 +4094,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       )}
 
       {!bounds ? (
-        <div style={{ fontSize: 10.5, color: "#E3B455", background: "#332811", borderRadius: 8, padding: 12, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, color: "var(--gold)", background: "var(--gold-bg)", borderRadius: 8, padding: 12, marginBottom: 14 }}>
           Esse talhão não tem uma área definida por KML (coordenadas reais) — a amostragem georreferenciada de solo só funciona com um talhão desenhado a partir de KML. Defina a área do talhão nesse formato pra habilitar a coleta.
         </div>
       ) : (
@@ -4082,56 +4103,56 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
           {step === "coleta" && !readOnly && (
             <>
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 12, flexWrap: "wrap", background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 12, flexWrap: "wrap", background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 12 }}>
                 <div style={{ width: 170 }}>
                   <Field label="Gerar grade a cada (ha)">
                     <input type="number" min="0.1" step="0.5" style={inputStyle} value={gridHectares} onChange={(e) => setGridHectares(e.target.value)} />
                   </Field>
                 </div>
                 <GhostBtn onClick={handleGenerateGrid} style={{ marginBottom: 14 }}>Gerar grade automática</GhostBtn>
-                {gridError && <div style={{ fontSize: 9.5, color: "#E38B84", width: "100%" }}>{gridError}</div>}
+                {gridError && <div style={{ fontSize: 9.5, color: "var(--red)", width: "100%" }}>{gridError}</div>}
               </div>
-              <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 8 }}>
+              <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 8 }}>
                 Gere a grade automática acima, ou clique direto no mapa pra adicionar/ajustar pontos manualmente. Selecione um ponto na lista abaixo pra preencher o resultado.
               </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap", background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 9.5, color: "#9BA298", flex: "1 1 260px" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap", background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 9.5, color: "var(--ink-dim)", flex: "1 1 260px" }}>
                   Importar resultados de planilha (XLSX/XLS/CSV) — precisa de uma coluna com o nome do ponto (igual ao rótulo do mapa, ex: "P1") e colunas com os nutrientes.
                 </div>
                 <input
                   type="file" accept=".xlsx,.xls,.csv"
                   onChange={(e) => { if (e.target.files[0]) handleImportFile(e.target.files[0]); e.target.value = ""; }}
-                  style={{ fontSize: 10.5, color: "#D6D3C7" }}
+                  style={{ fontSize: 10.5, color: "var(--ink-soft)" }}
                 />
               </div>
-              {importSummary && <div style={{ fontSize: 9.5, color: "#7BC142", marginBottom: 10 }}>{importSummary}</div>}
-              {importError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{importError}</div>}
+              {importSummary && <div style={{ fontSize: 9.5, color: "var(--green)", marginBottom: 10 }}>{importSummary}</div>}
+              {importError && <div style={{ fontSize: 9.5, color: "var(--red)", marginBottom: 10 }}>{importError}</div>}
 
-              <div style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>
+              <div style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 10 }}>
                   Zonas por NDVI (Sentinel-2, via Copernicus) — escolhe um período, busca uma prévia da imagem de satélite (pra conferir se a cultura já está estabelecida e se não tem nuvem cobrindo) e só depois classifica em zonas de vigor.
                 </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 9.5, color: "#9BA298" }}>De:</span>
+                  <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>De:</span>
                   <input type="date" style={{ ...inputStyle, width: 140 }} value={ndviDateFrom} onChange={(e) => setNdviDateFrom(e.target.value)} />
-                  <span style={{ fontSize: 9.5, color: "#9BA298" }}>até:</span>
+                  <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>até:</span>
                   <input type="date" style={{ ...inputStyle, width: 140 }} value={ndviDateTo} onChange={(e) => setNdviDateTo(e.target.value)} />
                   <GhostBtn onClick={handleFetchNdviPreview} disabled={ndviLoading}>{ndviLoading ? "Buscando…" : "Buscar prévia NDVI"}</GhostBtn>
                   {ndviGrid && (
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "#D6D3C7", cursor: "pointer" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "var(--ink-soft)", cursor: "pointer" }}>
                       <input type="checkbox" checked={ndviShowLayer} onChange={(e) => setNdviShowLayer(e.target.checked)} /> Mostrar no mapa
                     </label>
                   )}
                 </div>
-                {ndviError && <div style={{ fontSize: 9.5, color: "#E38B84", marginBottom: 10 }}>{ndviError}</div>}
+                {ndviError && <div style={{ fontSize: 9.5, color: "var(--red)", marginBottom: 10 }}>{ndviError}</div>}
                 {ndviDateRangeUsed && (
-                  <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 10 }}>
+                  <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 10 }}>
                     Imagem buscada entre {fmtDate(ndviDateRangeUsed.from)} e {fmtDate(ndviDateRangeUsed.to)} (menos nuvem disponível no período) — confira no mapa se a lavoura já estava instalada e se não tem nuvem cobrindo antes de classificar.
                   </div>
                 )}
                 {ndviGrid && !ndviZones && (
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Hectares por zona de manejo:</span>
+                    <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Hectares por zona de manejo:</span>
                     <input
                       type="number" min="1" step="1" style={{ ...inputStyle, width: 70 }}
                       value={ndviHectaresPerZone} onChange={(e) => setNdviHectaresPerZone(e.target.value)}
@@ -4141,12 +4162,12 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
                 )}
                 {ndviZones && (
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Hectares por zona de manejo:</span>
+                    <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Hectares por zona de manejo:</span>
                     <input
                       type="number" min="1" step="1" style={{ ...inputStyle, width: 70 }}
                       value={ndviHectaresPerZone} onChange={(e) => handleReclassifyNdvi(e.target.value)}
                     />
-                    <span style={{ fontSize: 9.5, color: "#9BA298" }}>Pontos/zona:</span>
+                    <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Pontos/zona:</span>
                     <input
                       type="number" min="1" max="10" step="1" style={{ ...inputStyle, width: 60 }}
                       value={ndviPointsPerZone} onChange={(e) => setNdviPointsPerZone(e.target.value)}
@@ -4160,7 +4181,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
                         const t = ndviZones.zones.length > 1 ? z.classIndex / (ndviZones.zones.length - 1) : 0.5;
                         const [r, g, b] = ndviColor(t);
                         return (
-                          <div key={z.classIndex} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "#9BA298" }}>
+                          <div key={z.classIndex} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "var(--ink-dim)" }}>
                             <span style={{ width: 9, height: 9, borderRadius: 2, background: `rgb(${r},${g},${b})`, display: "inline-block" }} />
                             Zona {z.classIndex + 1} · NDVI {z.ndviAvg.toFixed(2)} · {z.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
                           </div>
@@ -4185,7 +4206,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             <div>{opacitySliderEl}</div>
             <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
           </div>
-          <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid #232B25", marginBottom: 14, position: "relative" }}>
+          <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", marginBottom: 14, position: "relative" }}>
             {mapEl}
             {legendEl}
             {statsEl}
@@ -4200,15 +4221,15 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   if (onBack) {
     return (
       <div>
-        <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
           <ArrowLeft size={14} /> Voltar
         </button>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
           <div>
-            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>
+            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 6px" }}>
               {data?.id ? "Editar análise de solo" : "Nova análise de solo"}
             </h2>
-            <div style={{ fontSize: 10.5, color: "#9BA298" }}>
+            <div style={{ fontSize: 10.5, color: "var(--ink-dim)" }}>
               {field.clientName} · {field.propertyName} · {field.name}
             </div>
           </div>
@@ -4261,16 +4282,16 @@ function FieldDetail({ field, soilAnalyses, onBack, onAddHarvest, onEditHarvest,
   });
   return (
     <div>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
         <ArrowLeft size={14} /> Voltar
       </button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px", display: "flex", alignItems: "center", gap: 7 }}>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 6px", display: "flex", alignItems: "center", gap: 7 }}>
             {field.name}
-            {field.fieldMap && <MapPin size={14} color="#7BC142" />}
+            {field.fieldMap && <MapPin size={14} color="var(--green)" />}
           </h2>
-          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "var(--ink-dim)" }}>
             <span>{field.clientName} · {field.propertyName}</span>
             <span>{fieldAreaHa(field).toLocaleString("pt-BR")} ha</span>
           </div>
@@ -4284,20 +4305,20 @@ function FieldDetail({ field, soilAnalyses, onBack, onAddHarvest, onEditHarvest,
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
           {sorted.map((h) => (
             <div key={h.id} onClick={() => onOpenHarvest(h.id)} style={{
-              background: "#161D19", border: "1px solid " + (h.status === "Em andamento" ? "#3E7A3F" : "#232B25"),
+              background: "var(--card)", border: "1px solid " + (h.status === "Em andamento" ? "var(--green-solid)" : "var(--border)"),
               borderRadius: 12, padding: 16, cursor: "pointer"
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 12.5 }}>{h.name}</div>
+                <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 12.5 }}>{h.name}</div>
                 <CultureBadge culture={h.culture} />
               </div>
-              <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 8 }}>
+              <div style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 8 }}>
                 {h.variety || "cultivar não informado"}
               </div>
-              <div style={{ fontSize: 9.5, color: h.status === "Em andamento" ? "#7BC142" : "#9BA298", fontWeight: 600, marginBottom: 8 }}>
+              <div style={{ fontSize: 9.5, color: h.status === "Em andamento" ? "var(--green)" : "var(--ink-dim)", fontWeight: 600, marginBottom: 8 }}>
                 {h.status}
               </div>
-              <div style={{ fontSize: 9.5, color: "#6B7268", lineHeight: 1.6 }}>
+              <div style={{ fontSize: 9.5, color: "var(--ink-faint)", lineHeight: 1.6 }}>
                 <div>Plantio: {fmtDate(h.plantingDate)}</div>
                 {h.status === "Em andamento" && h.estimatedHarvestDate && <div>Colheita estimada: {fmtDate(h.estimatedHarvestDate)}</div>}
                 {h.harvestDate && <div>Colhida em: {fmtDate(h.harvestDate)}</div>}
@@ -4317,13 +4338,13 @@ function FieldDetail({ field, soilAnalyses, onBack, onAddHarvest, onEditHarvest,
       )}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 30, marginBottom: 14 }}>
-        <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 14, fontWeight: 700, color: "#F2F0E6", margin: 0 }}>Análises de Solo</h3>
+        <h3 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 14, fontWeight: 700, color: "var(--ink)", margin: 0 }}>Análises de Solo</h3>
         {field.fieldMap?.mode === "kml" && field.fieldMap.points?.length >= 3 && (
           <PrimaryBtn onClick={onAddSoilAnalysis}><Plus size={16} /> Nova análise de solo</PrimaryBtn>
         )}
       </div>
       {field.fieldMap?.mode !== "kml" || !(field.fieldMap.points?.length >= 3) ? (
-        <div style={{ fontSize: 10.5, color: "#9BA298", background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16 }}>
+        <div style={{ fontSize: 10.5, color: "var(--ink-dim)", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
           Amostragem georreferenciada de solo só funciona com um talhão desenhado a partir de KML (coordenadas reais). Defina a área desse talhão nesse formato pra habilitar.
         </div>
       ) : soilAnalyses.length === 0 ? (
@@ -4332,13 +4353,13 @@ function FieldDetail({ field, soilAnalyses, onBack, onAddHarvest, onEditHarvest,
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
           {[...soilAnalyses].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((s) => (
             <div key={s.id} onClick={() => onEditSoilAnalysis(s)} style={{
-              background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer"
+              background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, cursor: "pointer"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
-                <FlaskConical size={14} color="#7BC142" />
-                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5 }}>{s.label || fmtDate(s.date)}</div>
+                <FlaskConical size={14} color="var(--green)" />
+                <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 11.5 }}>{s.label || fmtDate(s.date)}</div>
               </div>
-              <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 10 }}>
+              <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 10 }}>
                 {fmtDate(s.date)} · {s.points.length} ponto(s) coletado(s)
               </div>
               <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
@@ -4358,16 +4379,16 @@ function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisi
   const sortedVisits = [...visits].sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
         <ArrowLeft size={14} /> Voltar
       </button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>{harvest.name}</h2>
+            <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>{harvest.name}</h2>
             <CultureBadge culture={harvest.culture} />
           </div>
-          <div style={{ fontSize: 10.5, color: "#9BA298" }}>
+          <div style={{ fontSize: 10.5, color: "var(--ink-dim)" }}>
             {harvest.clientName} · {harvest.propertyName} · {harvest.fieldName}
           </div>
         </div>
@@ -4377,26 +4398,26 @@ function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisi
         </div>
       </div>
 
-      <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, marginBottom: 20, display: "flex", gap: 24, flexWrap: "wrap" }}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20, display: "flex", gap: 24, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>Cultivar</div>
-          <div style={{ fontSize: 11.5, color: "#D6D3C7" }}>{harvest.variety || "—"}</div>
+          <div style={{ fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 3 }}>Cultivar</div>
+          <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{harvest.variety || "—"}</div>
         </div>
         <div>
-          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>Plantio</div>
-          <div style={{ fontSize: 11.5, color: "#D6D3C7" }}>{fmtDate(harvest.plantingDate)}</div>
+          <div style={{ fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 3 }}>Plantio</div>
+          <div style={{ fontSize: 11.5, color: "var(--ink-soft)" }}>{fmtDate(harvest.plantingDate)}</div>
         </div>
         <div>
-          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>
+          <div style={{ fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 3 }}>
             {harvest.status === "Em andamento" ? "Colheita estimada" : "Colhida em"}
           </div>
-          <div style={{ fontSize: 11.5, color: harvest.status === "Em andamento" ? "#7BC142" : "#D6D3C7" }}>
+          <div style={{ fontSize: 11.5, color: harvest.status === "Em andamento" ? "var(--green)" : "var(--ink-soft)" }}>
             {harvest.status === "Em andamento" ? (harvest.estimatedHarvestDate ? fmtDate(harvest.estimatedHarvestDate) : "—") : fmtDate(harvest.harvestDate)}
           </div>
         </div>
         <div>
-          <div style={{ fontSize: 9.5, color: "#6B7268", textTransform: "uppercase", marginBottom: 3 }}>Status</div>
-          <div style={{ fontSize: 11.5, color: harvest.status === "Em andamento" ? "#7BC142" : "#D6D3C7", fontWeight: 600 }}>{harvest.status}</div>
+          <div style={{ fontSize: 9.5, color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 3 }}>Status</div>
+          <div style={{ fontSize: 11.5, color: harvest.status === "Em andamento" ? "var(--green)" : "var(--ink-soft)", fontWeight: 600 }}>{harvest.status}</div>
         </div>
       </div>
 
@@ -4405,10 +4426,10 @@ function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisi
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {sortedVisits.map((v) => (
-            <div key={v.id} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16 }}>
+            <div key={v.id} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
                 <div>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "#9BA298" }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "var(--ink-dim)" }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Calendar size={12} /> {fmtDate(v.date)}</span>
                     <span>Técnico: {v.technician}</span>
                   </div>
@@ -4422,20 +4443,20 @@ function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisi
                 <StageProgress culture={harvest.culture} stage={v.stage} />
               </div>
               {v.pests && (
-                <div style={{ fontSize: 10.5, color: "#D6D3C7", marginBottom: 4 }}><strong>Pragas/doenças:</strong> {v.pests}</div>
+                <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 4 }}><strong>Pragas/doenças:</strong> {v.pests}</div>
               )}
               {v.recommendations && (
-                <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>Recomendações:</strong> {v.recommendations}</div>
+                <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}><strong>Recomendações:</strong> {v.recommendations}</div>
               )}
               {v.aiHistory?.length > 0 && (
-                <div style={{ marginTop: 8, borderTop: "1px solid #232B25", paddingTop: 8 }}>
-                  <div style={{ fontSize: 9, color: "#6B7268", textTransform: "uppercase", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                  <div style={{ fontSize: 9, color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
                     <Sparkles size={11} /> Consultoria IA
                   </div>
                   {v.aiHistory.map((qa) => (
                     <div key={qa.id} style={{ marginBottom: 6 }}>
-                      <div style={{ fontSize: 10, color: "#9BA298" }}><strong>P:</strong> {qa.question}</div>
-                      <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>R:</strong> {qa.answer}</div>
+                      <div style={{ fontSize: 10, color: "var(--ink-dim)" }}><strong>P:</strong> {qa.question}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}><strong>R:</strong> {qa.answer}</div>
                     </div>
                   ))}
                 </div>
@@ -4444,7 +4465,7 @@ function HarvestDetail({ harvest, visits, onBack, onEdit, onAddVisit, onEditVisi
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                   {v.photos.map((p) => (
                     <a key={p.id} href={p.url} target="_blank" rel="noreferrer">
-                      <img src={p.url} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #232B25", display: "block" }} />
+                      <img src={p.url} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", display: "block" }} />
                     </a>
                   ))}
                 </div>
@@ -4461,31 +4482,31 @@ function PropriedadesView({ properties, clients, search, setSearch, onAdd, onEdi
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
-        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Propriedades</h2>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>Propriedades</h2>
         <PrimaryBtn onClick={onAdd} disabled={!hasClients} style={!hasClients ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
           <Plus size={16} /> Nova propriedade
         </PrimaryBtn>
       </div>
       {!hasClients && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Cadastre um cliente antes de adicionar propriedades.
         </div>
       )}
       <div style={{ position: "relative", maxWidth: 320, marginBottom: 16 }}>
-        <Search size={15} style={{ position: "absolute", left: 10, top: 10, color: "#6B7268" }} />
+        <Search size={15} style={{ position: "absolute", left: 10, top: 10, color: "var(--ink-faint)" }} />
         <input placeholder="Buscar propriedade ou cliente…" value={search} onChange={(e) => setSearch(e.target.value)}
           style={{ ...inputStyle, paddingLeft: 32 }} />
       </div>
       {properties.length === 0 ? (
         <EmptyState icon={Home} title="Nenhuma propriedade encontrada" sub="Cadastre a primeira propriedade vinculada a um cliente." />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead><tr><th>Propriedade</th><th>Cliente</th><th>Localização</th><th>Talhões</th><th>Área</th><th></th></tr></thead>
             <tbody>
               {properties.map((p) => (
                 <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => onOpen(p.id)}>
-                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{p.name}</td>
+                  <td style={{ fontWeight: 600, color: "var(--ink)" }}>{p.name}</td>
                   <td>{p.clientName}</td>
                   <td>{p.location || "—"}</td>
                   <td>{p.fieldCount}</td>
@@ -4494,7 +4515,7 @@ function PropriedadesView({ properties, clients, search, setSearch, onAdd, onEdi
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                       <button onClick={() => onEdit(p)} style={iconBtnStyle}><Pencil size={14} /></button>
                       <button onClick={() => { if (confirm(`Remover propriedade ${p.name}?`)) onDelete(p.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
-                      <ChevronRight size={16} color="#6B7268" />
+                      <ChevronRight size={16} color="var(--ink-faint)" />
                     </div>
                   </td>
                 </tr>
@@ -4512,17 +4533,17 @@ function PropertyDetail({ property, fields, ajudaCusto, onBack, onAddField, onEd
   const ajudaCustoMatch = (ajudaCusto || []).find((a) => a.estado === property.estado && a.municipio === property.municipio);
   return (
     <div>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: "#9BA298", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: "var(--ink-dim)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, marginBottom: 14, padding: 0 }}>
         <ArrowLeft size={14} /> Voltar
       </button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 6px" }}>{property.name}</h2>
-          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "#9BA298" }}>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 6px" }}>{property.name}</h2>
+          <div style={{ display: "flex", gap: 16, fontSize: 10.5, color: "var(--ink-dim)" }}>
             <span>{property.clientName}</span>
             {property.location && <span style={{ display: "flex", alignItems: "center", gap: 5 }}><MapPin size={13} /> {property.location}</span>}
             {ajudaCustoMatch && (
-              <span style={{ display: "flex", alignItems: "center", gap: 5, color: "#7BC142" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 5, color: "var(--green)" }}>
                 <Wallet size={13} /> Ajuda de custo: R$ {((Number(ajudaCustoMatch.valor) * Number(property.areaTotal || 0)) / 12).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/mês
                 {" "}({Number(ajudaCustoMatch.valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}/ha/ano × {Number(property.areaTotal || 0).toLocaleString("pt-BR")} ha ÷ 12)
               </span>
@@ -4537,21 +4558,21 @@ function PropertyDetail({ property, fields, ajudaCusto, onBack, onAddField, onEd
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
           {fields.map((f) => (
-            <div key={f.id} onClick={() => onOpenField(f.id)} style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 16, cursor: "pointer" }}>
+            <div key={f.id} onClick={() => onOpenField(f.id)} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5, display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 11.5, display: "flex", alignItems: "center", gap: 5 }}>
                   {f.name}
-                  {f.fieldMap && <MapPin size={11} color="#7BC142" />}
+                  {f.fieldMap && <MapPin size={11} color="var(--green)" />}
                 </div>
-                {f.activeHarvest ? <CultureBadge culture={f.activeHarvest.culture} /> : <ChevronRight size={16} color="#6B7268" />}
+                {f.activeHarvest ? <CultureBadge culture={f.activeHarvest.culture} /> : <ChevronRight size={16} color="var(--ink-faint)" />}
               </div>
-              <div style={{ fontSize: 10, color: "#9BA298", marginBottom: 10 }}>
+              <div style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 10 }}>
                 {fieldAreaHa(f).toLocaleString("pt-BR")} ha · {f.harvestCount} safra(s) registrada(s)
               </div>
               {f.activeHarvest ? (
                 <StageProgress culture={f.activeHarvest.culture} stage={f.activeHarvest.lastVisit?.stage} />
               ) : (
-                <div style={{ fontSize: 9.5, color: "#7BC142", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ fontSize: 9.5, color: "var(--green)", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
                   <Plus size={11} /> Adicionar safra
                 </div>
               )}
@@ -4571,21 +4592,21 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
-        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Talhões</h2>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>Talhões</h2>
         <PrimaryBtn onClick={onAdd} disabled={!hasProperties} style={!hasProperties ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
           <Plus size={16} /> Novo talhão
         </PrimaryBtn>
       </div>
       {!hasProperties && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Cadastre uma propriedade antes de adicionar talhões.
         </div>
       )}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {["Todas", "Soja", "Milho"].map((c) => (
           <button key={c} onClick={() => setCultureFilter(c)} style={{
-            padding: "7px 14px", borderRadius: 20, border: "1px solid " + (cultureFilter === c ? "#1E4A20" : "#232B25"),
-            background: cultureFilter === c ? "#1E4A20" : "#161D19", color: cultureFilter === c ? "#F5F2E8" : "#D6D3C7",
+            padding: "7px 14px", borderRadius: 20, border: "1px solid " + (cultureFilter === c ? "var(--green-deep)" : "var(--border)"),
+            background: cultureFilter === c ? "var(--green-deep)" : "var(--card)", color: cultureFilter === c ? "var(--cream)" : "var(--ink-soft)",
             fontSize: 10.5, fontWeight: 600, cursor: "pointer"
           }}>{c}</button>
         ))}
@@ -4593,16 +4614,16 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
       {fields.length === 0 ? (
         <EmptyState icon={Sprout} title="Nenhum talhão encontrado" sub="Ajuste o filtro ou cadastre um novo talhão." />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead><tr><th>Talhão</th><th>Propriedade</th><th>Cliente</th><th>Área</th><th>Safra atual</th><th>Estágio</th><th></th></tr></thead>
             <tbody>
               {fields.map((f) => (
                 <tr key={f.id} style={{ cursor: "pointer" }} onClick={() => onOpen(f.id)}>
-                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                  <td style={{ fontWeight: 600, color: "var(--ink)" }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
                       {f.name}
-                      {f.fieldMap && <MapPin size={11} color="#7BC142" />}
+                      {f.fieldMap && <MapPin size={11} color="var(--green)" />}
                     </span>
                   </td>
                   <td>{f.propertyName}</td>
@@ -4612,20 +4633,20 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
                     {f.activeHarvest ? (
                       <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <CultureBadge culture={f.activeHarvest.culture} />
-                        <span style={{ fontSize: 9.5, color: "#9BA298" }}>{f.activeHarvest.variety}</span>
+                        <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>{f.activeHarvest.variety}</span>
                       </span>
                     ) : (
-                      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9.5, color: "#7BC142", fontWeight: 600 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9.5, color: "var(--green)", fontWeight: 600 }}>
                         <Plus size={11} /> Adicionar safra
                       </span>
                     )}
                   </td>
-                  <td>{f.activeHarvest ? <StageProgress culture={f.activeHarvest.culture} stage={f.activeHarvest.lastVisit?.stage} /> : <span style={{ color: "#6B7268", fontSize: 9.5 }}>—</span>}</td>
+                  <td>{f.activeHarvest ? <StageProgress culture={f.activeHarvest.culture} stage={f.activeHarvest.lastVisit?.stage} /> : <span style={{ color: "var(--ink-faint)", fontSize: 9.5 }}>—</span>}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
                       <button onClick={() => onEdit(f)} style={iconBtnStyle}><Pencil size={14} /></button>
                       <button onClick={() => { if (confirm(`Remover talhão ${f.name}?`)) onDelete(f.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
-                      <ChevronRight size={16} color="#6B7268" />
+                      <ChevronRight size={16} color="var(--ink-faint)" />
                     </div>
                   </td>
                 </tr>
@@ -4711,7 +4732,7 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
-        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Visitas técnicas</h2>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>Visitas técnicas</h2>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {selected.size > 0 && (
             <GhostBtn onClick={handleGenerateReport} disabled={generatingReport}>
@@ -4725,7 +4746,7 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
       </div>
       {gestorFilterOptions.length > 0 && (
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
-          <span style={{ fontSize: 9.5, color: "#9BA298", marginRight: 2 }}>Gestor:</span>
+          <span style={{ fontSize: 9.5, color: "var(--ink-dim)", marginRight: 2 }}>Gestor:</span>
           {gestorFilterOptions.map((g) => {
             const active = selectedGestorIds.has(g.id);
             return (
@@ -4734,9 +4755,9 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
                 onClick={() => toggleGestorFilter(g.id)}
                 style={{
                   padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
-                  border: active ? "1px solid #7BC142" : "1px solid #2E362F",
-                  background: active ? "#1C2E19" : "transparent",
-                  color: active ? "#7BC142" : "#9BA298",
+                  border: active ? "1px solid var(--green)" : "1px solid var(--border-input)",
+                  background: active ? "var(--green-soft-bg)" : "transparent",
+                  color: active ? "var(--green)" : "var(--ink-dim)",
                 }}
               >
                 {g.id === currentUserId ? `${g.name} (você)` : g.name}
@@ -4746,7 +4767,7 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
           {selectedGestorIds.size > 0 && (
             <button
               onClick={() => setSelectedGestorIds(new Set())}
-              style={{ padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer", border: "1px dashed #2E362F", background: "transparent", color: "#6B7268" }}
+              style={{ padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer", border: "1px dashed var(--border-input)", background: "transparent", color: "var(--ink-faint)" }}
             >
               Todos
             </button>
@@ -4754,17 +4775,17 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
         </div>
       )}
       {selected.size > 0 && (
-        <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 12 }}>
+        <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 12 }}>
           Marque uma ou mais visitas (ex: todas de um mesmo dia) e gere um relatório único pra encaminhar ao produtor.
         </div>
       )}
       {reportError && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#3A1F1C", color: "#E38B84", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--red-bg2)", color: "var(--red)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> {reportError}
         </div>
       )}
       {!hasHarvests && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Cadastre uma safra antes de registrar visitas.
         </div>
       )}
@@ -4778,7 +4799,7 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filteredList.map((v) => (
             <div key={v.id} style={{
-              background: "#161D19", border: `1px solid ${selected.has(v.id) ? "#7BC142" : "#232B25"}`, borderRadius: 12, padding: 16,
+              background: "var(--card)", border: `1px solid ${selected.has(v.id) ? "var(--green)" : "var(--border)"}`, borderRadius: 12, padding: 16,
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -4787,10 +4808,10 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
                     style={{ marginTop: 3, cursor: "pointer" }} title="Selecionar para o relatório"
                   />
                   <div>
-                    <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11.5, marginBottom: 2 }}>
-                      {v.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {v.propertyName} · {v.fieldName}</span>
+                    <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 11.5, marginBottom: 2 }}>
+                      {v.clientName} <span style={{ color: "var(--ink-faint)", fontWeight: 500 }}>· {v.propertyName} · {v.fieldName}</span>
                     </div>
-                    <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "#9BA298" }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 10, color: "var(--ink-dim)" }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Calendar size={12} /> {fmtDate(v.date)}</span>
                       <span>Técnico: {v.technician}</span>
                     </div>
@@ -4811,20 +4832,20 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
                 </div>
               )}
               {v.pests && (
-                <div style={{ fontSize: 10.5, color: "#D6D3C7", marginBottom: 4 }}><strong>Pragas/doenças:</strong> {v.pests}</div>
+                <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 4 }}><strong>Pragas/doenças:</strong> {v.pests}</div>
               )}
               {v.recommendations && (
-                <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>Recomendações:</strong> {v.recommendations}</div>
+                <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}><strong>Recomendações:</strong> {v.recommendations}</div>
               )}
               {v.aiHistory?.length > 0 && (
-                <div style={{ marginTop: 8, borderTop: "1px solid #232B25", paddingTop: 8 }}>
-                  <div style={{ fontSize: 9, color: "#6B7268", textTransform: "uppercase", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                  <div style={{ fontSize: 9, color: "var(--ink-faint)", textTransform: "uppercase", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
                     <Sparkles size={11} /> Consultoria IA
                   </div>
                   {v.aiHistory.map((qa) => (
                     <div key={qa.id} style={{ marginBottom: 6 }}>
-                      <div style={{ fontSize: 10, color: "#9BA298" }}><strong>P:</strong> {qa.question}</div>
-                      <div style={{ fontSize: 10.5, color: "#D6D3C7" }}><strong>R:</strong> {qa.answer}</div>
+                      <div style={{ fontSize: 10, color: "var(--ink-dim)" }}><strong>P:</strong> {qa.question}</div>
+                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}><strong>R:</strong> {qa.answer}</div>
                     </div>
                   ))}
                 </div>
@@ -4833,7 +4854,7 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                   {v.photos.map((p) => (
                     <a key={p.id} href={p.url} target="_blank" rel="noreferrer">
-                      <img src={p.url} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #232B25", display: "block" }} />
+                      <img src={p.url} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", display: "block" }} />
                     </a>
                   ))}
                 </div>
@@ -4878,8 +4899,8 @@ function SoilAnalysesView({ soilAnalyses, fields, clients, onAdd, onEdit, onDele
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Análise de Solo</h2>
-          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Amostragem georreferenciada por talhão</p>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Análise de Solo</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Amostragem georreferenciada por talhão</p>
         </div>
         {eligibleFields.length > 0 && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -4892,7 +4913,7 @@ function SoilAnalysesView({ soilAnalyses, fields, clients, onAdd, onEdit, onDele
       </div>
 
       {eligibleFields.length === 0 && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Nenhum talhão com área definida por KML ainda — defina a área de um talhão nesse formato pra habilitar a amostragem de solo nele.
         </div>
       )}
@@ -4912,15 +4933,15 @@ function SoilAnalysesView({ soilAnalyses, fields, clients, onAdd, onEdit, onDele
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {list.map((s) => (
             <div key={s.id} style={{
-              background: "#161D19", border: "1px solid #232B25", borderRadius: 10, padding: "12px 16px",
+              background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 16px",
               display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap",
             }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: "#F2F0E6", fontSize: 11, marginBottom: 4 }}>
-                  {s.clientName} <span style={{ color: "#6B7268", fontWeight: 500 }}>· {s.propertyName} · {s.fieldName}</span>
+                <div style={{ fontWeight: 600, color: "var(--ink)", fontSize: 11, marginBottom: 4 }}>
+                  {s.clientName} <span style={{ color: "var(--ink-faint)", fontWeight: 500 }}>· {s.propertyName} · {s.fieldName}</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 9.5, color: "#9BA298", flexWrap: "wrap" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}><FlaskConical size={12} color="#7BC142" /> {s.label || fmtDate(s.date)}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 9.5, color: "var(--ink-dim)", flexWrap: "wrap" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 5 }}><FlaskConical size={12} color="var(--green)" /> {s.label || fmtDate(s.date)}</span>
                   <span>{fmtDate(s.date)}</span>
                   <span>{s.points.length} ponto(s) coletado(s)</span>
                 </div>
@@ -4941,8 +4962,8 @@ function SoilAnalysesView({ soilAnalyses, fields, clients, onAdd, onEdit, onDele
 }
 
 const TASK_TYPE_META = {
-  visita: { label: "Visita", bg: "#16301A", color: "#7BC142" },
-  tarefa: { label: "Tarefa", bg: "#1A2333", color: "#7EA6E0" },
+  visita: { label: "Visita", bg: "var(--green-soft-bg2)", color: "var(--green)" },
+  tarefa: { label: "Tarefa", bg: "var(--blue-bg)", color: "var(--blue)" },
 };
 
 function TaskTypeBadge({ type }) {
@@ -4981,8 +5002,8 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Agenda</h2>
-          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Visitas e tarefas da semana · {rangeLabel}</p>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Agenda</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Visitas e tarefas da semana · {rangeLabel}</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <select style={{ ...inputStyle, width: 170 }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
@@ -5003,25 +5024,25 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
           const dayTasks = tasksByDay[iso] || [];
           return (
             <div key={iso} style={{
-              background: "#161D19", border: "1px solid " + (isToday ? "#7BC142" : "#232B25"), borderRadius: 12, padding: 12,
+              background: "var(--card)", border: "1px solid " + (isToday ? "var(--green)" : "var(--border)"), borderRadius: 12, padding: 12,
               display: "flex", flexDirection: "column", gap: 8, minHeight: 160
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <div style={{ fontSize: 9.5, color: isToday ? "#7BC142" : "#6B7268", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>{weekdayLabels[i]}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#F2F0E6", fontFamily: "'Manrope', sans-serif" }}>{d.getDate()}</div>
+                  <div style={{ fontSize: 9.5, color: isToday ? "var(--green)" : "var(--ink-faint)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>{weekdayLabels[i]}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", fontFamily: "'Manrope', sans-serif" }}>{d.getDate()}</div>
                 </div>
                 <button onClick={() => onAdd(iso)} style={iconBtnStyle}><Plus size={13} /></button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
                 {dayTasks.length === 0 ? (
-                  <div style={{ fontSize: 9.5, color: "#4A5049" }}>—</div>
+                  <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>—</div>
                 ) : (
                   dayTasks.map((t) => {
                     const assignee = team.find((tm) => tm.id === t.assigneeId);
                     const client = clients.find((c) => c.id === t.clientId);
                     return (
-                      <div key={t.id} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 8 }}>
+                      <div key={t.id} style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 8 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 4 }}>
                           <TaskTypeBadge type={t.type} />
                           <div style={{ display: "flex", gap: 3 }}>
@@ -5032,17 +5053,17 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
                         <div
                           onClick={() => onToggleDone(t.id)}
                           style={{
-                            fontSize: 10.5, fontWeight: 600, color: t.done ? "#6B7268" : "#D6D3C7",
+                            fontSize: 10.5, fontWeight: 600, color: t.done ? "var(--ink-faint)" : "var(--ink-soft)",
                             textDecoration: t.done ? "line-through" : "none", cursor: "pointer", marginBottom: 4
                           }}
                         >
                           {t.title}
                         </div>
-                        {client && <div style={{ fontSize: 9.5, color: "#9BA298", marginBottom: 4 }}>{client.name}</div>}
+                        {client && <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 4 }}>{client.name}</div>}
                         {assignee && (
                           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                             <Avatar name={assignee.name} url={teamAvatars?.[assignee.id]} size={16} />
-                            <span style={{ fontSize: 9.5, color: "#9BA298" }}>{assignee.name}</span>
+                            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>{assignee.name}</span>
                           </div>
                         )}
                       </div>
@@ -5078,7 +5099,7 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
       </Field>
       <Field label="Responsável">
         {team.length === 0 ? (
-          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>Nenhum colaborador cadastrado ainda. Cadastre em Equipe.</div>
+          <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>Nenhum colaborador cadastrado ainda. Cadastre em Equipe.</div>
         ) : (
           <select style={inputStyle} value={form.assigneeId} onChange={(e) => setForm({ ...form, assigneeId: e.target.value })}>
             <option value="">Selecione…</option>
@@ -5121,7 +5142,7 @@ function ClientModal({ data, team, onSave, onClose }) {
       </Field>
       <Field label="Gestor responsável">
         {team.length === 0 ? (
-          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>
+          <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>
             Nenhum colaborador cadastrado ainda. Cadastre em Equipe.
           </div>
         ) : (
@@ -5131,7 +5152,7 @@ function ClientModal({ data, team, onSave, onClose }) {
           </select>
         )}
       </Field>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
         O gestor é responsável pelo acompanhamento deste cliente, com visita semanal esperada.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -5211,12 +5232,12 @@ function FieldModal({ data, properties, clients, onSave, onClose }) {
           <MapPin size={14} /> {form.fieldMap ? "Editar área do talhão" : "Definir área (imagem ou KML)"}
         </GhostBtn>
         {form.fieldMap && (
-          <div style={{ fontSize: 10.5, color: "#7BC142", marginTop: 6 }}>
+          <div style={{ fontSize: 10.5, color: "var(--green)", marginTop: 6 }}>
             Polígono salvo · {form.fieldMap.points.length} pontos{form.fieldMap.areaHa ? ` · ${form.fieldMap.areaHa.toFixed(2)} ha` : ""}
           </div>
         )}
       </Field>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
         Cultura, cultivar e data de plantio agora ficam na Safra — cadastre a primeira safra assim que salvar o talhão.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -5325,7 +5346,7 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
       </Field>
       <Field label="Cultivar / híbrido">
         {cultureVarieties.length === 0 ? (
-          <div style={{ fontSize: 10, color: "#6B7268", padding: "8px 0" }}>
+          <div style={{ fontSize: 10, color: "var(--ink-faint)", padding: "8px 0" }}>
             Nenhum cultivar de {form.culture} cadastrado ainda. Cadastre em Configurações → Cultivares.
           </div>
         ) : (
@@ -5339,7 +5360,7 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
         <input type="date" style={inputStyle} value={form.plantingDate} onChange={(e) => handlePlantingDateChange(e.target.value)} />
       </Field>
       {estimatedHarvest && (
-        <div style={{ fontSize: 10.5, color: "#7BC142", marginTop: -8, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, color: "var(--green)", marginTop: -8, marginBottom: 14 }}>
           Colheita estimada: {fmtDate(estimatedHarvest)} (ciclo de {selectedVariety.cycle} dias)
         </div>
       )}
@@ -5453,7 +5474,7 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
       </Field>
       <Field label="Técnico responsável">
         {team.length === 0 ? (
-          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>
+          <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>
             Nenhum colaborador cadastrado ainda. Cadastre em Equipe.
           </div>
         ) : (
@@ -5476,7 +5497,7 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
             <Plus size={13} /> Adicionar praga/daninha/doença
           </GhostBtn>
         ) : (
-          <div style={{ marginTop: 8, padding: 12, background: "#161D19", border: "1px solid #232B25", borderRadius: 10 }}>
+          <div style={{ marginTop: 8, padding: 12, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10 }}>
             <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
               {PEST_CATEGORIES.map((c) => (
                 <button
@@ -5484,15 +5505,15 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
                   onClick={() => { setPestCategory(c.key); setPestItemId(""); }}
                   style={{
                     padding: "6px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
-                    border: pestCategory === c.key ? "1px solid #7BC142" : "1px solid #2E362F",
-                    background: pestCategory === c.key ? "#1C2E19" : "transparent",
-                    color: pestCategory === c.key ? "#7BC142" : "#9BA298",
+                    border: pestCategory === c.key ? "1px solid var(--green)" : "1px solid var(--border-input)",
+                    background: pestCategory === c.key ? "var(--green-soft-bg)" : "transparent",
+                    color: pestCategory === c.key ? "var(--green)" : "var(--ink-dim)",
                   }}
                 >{c.label}</button>
               ))}
             </div>
             {pestCatalog.length === 0 ? (
-              <div style={{ fontSize: 10.5, color: "#6B7268", padding: "6px 0" }}>
+              <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "6px 0" }}>
                 Nenhum{pestCategory === "daninha" ? "a" : ""} {PEST_CATEGORIES.find((c) => c.key === pestCategory).label.toLowerCase()} cadastrada. Cadastre em Configurações.
               </div>
             ) : (
@@ -5522,8 +5543,8 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
         <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.recommendations} onChange={(e) => setForm({ ...form, recommendations: e.target.value })} placeholder="Ex: monitorar em 7 dias, sem necessidade de controle" />
       </Field>
 
-      <div style={{ background: "#101A12", border: "1px solid #23361F", borderRadius: 10, padding: 14, marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#9BC98A", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ background: "var(--bg-inset-green)", border: "1px solid var(--green-info-border)", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--green-text-soft)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
           <Sparkles size={13} /> Consultoria IA
         </div>
         <textarea
@@ -5538,13 +5559,13 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
           </GhostBtn>
         </div>
         {aiError && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "8px 12px", borderRadius: 8, fontSize: 10, marginBottom: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "8px 12px", borderRadius: 8, fontSize: 10, marginBottom: 8 }}>
             <AlertTriangle size={13} /> {aiError}
           </div>
         )}
         {aiAnswer && (
           <>
-            <div style={{ fontSize: 10.5, color: "#D6D3C7", background: "#161D19", border: "1px solid #232B25", borderRadius: 8, padding: 10, whiteSpace: "pre-wrap", marginBottom: 8, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: "var(--ink-soft)", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, padding: 10, whiteSpace: "pre-wrap", marginBottom: 8, lineHeight: 1.5 }}>
               {aiAnswer}
             </div>
             <GhostBtn onClick={() => setForm((f) => ({ ...f, recommendations: f.recommendations ? f.recommendations + "\n\n" + aiAnswer : aiAnswer }))}>
@@ -5553,7 +5574,7 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
           </>
         )}
         {form.aiHistory?.length > 0 && (
-          <div style={{ marginTop: 10, fontSize: 9.5, color: "#6B7268" }}>
+          <div style={{ marginTop: 10, fontSize: 9.5, color: "var(--ink-faint)" }}>
             {form.aiHistory.length} pergunta(s) já registrada(s) no histórico desta visita.
           </div>
         )}
@@ -5563,20 +5584,20 @@ function VisitModal({ data, harvests, team, pests, diseases, weeds, onSave, onUp
         <input
           type="file" accept="image/*" multiple disabled={uploadingPhoto}
           onChange={(e) => { if (e.target.files.length > 0) handlePhotoFiles(Array.from(e.target.files)); e.target.value = ""; }}
-          style={{ fontSize: 10.5, color: "#D6D3C7" }}
+          style={{ fontSize: 10.5, color: "var(--ink-soft)" }}
         />
-        {uploadingPhoto && <div style={{ fontSize: 9.5, color: "#9BA298", marginTop: 6 }}>Enviando…</div>}
-        {photoError && <div style={{ fontSize: 9.5, color: "#E38B84", marginTop: 6 }}>{photoError}</div>}
+        {uploadingPhoto && <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginTop: 6 }}>Enviando…</div>}
+        {photoError && <div style={{ fontSize: 9.5, color: "var(--red)", marginTop: 6 }}>{photoError}</div>}
         {(form.photos || []).length > 0 && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
             {form.photos.map((p) => (
               <div key={p.id} style={{ position: "relative", width: 72, height: 72 }}>
                 <a href={p.url} target="_blank" rel="noreferrer">
-                  <img src={p.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid #232B25", display: "block" }} />
+                  <img src={p.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", display: "block" }} />
                 </a>
                 <button onClick={() => handleDeletePhoto(p)} style={{
                   position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%",
-                  background: "#1A1F1B", border: "1px solid #2E362F", color: "#E38B84", cursor: "pointer",
+                  background: "var(--card-alt)", border: "1px solid var(--border-input)", color: "var(--red)", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
                 }}><X size={12} /></button>
               </div>
@@ -5625,8 +5646,8 @@ function ConfiguracoesView({
 
   return (
     <div>
-      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Configurações</h2>
-      <p style={{ color: "#9BA298", fontSize: 11, margin: "0 0 22px" }}>Catálogos usados para preencher os dados dos talhões</p>
+      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Configurações</h2>
+      <p style={{ color: "var(--ink-dim)", fontSize: 11, margin: "0 0 22px" }}>Catálogos usados para preencher os dados dos talhões</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         {TABS.map((t) => {
@@ -5635,8 +5656,8 @@ function ConfiguracoesView({
           return (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-              border: "1px solid " + (active ? "#1E4A20" : "#232B25"),
-              background: active ? "#1E4A20" : "#161D19", color: active ? "#F5F2E8" : "#D6D3C7",
+              border: "1px solid " + (active ? "var(--green-deep)" : "var(--border)"),
+              background: active ? "var(--green-deep)" : "var(--card)", color: active ? "var(--cream)" : "var(--ink-soft)",
               fontSize: 10.5, fontWeight: 600, cursor: "pointer"
             }}>
               <Icon size={15} /> {t.label}
@@ -5831,7 +5852,7 @@ function CatalogTable({ icon, items, columns, emptyTitle, emptySub, addLabel, on
       {items.length === 0 ? (
         <EmptyState icon={icon} title={emptyTitle} sub={emptySub} action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> {addLabel}</PrimaryBtn>} />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead>
               <tr>
@@ -5843,7 +5864,7 @@ function CatalogTable({ icon, items, columns, emptyTitle, emptySub, addLabel, on
               {items.map((item) => (
                 <tr key={item.id}>
                   {columns.map((col, i) => (
-                    <td key={col.key} style={i === 0 ? { fontWeight: 600, color: "#F2F0E6" } : undefined}>
+                    <td key={col.key} style={i === 0 ? { fontWeight: 600, color: "var(--ink)" } : undefined}>
                       {col.render ? col.render(item) : (item[col.key] || "—")}
                     </td>
                   ))}
@@ -5901,7 +5922,7 @@ function AjudaCustoModal({ data, onSave, onClose }) {
       <Field label="Distância aproximada (km) — opcional">
         <input type="number" style={inputStyle} value={form.distanciaKm} onChange={(e) => setForm({ ...form, distanciaKm: e.target.value })} placeholder="Ex: 180" />
       </Field>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
         É um valor por ano, igual ao Pró-labore por hectare — o cálculo mensal usa este valor ÷ 12. Some automaticamente ao Pró-labore do gestor responsável pelo cliente dono da fazenda (coluna "Ajuda de custo" em Financeiro › Pró-labore).
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -5928,7 +5949,7 @@ function VarietyModal({ data, onSave, onClose }) {
       <Field label="Ciclo médio (dias)">
         <input type="number" style={inputStyle} value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })} placeholder="Ex: 110" />
       </Field>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
         Obrigatório — é o que permite estimar a data de colheita nas safras.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -6061,8 +6082,8 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete, onPr
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 19, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Equipe</h2>
-          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Colaboradores que acompanham as visitas técnicas</p>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 19, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Equipe</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Colaboradores que acompanham as visitas técnicas</p>
         </div>
         {isMaster && <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo colaborador</PrimaryBtn>}
       </div>
@@ -6071,13 +6092,13 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete, onPr
         <EmptyState icon={UserCog} title="Nenhum colaborador cadastrado" sub="Cadastre sua equipe para atribuir as visitas técnicas a cada um."
           action={isMaster ? <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo colaborador</PrimaryBtn> : undefined} />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead><tr><th>Nome</th><th>Função</th><th>Papel</th><th>Telefone</th><th>E-mail</th>{isMaster && <th></th>}</tr></thead>
             <tbody>
               {team.map((t) => (
                 <tr key={t.id}>
-                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                  <td style={{ fontWeight: 600, color: "var(--ink)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
                       <Avatar name={t.name} url={teamAvatars?.[t.id]} />
                       {t.name}
@@ -6094,7 +6115,7 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete, onPr
                           <button onClick={() => { if (confirm(`Promover ${t.name} a Administrador? Ele passa a ver o módulo Financeiro.`)) onPromote(t.id); }} style={iconBtnStyle} title="Promover a Administrador"><Wallet size={14} /></button>
                         )}
                         {t.role === "administrador" && (
-                          <button onClick={() => { if (confirm(`Rebaixar ${t.name} a Técnico? Ele deixa de ver o módulo Financeiro.`)) onDemote(t.id); }} style={iconBtnStyle} title="Rebaixar a Técnico"><Wallet size={14} color="#E3B455" /></button>
+                          <button onClick={() => { if (confirm(`Rebaixar ${t.name} a Técnico? Ele deixa de ver o módulo Financeiro.`)) onDemote(t.id); }} style={iconBtnStyle} title="Rebaixar a Técnico"><Wallet size={14} color="var(--gold)" /></button>
                         )}
                         <button onClick={() => onEdit(t)} style={iconBtnStyle}><Pencil size={14} /></button>
                         {t.role !== "master" && (
@@ -6127,23 +6148,23 @@ function ActivityLogView({ log }) {
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Atividade</h2>
-        <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Quem criou, editou ou excluiu o quê, e quando.</p>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Atividade</h2>
+        <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Quem criou, editou ou excluiu o quê, e quando.</p>
       </div>
       {sorted.length === 0 ? (
         <EmptyState icon={History} title="Nenhuma atividade registrada ainda" sub="As ações feitas a partir de agora vão aparecer aqui." />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead><tr><th>Quando</th><th>Quem</th><th>O que</th></tr></thead>
             <tbody>
               {sorted.map((e) => (
                 <tr key={e.id}>
                   <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, whiteSpace: "nowrap" }}>{fmtDateTime(e.at)}</td>
-                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{e.userName}</td>
+                  <td style={{ fontWeight: 600, color: "var(--ink)" }}>{e.userName}</td>
                   <td>
-                    {ACTIVITY_ACTION_LABELS[e.action] || e.action} {ACTIVITY_ENTITY_LABELS[e.entityType] || e.entityType} <strong style={{ color: "#F2F0E6" }}>{e.entityName}</strong>
-                    {e.details && <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 2 }}>{e.details}</div>}
+                    {ACTIVITY_ACTION_LABELS[e.action] || e.action} {ACTIVITY_ENTITY_LABELS[e.entityType] || e.entityType} <strong style={{ color: "var(--ink)" }}>{e.entityName}</strong>
+                    {e.details && <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 2 }}>{e.details}</div>}
                   </td>
                 </tr>
               ))}
@@ -6156,8 +6177,8 @@ function ActivityLogView({ log }) {
 }
 
 const FINANCE_STATUS_META = {
-  pago: { label: "Pago", bg: "#16301A", color: "#7BC142" },
-  pendente: { label: "Pendente", bg: "#332811", color: "#E3B455" },
+  pago: { label: "Pago", bg: "var(--green-soft-bg2)", color: "var(--green)" },
+  pendente: { label: "Pendente", bg: "var(--gold-bg)", color: "var(--gold)" },
 };
 
 function FinanceStatusBadge({ status }) {
@@ -6382,10 +6403,10 @@ function CashFlowChart({ months }) {
 }
 
 const SERVICE_STATUS = [
-  { key: "negociacao", label: "Em negociação", color: "#9BA298", bg: "#232B25" },
-  { key: "andamento", label: "Em andamento", color: "#E3B455", bg: "#332811" },
-  { key: "finalizado", label: "Finalizado", color: "#7FB3D5", bg: "#1B2A33" },
-  { key: "recebido", label: "Recebido", color: "#7BC142", bg: "#1C2E19" },
+  { key: "negociacao", label: "Em negociação", color: "var(--ink-dim)", bg: "var(--border)" },
+  { key: "andamento", label: "Em andamento", color: "var(--gold)", bg: "var(--gold-bg)" },
+  { key: "finalizado", label: "Finalizado", color: "var(--blue2)", bg: "var(--blue-bg2)" },
+  { key: "recebido", label: "Recebido", color: "var(--green)", bg: "var(--green-soft-bg)" },
 ];
 const SERVICE_PERIODICIDADE_LABELS = { unica: "Única", mensal: "Mensal", anual: "Anual" };
 const DEFAULT_SERVICE_TYPES = ["Assistência Técnica", "Projeto de Custeio", "Projeto de Investimento", "Análise de Solo"];
@@ -6426,20 +6447,20 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
-        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: 0 }}>Serviços</h2>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>Serviços</h2>
         <PrimaryBtn onClick={onAdd} disabled={!hasClients} style={!hasClients ? { opacity: 0.5, cursor: "not-allowed" } : {}}>
           <Plus size={16} /> Novo serviço
         </PrimaryBtn>
       </div>
       {!hasClients && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "#332811", color: "#E3B455", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Cadastre um cliente antes de adicionar um serviço.
         </div>
       )}
       {rows.length === 0 ? (
         <EmptyState icon={Briefcase} title="Nenhum serviço cadastrado" sub="Cadastre os serviços contratados por cada cliente para acompanhar o andamento e o recebimento." />
       ) : (
-        <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <table>
             <thead>
               <tr>
@@ -6449,8 +6470,8 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
             <tbody>
               {rows.map((s) => (
                 <tr key={s.id}>
-                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "#9BC98A" }}>{s.codigo || "—"}</td>
-                  <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{s.clientName}</td>
+                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: "var(--green-text-soft)" }}>{s.codigo || "—"}</td>
+                  <td style={{ fontWeight: 600, color: "var(--ink)" }}>{s.clientName}</td>
                   <td>{s.tipo || "—"}</td>
                   <td>{s.gestorName}</td>
                   <td>{fmtCurrency(Number(s.valor || 0))}</td>
@@ -6532,13 +6553,13 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
         <datalist id="service-types">
           {tipoOptions.map((t) => <option key={t} value={t} />)}
         </datalist>
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>
           {selectedType ? `Cobrança: ${serviceCobrancaSummary(selectedType)}` : "Gerencie a lista de tipos em Configurações."}
         </div>
       </Field>
       <Field label="Contratante / Cliente">
         {clients.length === 0 ? (
-          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>Nenhum cliente cadastrado ainda. Cadastre em Clientes.</div>
+          <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>Nenhum cliente cadastrado ainda. Cadastre em Clientes.</div>
         ) : (
           <select style={inputStyle} value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })}>
             <option value="">Selecione…</option>
@@ -6548,14 +6569,14 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
       </Field>
       <Field label="Gestor responsável">
         {team.length === 0 ? (
-          <div style={{ fontSize: 10.5, color: "#6B7268", padding: "8px 0" }}>Nenhum colaborador cadastrado ainda. Cadastre em Configurações › Equipe.</div>
+          <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "8px 0" }}>Nenhum colaborador cadastrado ainda. Cadastre em Configurações › Equipe.</div>
         ) : (
           <select style={inputStyle} value={form.gestorId} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
             <option value="">Selecione…</option>
             {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         )}
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>É quem ganha a participação sobre este serviço quando ele for recebido.</div>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>É quem ganha a participação sobre este serviço quando ele for recebido.</div>
       </Field>
 
       {selectedType?.cobranca === "area" && (
@@ -6576,7 +6597,7 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
 
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} placeholder="Ex: 3500" />
-        {selectedType && <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>Calculado a partir da forma de cobrança do tipo — pode ajustar se precisar.</div>}
+        {selectedType && <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>Calculado a partir da forma de cobrança do tipo — pode ajustar se precisar.</div>}
       </Field>
       <Field label="Competência (mês de referência)">
         <input type="month" style={inputStyle} value={form.competencia} onChange={(e) => setForm({ ...form, competencia: e.target.value })} />
@@ -6590,7 +6611,7 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
       </Field>
       {form.periodicidade !== "unica" && (
         <Field label="Recorrente?">
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#D6D3C7" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-soft)" }}>
             <input type="checkbox" checked={!!form.recorrente} onChange={(e) => setForm({ ...form, recorrente: e.target.checked })} />
             Lançar automaticamente os próximos períodos
           </label>
@@ -6604,7 +6625,7 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
           {SERVICE_STATUS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
       </Field>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 8 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
 Ao marcar como "Finalizado", gera um honorário Pendente em Financeiro (aparece em Entradas Previstas e no Extrato, com data do vencimento). Ao marcar como "Recebido", esse honorário vira Pago e conta como pró-labore pro gestor responsável escolhido acima. Voltar pra "Em negociação"/"Em andamento" ou editar o serviço atualiza/remove o honorário automaticamente.
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -6807,8 +6828,8 @@ function FinanceiroView({
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
         <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "#F2F0E6", margin: "0 0 4px" }}>Financeiro</h2>
-          <p style={{ color: "#9BA298", fontSize: 10.5, margin: 0 }}>Honorários recebidos e pró-labore da equipe</p>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Financeiro</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Honorários recebidos e pró-labore da equipe</p>
         </div>
         {showMonthPicker && (
           <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
@@ -6822,8 +6843,8 @@ function FinanceiroView({
           return (
             <button key={t.id} onClick={() => setTab(t.id)} style={{
               display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 20,
-              border: "1px solid " + (active ? "#1E4A20" : "#232B25"),
-              background: active ? "#1E4A20" : "#161D19", color: active ? "#F5F2E8" : "#D6D3C7",
+              border: "1px solid " + (active ? "var(--green-deep)" : "var(--border)"),
+              background: active ? "var(--green-deep)" : "var(--card)", color: active ? "var(--cream)" : "var(--ink-soft)",
               fontSize: 10.5, fontWeight: 600, cursor: "pointer"
             }}>
               <Icon size={15} /> {t.label}
@@ -6835,51 +6856,51 @@ function FinanceiroView({
       {tab === "painel" && (
         <div>
           <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
-            <StatCard label="Entradas previstas no mês" value={fmtCurrency(summary.totalEntradasPrevistas)} accent="#7BC142" />
-            <StatCard label="Entradas recebidas no mês" value={fmtCurrency(totalRecebido)} accent="#7BC142" />
-            <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="#E3B455"
+            <StatCard label="Entradas previstas no mês" value={fmtCurrency(summary.totalEntradasPrevistas)} accent="var(--green)" />
+            <StatCard label="Entradas recebidas no mês" value={fmtCurrency(totalRecebido)} accent="var(--green)" />
+            <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="var(--gold)"
               sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
-            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(totalDespesasPagas + summary.totalProLabore)} accent="#E38B84"
+            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(totalDespesasPagas + summary.totalProLabore)} accent="var(--red)"
               sub={`Despesas pagas ${fmtCurrency(totalDespesasPagas)} + pró-labore ${fmtCurrency(summary.totalProLabore)}`} />
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-            <StatCard label="Saldo previsto no mês" value={fmtCurrency(saldoPrevisto)} accent={saldoPrevisto >= 0 ? "#7BC142" : "#E38B84"} />
+            <StatCard label="Saldo previsto no mês" value={fmtCurrency(saldoPrevisto)} accent={saldoPrevisto >= 0 ? "var(--green)" : "var(--red)"} />
           </div>
 
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 14 }}>
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Pendências do mês</div>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Pendências do mês</div>
               {pendingItems.length === 0 ? (
-                <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nada pendente neste mês.</div>
+                <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nada pendente neste mês.</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 9, maxHeight: 210, overflowY: "auto" }}>
                   {pendingItems.map((item) => (
                     <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10 }}>
-                      <span style={{ color: "#D6D3C7", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
+                      <span style={{ color: "var(--ink-soft)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <strong style={{ color: item.kind === "entrada" ? "var(--green)" : "var(--red)", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
                         {item.label}
                       </span>
-                      <strong style={{ color: "#F2F0E6", whiteSpace: "nowrap" }}>{fmtCurrency(item.amount)}</strong>
+                      <strong style={{ color: "var(--ink)", whiteSpace: "nowrap" }}>{fmtCurrency(item.amount)}</strong>
                     </div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 12 }}>Últimas movimentações conciliadas</div>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Últimas movimentações conciliadas</div>
               {reconciledFeed.length === 0 ? (
-                <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhuma conciliação bancária registrada ainda.</div>
+                <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma conciliação bancária registrada ainda.</div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                   {reconciledFeed.map((item) => (
                     <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10.5 }}>
-                      <span style={{ color: "#D6D3C7" }}>
-                        <strong style={{ color: item.kind === "entrada" ? "#7BC142" : "#E38B84", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
-                        {item.label} <span style={{ color: "#6B7268" }}>· {fmtDate(item.date)}</span>
+                      <span style={{ color: "var(--ink-soft)" }}>
+                        <strong style={{ color: item.kind === "entrada" ? "var(--green)" : "var(--red)", marginRight: 5 }}>{item.kind === "entrada" ? "↑" : "↓"}</strong>
+                        {item.label} <span style={{ color: "var(--ink-faint)" }}>· {fmtDate(item.date)}</span>
                       </span>
-                      <strong style={{ color: "#F2F0E6" }}>{fmtCurrency(item.amount)}</strong>
+                      <strong style={{ color: "var(--ink)" }}>{fmtCurrency(item.amount)}</strong>
                     </div>
                   ))}
                 </div>
@@ -6896,8 +6917,8 @@ function FinanceiroView({
               {[["diario", "Diário"], ["mensal", "Mensal"], ["anual", "Anual"]].map(([key, label]) => (
                 <button key={key} onClick={() => setExtratoPeriodo(key)} style={{
                   padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
-                  border: "1px solid " + (extratoPeriodo === key ? "#1E4A20" : "#232B25"),
-                  background: extratoPeriodo === key ? "#1E4A20" : "#161D19", color: extratoPeriodo === key ? "#F5F2E8" : "#D6D3C7",
+                  border: "1px solid " + (extratoPeriodo === key ? "var(--green-deep)" : "var(--border)"),
+                  background: extratoPeriodo === key ? "var(--green-deep)" : "var(--card)", color: extratoPeriodo === key ? "var(--cream)" : "var(--ink-soft)",
                 }}>{label}</button>
               ))}
             </div>
@@ -6917,7 +6938,7 @@ function FinanceiroView({
                 marginLeft: "auto", display: "flex", alignItems: "center", gap: 6,
                 padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600,
                 cursor: extratoRows.length === 0 ? "default" : "pointer",
-                border: "1px solid #232B25", background: "#161D19", color: "#D6D3C7",
+                border: "1px solid var(--border)", background: "var(--card)", color: "var(--ink-soft)",
                 opacity: extratoRows.length === 0 ? 0.5 : 1,
               }}
               title="Exporta as movimentações do período em CSV — pronto pra importar na sua consultoria financeira/Ultradash."
@@ -6927,24 +6948,24 @@ function FinanceiroView({
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-            <StatCard label="Entradas no período" value={fmtCurrency(extratoTotals.entradas)} accent="#7BC142" />
-            <StatCard label="Saídas no período" value={fmtCurrency(extratoTotals.saidas)} accent="#E38B84" />
-            <StatCard label="Saldo do período" value={fmtCurrency(extratoTotals.saldo)} accent={extratoTotals.saldo >= 0 ? "#7BC142" : "#E38B84"} />
+            <StatCard label="Entradas no período" value={fmtCurrency(extratoTotals.entradas)} accent="var(--green)" />
+            <StatCard label="Saídas no período" value={fmtCurrency(extratoTotals.saidas)} accent="var(--red)" />
+            <StatCard label="Saldo do período" value={fmtCurrency(extratoTotals.saldo)} accent={extratoTotals.saldo >= 0 ? "var(--green)" : "var(--red)"} />
           </div>
 
           {extratoRows.length === 0 ? (
             <EmptyState icon={FileText} title="Nenhuma movimentação neste período" sub="Ajuste o período acima ou registre honorários e despesas." />
           ) : (
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <table>
                 <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Status</th><th>Valor</th></tr></thead>
                 <tbody>
                   {extratoRows.map((m) => (
                     <tr key={m.id}>
                       <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(m.date)}</td>
-                      <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{m.label}</td>
+                      <td style={{ fontWeight: 600, color: "var(--ink)" }}>{m.label}</td>
                       <td>
-                        <span style={{ color: m.kind === "entrada" ? "#7BC142" : "#E38B84", fontWeight: 600 }}>
+                        <span style={{ color: m.kind === "entrada" ? "var(--green)" : "var(--red)", fontWeight: 600 }}>
                           {m.kind === "entrada" ? "↑ Entrada" : "↓ Saída"}
                         </span>
                       </td>
@@ -6965,22 +6986,22 @@ function FinanceiroView({
             {[["mensal", "Mensal"], ["anual", "Anual"]].map(([key, label]) => (
               <button key={key} onClick={() => setFluxoPeriodo(key)} style={{
                 padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
-                border: "1px solid " + (fluxoPeriodo === key ? "#1E4A20" : "#232B25"),
-                background: fluxoPeriodo === key ? "#1E4A20" : "#161D19", color: fluxoPeriodo === key ? "#F5F2E8" : "#D6D3C7",
+                border: "1px solid " + (fluxoPeriodo === key ? "var(--green-deep)" : "var(--border)"),
+                background: fluxoPeriodo === key ? "var(--green-deep)" : "var(--card)", color: fluxoPeriodo === key ? "var(--cream)" : "var(--ink-soft)",
               }}>{label}</button>
             ))}
           </div>
-          <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: 18 }}>
+          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)" }}>
                 {fluxoPeriodo === "mensal" ? "Fluxo de caixa · últimos 12 meses" : "Fluxo de caixa · últimos 5 anos"}
               </div>
-              <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: "#9BA298" }}>
+              <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: "var(--ink-dim)" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: "#7BC142", display: "inline-block" }} />Entradas
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--green)", display: "inline-block" }} />Entradas
                 </span>
                 <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: "#E38B84", display: "inline-block" }} />Saídas
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: "var(--red)", display: "inline-block" }} />Saídas
                 </span>
               </div>
             </div>
@@ -6992,8 +7013,8 @@ function FinanceiroView({
       {tab === "honorarios" && (
         <div>
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-            <StatCard label="Recebido no mês" value={fmtCurrency(totalRecebido)} accent="#7BC142" />
-            <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="#E3B455" />
+            <StatCard label="Recebido no mês" value={fmtCurrency(totalRecebido)} accent="var(--green)" />
+            <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="var(--gold)" />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
             <GhostBtn onClick={onReconcile}><Wallet size={14} /> Conciliar extrato</GhostBtn>
@@ -7002,7 +7023,7 @@ function FinanceiroView({
           {monthFinances.length === 0 ? (
             <EmptyState icon={Wallet} title="Nenhum honorário lançado neste mês" sub="Registre os pagamentos recebidos dos clientes." />
           ) : (
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <table>
                 <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                 <tbody>
@@ -7011,10 +7032,10 @@ function FinanceiroView({
                     const responsible = team.find((t) => t.id === f.responsibleGestorId);
                     return (
                       <tr key={f.id}>
-                        <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                        <td style={{ fontWeight: 600, color: "var(--ink)" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            {f.recurring && <Repeat size={12} color="#6B7268" />}
-                            {f.serviceId && <Briefcase size={12} color="#6B7268" title="Gerado automaticamente por um Serviço" />}
+                            {f.recurring && <Repeat size={12} color="var(--ink-faint)" />}
+                            {f.serviceId && <Briefcase size={12} color="var(--ink-faint)" title="Gerado automaticamente por um Serviço" />}
                             {client?.name || "—"}
                           </div>
                         </td>
@@ -7042,17 +7063,17 @@ function FinanceiroView({
       {tab === "comissoes" && (
         <div>
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <StatCard label="Total de pró-labore no mês" value={fmtCurrency(totalComissoes)} accent="#7BC142" />
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
-              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Por hectare (R$/ha/ano)</div>
+            <StatCard label="Total de pró-labore no mês" value={fmtCurrency(totalComissoes)} accent="var(--green)" />
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ fontSize: 9.5, color: "var(--ink-dim)", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>Por hectare (R$/ha/ano)</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input type="number" style={{ ...inputStyle, width: 100 }} value={rateInput} onChange={(e) => setRateInput(e.target.value)} />
                 <GhostBtn onClick={() => onChangeRate(Number(rateInput) || 0)}>Salvar</GhostBtn>
               </div>
-              <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 6 }}>= {fmtCurrency((Number(rateInput) || 0) / 12)}/ha/mês</div>
+              <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 6 }}>= {fmtCurrency((Number(rateInput) || 0) / 12)}/ha/mês</div>
             </div>
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, padding: "16px 18px" }}>
-              <div style={{ fontSize: 9.5, color: "#9BA298", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>De projetos (% dos honorários pagos)</div>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ fontSize: 9.5, color: "var(--ink-dim)", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>De projetos (% dos honorários pagos)</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input type="number" style={{ ...inputStyle, width: 100 }} value={projectRateInput} onChange={(e) => setProjectRateInput(e.target.value)} />
                 <GhostBtn onClick={() => onChangeProjectRate(Number(projectRateInput) || 0)}>Salvar</GhostBtn>
@@ -7061,26 +7082,26 @@ function FinanceiroView({
           </div>
 
           {commissionRows.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos, honorário de projeto ou bonificação neste mês.</div>
+            <div style={{ color: "var(--ink-faint)", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos, honorário de projeto ou bonificação neste mês.</div>
           ) : (
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
               <table>
                 <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Ajuda de custo</th><th>Bonificações</th><th>Total</th><th>Pagamento</th></tr></thead>
                 <tbody>
                   {commissionRows.map((r) => (
                     <tr key={r.gestor.id}>
-                      <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{r.gestor.name}</td>
+                      <td style={{ fontWeight: 600, color: "var(--ink)" }}>{r.gestor.name}</td>
                       <td>{r.areaHa.toLocaleString("pt-BR")} ha</td>
                       <td>{fmtCurrency(r.base)}</td>
                       <td>{fmtCurrency(r.projectShare)}</td>
                       <td>{fmtCurrency(r.ajudaCustoTotal)}</td>
                       <td>{fmtCurrency(r.bonusTotal)}</td>
-                      <td style={{ fontWeight: 600, color: "#7BC142" }}>{fmtCurrency(r.total)}</td>
+                      <td style={{ fontWeight: 600, color: "var(--green)" }}>{fmtCurrency(r.total)}</td>
                       <td>
                         {proLaboreGeneratedIds.has(r.gestor.id) ? (
-                          <span style={{ color: "#7BC142", fontSize: 10, fontWeight: 600 }}>✓ Gerado</span>
+                          <span style={{ color: "var(--green)", fontSize: 10, fontWeight: 600 }}>✓ Gerado</span>
                         ) : (
-                          <span style={{ color: "#6B7268", fontSize: 10 }}>—</span>
+                          <span style={{ color: "var(--ink-faint)", fontSize: 10 }}>—</span>
                         )}
                       </td>
                     </tr>
@@ -7097,13 +7118,13 @@ function FinanceiroView({
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: "#D6D3C7" }}>Bonificações do mês</div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)" }}>Bonificações do mês</div>
             <PrimaryBtn onClick={onAddBonus}><Plus size={16} /> Nova bonificação</PrimaryBtn>
           </div>
           {monthBonuses.length === 0 ? (
             <EmptyState icon={Wallet} title="Nenhuma bonificação lançada neste mês" sub="Lance bonificações avulsas por projeto elaborado." />
           ) : (
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <table>
                 <thead><tr><th>Gestor</th><th>Descrição</th><th>Data</th><th>Valor</th><th></th></tr></thead>
                 <tbody>
@@ -7111,7 +7132,7 @@ function FinanceiroView({
                     const gestor = team.find((t) => t.id === b.gestorId);
                     return (
                       <tr key={b.id}>
-                        <td style={{ fontWeight: 600, color: "#F2F0E6" }}>{gestor?.name || "—"}</td>
+                        <td style={{ fontWeight: 600, color: "var(--ink)" }}>{gestor?.name || "—"}</td>
                         <td>{b.description}</td>
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(b.date)}</td>
                         <td>{fmtCurrency(b.amount)}</td>
@@ -7134,8 +7155,8 @@ function FinanceiroView({
       {tab === "despesas" && (
         <div>
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-            <StatCard label="Pago no mês" value={fmtCurrency(totalDespesasPagas)} accent="#E38B84" />
-            <StatCard label="Pendente no mês" value={fmtCurrency(totalDespesasPendentes)} accent="#E3B455" />
+            <StatCard label="Pago no mês" value={fmtCurrency(totalDespesasPagas)} accent="var(--red)" />
+            <StatCard label="Pendente no mês" value={fmtCurrency(totalDespesasPendentes)} accent="var(--gold)" />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
             <PrimaryBtn onClick={onAddBill}><Plus size={16} /> Nova despesa</PrimaryBtn>
@@ -7143,16 +7164,16 @@ function FinanceiroView({
           {monthBillsSorted.length === 0 ? (
             <EmptyState icon={Receipt} title="Nenhuma despesa lançada neste mês" sub="Registre os custos do escritório: salários, energia, manutenção, etc." />
           ) : (
-            <div style={{ background: "#161D19", border: "1px solid #232B25", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <table>
                 <thead><tr><th>Descrição</th><th>Categoria</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {monthBillsSorted.map((b) => (
                     <tr key={b.id}>
-                      <td style={{ fontWeight: 600, color: "#F2F0E6" }}>
+                      <td style={{ fontWeight: 600, color: "var(--ink)" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          {b.recurring && <Repeat size={12} color="#6B7268" />}
-                          {b.proLaboreMonth && <UserCog size={12} color="#6B7268" title="Gerado automaticamente pelo Pró-labore" />}
+                          {b.recurring && <Repeat size={12} color="var(--ink-faint)" />}
+                          {b.proLaboreMonth && <UserCog size={12} color="var(--ink-faint)" title="Gerado automaticamente pelo Pró-labore" />}
                           {b.description}
                         </div>
                       </td>
@@ -7212,7 +7233,7 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
           </select>
         </Field>
       )}
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -6, marginBottom: 8 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
         Honorários de "Projeto" ou "Análise de Solo" pagos geram automaticamente pró-labore pro gestor responsável escolhido acima, na aba Pró-labore.
       </div>
       <Field label="Valor (R$)">
@@ -7232,7 +7253,7 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
       </Field>
       {!isEdit && (
         <Field label="Recorrência">
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "#D6D3C7", cursor: "pointer" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-soft)", cursor: "pointer" }}>
             <input type="checkbox" checked={form.recurring} onChange={(e) => setForm({ ...form, recurring: e.target.checked })} />
             Repetir todo mês (lança automaticamente os próximos {RECURRING_MONTHS_AHEAD} meses, como pendente)
           </label>
@@ -7310,21 +7331,21 @@ function ReconciliationModal({
     <Modal title="Conciliar extrato bancário" onClose={onClose} maxWidth={760}>
       {!rows ? (
         <>
-          <div style={{ fontSize: 10.5, color: "#9BA298", marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 14 }}>
             Busque automaticamente do Banco do Brasil, ou envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários e despesas com status "Pendente", algum com o mesmo valor de cada lançamento (entrada ou saída).
           </div>
           <PrimaryBtn onClick={handleFetchBank} disabled={fetchingBank} style={{ marginBottom: 14 }}>
             {fetchingBank ? "Buscando…" : "Buscar automaticamente (Banco do Brasil)"}
           </PrimaryBtn>
-          <div style={{ fontSize: 10, color: "#6B7268", marginBottom: 8 }}>ou envie um arquivo:</div>
-          <input ref={fileInputRef} type="file" accept=".csv,.ofx,.txt" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "#D6D3C7" }} />
-          {error && <div style={{ fontSize: 10.5, color: "#E38B84", marginTop: 10 }}>{error}</div>}
+          <div style={{ fontSize: 10, color: "var(--ink-faint)", marginBottom: 8 }}>ou envie um arquivo:</div>
+          <input ref={fileInputRef} type="file" accept=".csv,.ofx,.txt" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "var(--ink-soft)" }} />
+          {error && <div style={{ fontSize: 10.5, color: "var(--red)", marginTop: 10 }}>{error}</div>}
         </>
       ) : (
         <div>
-          <div style={{ fontSize: 10, color: "#6B7268", marginBottom: 12 }}>{fileName} · {rows.length} lançamento(s) encontrado(s)</div>
+          <div style={{ fontSize: 10, color: "var(--ink-faint)", marginBottom: 12 }}>{fileName} · {rows.length} lançamento(s) encontrado(s)</div>
           {rows.length === 0 ? (
-            <div style={{ color: "#6B7268", fontSize: 10.5 }}>Nenhum lançamento encontrado no extrato.</div>
+            <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhum lançamento encontrado no extrato.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 560, overflowY: "auto" }}>
               {rows.map((r, i) => {
@@ -7333,12 +7354,12 @@ function ReconciliationModal({
                 const client = isCredit && r.match ? clients.find((c) => c.id === r.match.clientId) : null;
                 const draftCategory = categoryDrafts[i] ?? r.suggestedCategory ?? "";
                 return (
-                  <div key={i} style={{ background: "#10140F", border: "1px solid #212922", borderRadius: 8, padding: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#D6D3C7", marginBottom: 2 }}>
+                  <div key={i} style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 2 }}>
                       <span>
                         <span style={{
                           display: "inline-block", fontSize: 8.5, fontWeight: 700, textTransform: "uppercase",
-                          color: isCredit ? "#7BC142" : "#E38B84", marginRight: 6,
+                          color: isCredit ? "var(--green)" : "var(--red)", marginRight: 6,
                         }}>
                           {isCredit ? "Entrada" : "Saída"}
                         </span>
@@ -7347,32 +7368,32 @@ function ReconciliationModal({
                       <strong>{fmtCurrency(r.transaction.amount)}</strong>
                     </div>
                     {r.transaction.counterpartyDoc && (
-                      <div style={{ fontSize: 9.5, color: "#6B7268", marginBottom: 6 }}>
+                      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 6 }}>
                         CPF/CNPJ da contraparte: {r.transaction.counterpartyDoc}
                       </div>
                     )}
 
                     {isConfirmed ? (
-                      <div style={{ fontSize: 9.5, color: "#7BC142" }}>
+                      <div style={{ fontSize: 9.5, color: "var(--green)" }}>
                         {isCredit ? `Conciliado com ${client?.name || "—"}` : "Despesa conciliada"}
                       </div>
                     ) : isCredit ? (
                       r.match ? (
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9.5, color: "#7BC142" }}>
+                          <span style={{ fontSize: 9.5, color: "var(--green)" }}>
                             Combina com: {client?.name || "—"} ({fmtCurrency(r.match.amount)}, {r.match.referenceMonth})
                           </span>
                           <GhostBtn onClick={() => handleConfirmFinance(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
                         </div>
                       ) : (
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9.5, color: "#E3B455" }}>Nenhum honorário pendente com esse valor</span>
+                          <span style={{ fontSize: 9.5, color: "var(--gold)" }}>Nenhum honorário pendente com esse valor</span>
                           <GhostBtn onClick={() => onCreateFromTransaction(r.transaction)}>Lançar honorário</GhostBtn>
                         </div>
                       )
                     ) : r.match ? (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 9.5, color: "#7BC142" }}>
+                        <span style={{ fontSize: 9.5, color: "var(--green)" }}>
                           Combina com despesa: {r.match.description} ({fmtCurrency(r.match.amount)})
                         </span>
                         <GhostBtn onClick={() => handleConfirmBill(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
@@ -7415,7 +7436,7 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
   const canSave = form.gestorId && form.description.trim() && Number(form.amount) > 0 && form.date;
   return (
     <Modal title={data?.id ? "Editar bonificação" : "Nova bonificação"} onClose={onClose}>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -4, marginBottom: 14 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -4, marginBottom: 14 }}>
         Use só pra valores fora da regra padrão (R$/ha + % de projeto/análise de solo). Honorários do tipo "Projeto" ou "Análise de Solo" já geram pró-labore automaticamente pro gestor responsável escolhido no lançamento.
       </div>
       <Field label="Gestor">
@@ -7475,7 +7496,7 @@ function BillModal({ data, categoryMemory, expenseCategories, onSave, onClose })
         <datalist id="bill-categories">
           {categoryOptions.map((c) => <option key={c} value={c} />)}
         </datalist>
-        <div style={{ fontSize: 9.5, color: "#6B7268", marginTop: 4 }}>Gerencie a lista de categorias em Configurações.</div>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>Gerencie a lista de categorias em Configurações.</div>
       </Field>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 350" />
@@ -7494,7 +7515,7 @@ function BillModal({ data, categoryMemory, expenseCategories, onSave, onClose })
       </Field>
       {!isEdit && (
         <Field label="Recorrência">
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "#D6D3C7", cursor: "pointer" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-soft)", cursor: "pointer" }}>
             <input type="checkbox" checked={form.recurring} onChange={(e) => setForm({ ...form, recurring: e.target.checked })} />
             Repetir todo mês (lança automaticamente os próximos {RECURRING_MONTHS_AHEAD} meses, como pendente)
           </label>
@@ -7541,7 +7562,7 @@ function TeamMemberModal({ data, avatarUrl, error, onSave, onClose }) {
           {avatarPreview && <GhostBtn type="button" onClick={handleRemovePhoto}>Remover</GhostBtn>}
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handlePhotoChange(e.target.files[0])} />
         </div>
-        {avatarError && <div style={{ fontSize: 10.5, color: "#E38B84", marginTop: 6 }}>{avatarError}</div>}
+        {avatarError && <div style={{ fontSize: 10.5, color: "var(--red)", marginTop: 6 }}>{avatarError}</div>}
       </Field>
       <Field label="Nome">
         <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Carlos Mendes" />
@@ -7564,7 +7585,7 @@ function TeamMemberModal({ data, avatarUrl, error, onSave, onClose }) {
         </Field>
       )}
       {error && (
-        <div style={{ background: "#3A1414", color: "#E38B84", padding: "9px 12px", borderRadius: 8, fontSize: 10.5, marginBottom: 14 }}>{error}</div>
+        <div style={{ background: "var(--red-bg)", color: "var(--red)", padding: "9px 12px", borderRadius: 8, fontSize: 10.5, marginBottom: 14 }}>{error}</div>
       )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
@@ -7577,7 +7598,7 @@ function TeamMemberModal({ data, avatarUrl, error, onSave, onClose }) {
 function ColaboradorCreatedModal({ data, onClose }) {
   return (
     <Modal title="Colaborador criado" onClose={onClose}>
-      <p style={{ color: "#D6D3C7", fontSize: 11, lineHeight: 1.6, marginTop: 0 }}>
+      <p style={{ color: "var(--ink-soft)", fontSize: 11, lineHeight: 1.6, marginTop: 0 }}>
         Envie estes dados para <strong>{data.name}</strong> (por WhatsApp, por exemplo).
         Essa senha é temporária — ainda não existe uma tela para o colaborador trocá-la sozinho no app.
       </p>
@@ -7599,7 +7620,7 @@ function ClientAccessModal({ clientId, clientName, error, onSave, onClose }) {
   const canSave = form.name.trim() && form.email.trim() && form.password.length >= 6;
   return (
     <Modal title="Criar acesso do cliente" onClose={onClose}>
-      <div style={{ fontSize: 10, color: "#6B7268", marginTop: -4, marginBottom: 14 }}>
+      <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -4, marginBottom: 14 }}>
         Cria um login para <strong>{clientName}</strong> acessar suas fazendas, talhões, visitas e documentos — sem poder editar nada.
       </div>
       <Field label="Nome">
@@ -7615,7 +7636,7 @@ function ClientAccessModal({ clientId, clientName, error, onSave, onClose }) {
         <input type="text" style={inputStyle} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="mín. 6 caracteres" />
       </Field>
       {error && (
-        <div style={{ background: "#3A1414", color: "#E38B84", padding: "9px 12px", borderRadius: 8, fontSize: 10.5, marginBottom: 14 }}>{error}</div>
+        <div style={{ background: "var(--red-bg)", color: "var(--red)", padding: "9px 12px", borderRadius: 8, fontSize: 10.5, marginBottom: 14 }}>{error}</div>
       )}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
@@ -7817,29 +7838,29 @@ function FieldMapModal({ initialData, onSave, onClose }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
-      <div style={{ background: "#161D19", borderRadius: 14, width: "100%", maxWidth: 780, border: "1px solid #232B25", overflow: "hidden", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #212922" }}>
-          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14.5, fontWeight: 700, color: "#F2F0E6" }}>Definir área do talhão</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7268" }}><X size={18} /></button>
+      <div style={{ background: "var(--card)", borderRadius: 14, width: "100%", maxWidth: 780, border: "1px solid var(--border)", overflow: "hidden", maxHeight: "92vh", overflowY: "auto" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--border-soft)" }}>
+          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14.5, fontWeight: 700, color: "var(--ink)" }}>Definir área do talhão</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)" }}><X size={18} /></button>
         </div>
 
         <div style={{ padding: "14px 18px 0", display: "flex", gap: 8 }}>
           <button type="button" onClick={() => setMode("image")} style={{
             flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
-            border: "1px solid " + (mode === "image" ? "#1E4A20" : "#232B25"),
-            background: mode === "image" ? "#1E4A20" : "#10140F", color: mode === "image" ? "#F5F2E8" : "#D6D3C7"
+            border: "1px solid " + (mode === "image" ? "var(--green-deep)" : "var(--border)"),
+            background: mode === "image" ? "var(--green-deep)" : "var(--bg-inset)", color: mode === "image" ? "var(--cream)" : "var(--ink-soft)"
           }}>Enviar imagem</button>
           <button type="button" onClick={() => setMode("kml")} style={{
             flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
-            border: "1px solid " + (mode === "kml" ? "#1E4A20" : "#232B25"),
-            background: mode === "kml" ? "#1E4A20" : "#10140F", color: mode === "kml" ? "#F5F2E8" : "#D6D3C7"
+            border: "1px solid " + (mode === "kml" ? "var(--green-deep)" : "var(--border)"),
+            background: mode === "kml" ? "var(--green-deep)" : "var(--bg-inset)", color: mode === "kml" ? "var(--cream)" : "var(--ink-soft)"
           }}>Importar KML</button>
         </div>
 
         {mode === "image" && (
           !imageDataUrl ? (
             <div style={{ padding: 22 }}>
-              <div style={{ fontSize: 11, color: "#9BA298", marginBottom: 14, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 14, lineHeight: 1.6 }}>
                 Este ambiente não permite carregar mapas de serviços externos direto aqui dentro. Envie um print de satélite da propriedade:
                 <br />1. Abra o Google Maps ou Google Earth no seu celular ou computador.
                 <br />2. Mude para visualização de satélite e aproxime até enquadrar o talhão.
@@ -7849,17 +7870,17 @@ function FieldMapModal({ initialData, onSave, onClose }) {
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}
-                style={{ border: "1.5px dashed #2E362F", borderRadius: 10, padding: "40px 20px", textAlign: "center", cursor: "pointer", color: "#9BA298" }}
+                style={{ border: "1.5px dashed var(--border-input)", borderRadius: 10, padding: "40px 20px", textAlign: "center", cursor: "pointer", color: "var(--ink-dim)" }}
               >
                 <MapPin size={22} style={{ marginBottom: 8, opacity: 0.6 }} />
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>Clique para enviar ou arraste a imagem aqui</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>Clique para enviar ou arraste a imagem aqui</div>
                 <div style={{ fontSize: 10.5 }}>PNG ou JPG</div>
                 <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files[0])} />
               </div>
             </div>
           ) : (
             <>
-              <div style={{ padding: "10px 18px 0", fontSize: 10.5, color: "#6B7268" }}>
+              <div style={{ padding: "10px 18px 0", fontSize: 10.5, color: "var(--ink-faint)" }}>
                 Clique sobre a imagem para marcar cada vértice do talhão — o polígono fecha sozinho a partir de 3 pontos.
               </div>
               <div style={{ padding: "10px 18px", position: "relative" }}>
@@ -7890,7 +7911,7 @@ function FieldMapModal({ initialData, onSave, onClose }) {
                 <Field label="Largura real da imagem (metros, aproximado)">
                   <input type="number" style={inputStyle} value={realWidth} onChange={(e) => setRealWidth(e.target.value)} placeholder="Ex: 500" />
                 </Field>
-                <div style={{ fontSize: 10, color: "#6B7268", marginTop: -8, marginBottom: 4 }}>
+                <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 4 }}>
                   Usado só para calcular a área em hectares. Veja a escala/régua do Google Maps na imagem para estimar essa distância.
                 </div>
               </div>
@@ -7901,29 +7922,29 @@ function FieldMapModal({ initialData, onSave, onClose }) {
         {mode === "kml" && (
           kmlPoints.length === 0 ? (
             <div style={{ padding: 22 }}>
-              <div style={{ fontSize: 11, color: "#9BA298", marginBottom: 14, lineHeight: 1.6 }}>
+              <div style={{ fontSize: 11, color: "var(--ink-dim)", marginBottom: 14, lineHeight: 1.6 }}>
                 Se você já tem o contorno do talhão em algum software (John Deere Operations Center, Climate FieldView, drone, etc.), exporte como <strong>KML</strong> (arquivo .kml, não .kmz) e envie aqui. A área é calculada com as coordenadas exatas do arquivo, sem precisar de mapa.
               </div>
               <div
                 onClick={() => kmlInputRef.current?.click()}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); handleKmlFile(e.dataTransfer.files[0]); }}
-                style={{ border: "1.5px dashed #2E362F", borderRadius: 10, padding: "40px 20px", textAlign: "center", cursor: "pointer", color: "#9BA298" }}
+                style={{ border: "1.5px dashed var(--border-input)", borderRadius: 10, padding: "40px 20px", textAlign: "center", cursor: "pointer", color: "var(--ink-dim)" }}
               >
                 <ClipboardList size={22} style={{ marginBottom: 8, opacity: 0.6 }} />
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#D6D3C7", marginBottom: 4 }}>Clique para enviar ou arraste o arquivo .kml aqui</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>Clique para enviar ou arraste o arquivo .kml aqui</div>
                 <div style={{ fontSize: 10.5 }}>Arquivo KML (não KMZ)</div>
                 <input ref={kmlInputRef} type="file" accept=".kml" style={{ display: "none" }} onChange={(e) => handleKmlFile(e.target.files[0])} />
               </div>
-              {kmlError && <div style={{ fontSize: 11, color: "#E3B455", marginTop: 10 }}>{kmlError}</div>}
+              {kmlError && <div style={{ fontSize: 11, color: "var(--gold)", marginTop: 10 }}>{kmlError}</div>}
             </div>
           ) : (
             <>
-              <div style={{ padding: "10px 18px 0", fontSize: 10.5, color: "#6B7268" }}>
+              <div style={{ padding: "10px 18px 0", fontSize: 10.5, color: "var(--ink-faint)" }}>
                 Polígono importado de <strong>{kmlFileName}</strong> — pré-visualização (sem imagem de fundo, escala aproximada):
               </div>
               <div style={{ padding: "10px 18px" }}>
-                <svg width="100%" height="360" viewBox="0 0 700 360" style={{ background: "#0E1310", borderRadius: 8, border: "1px solid #232B25" }}>
+                <svg width="100%" height="360" viewBox="0 0 700 360" style={{ background: "var(--bg)", borderRadius: 8, border: "1px solid var(--border)" }}>
                   <polygon points={kmlPolyStr} fill="rgba(123,193,66,0.28)" stroke="#7BC142" strokeWidth="2" />
                   {kmlPreviewPoints.map((p, i) => (
                     <circle key={i} cx={p.x} cy={p.y} r={4} fill="#7BC142" stroke="#0E1310" strokeWidth="1.5" />
@@ -7937,8 +7958,8 @@ function FieldMapModal({ initialData, onSave, onClose }) {
           )
         )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid #212922", marginTop: 8 }}>
-          <span style={{ fontSize: 11, color: "#9BA298" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid var(--border-soft)", marginTop: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--ink-dim)" }}>
             {mode === "image"
               ? imgPoints.length >= 3
                 ? metersPerPixel

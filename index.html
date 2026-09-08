@@ -5,8 +5,98 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Semear Consultoria Agropecuária</title>
+    <style>
+      /* Tokens de tema (claro/escuro) do app. O escuro é o padrão (valores em :root);
+         o claro só sobrescreve o que precisa mudar — cor de marca/sidebar continuam
+         as mesmas nos dois temas. */
+      :root {
+        --bg: #0E1310;
+        --bg-inset: #10140F;
+        --bg-inset-green: #101A12;
+        --card: #161D19;
+        --card-alt: #171C18;
+        --border: #232B25;
+        --border-soft: #212922;
+        --border-input: #2E362F;
+        --track-bg: #26302A;
+        --ink: #F2F0E6;
+        --ink-soft: #D6D3C7;
+        --ink-dim: #9BA298;
+        --ink-faint: #6B7268;
+        --select-text: #EDEBE0;
+        --cream: #F5F2E8;
+        --sidebar-text: #DAD7C9;
+        --bg-sidebar: #0A1C0C;
+        --green: #7BC142;
+        --green-deep: #1E4A20;
+        --green-solid: #3E7A3F;
+        --green-soft-bg: #1C2E19;
+        --green-soft-bg2: #16301A;
+        --green-info-border: #23361F;
+        --green-text-soft: #9BC98A;
+        --gold: #E3B455;
+        --gold-text: #D6A93A;
+        --gold-bg: #332811;
+        --red: #E38B84;
+        --red-bg: #3A1414;
+        --red-bg2: #3A1F1C;
+        --blue: #7EA6E0;
+        --blue2: #7FB3D5;
+        --blue-bg: #1A2333;
+        --blue-bg2: #1B2A33;
+      }
+      :root[data-theme="light"] {
+        --bg: #F7F6F0;
+        --bg-inset: #EFEDE2;
+        --bg-inset-green: #EAF6E2;
+        --card: #FFFFFF;
+        --card-alt: #F2F0E5;
+        --border: #E3E0D4;
+        --border-soft: #ECE9DD;
+        --border-input: #D6D2C4;
+        --track-bg: #E3E0D4;
+        --ink: #1C231D;
+        --ink-soft: #3E463C;
+        --ink-dim: #6B7268;
+        --ink-faint: #8B9188;
+        --select-text: #1C231D;
+        --green: #2F7A2F;
+        --green-soft-bg: #E3F3D9;
+        --green-soft-bg2: #DCF0D2;
+        --green-info-border: #BFE0A8;
+        --green-text-soft: #2F6B2A;
+        --gold: #A9781E;
+        --gold-text: #A9781E;
+        --gold-bg: #F7EAC9;
+        --red: #C24B42;
+        --red-bg: #FBE1DE;
+        --red-bg2: #FBE1DE;
+        --blue: #2F6FB0;
+        --blue2: #2E7FA6;
+        --blue-bg: #E3ECF7;
+        --blue-bg2: #E1EBF2;
+      }
+      body { margin: 0; background: var(--bg); }
+      /* Logo/ícone brancos (usados em cards que viram claros no tema light) —
+         inverte pra ficar escuro e continuar visível. */
+      :root[data-theme="light"] img.theme-invert { filter: invert(1); }
+      /* A barra lateral é sempre escura (marca), nos dois temas — fixa os tokens
+         que ela usa e que em outros lugares mudam de cor no tema claro. */
+      .at-sidebar {
+        --gold: #E3B455;
+        --ink-dim: #9BA298;
+        --ink-faint: #6B7268;
+      }
+    </style>
+    <script>
+      // Aplica o tema salvo antes do React montar, pra não piscar o tema errado.
+      try {
+        var t = localStorage.getItem("semear_theme");
+        if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+      } catch (e) {}
+    </script>
   </head>
-  <body style="margin:0; background:#0E1310;">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
