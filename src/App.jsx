@@ -6218,7 +6218,7 @@ function downloadCsv(filename, header, rows) {
   URL.revokeObjectURL(url);
 }
 
-const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo" };
+const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo", limite_credito: "Limite de Crédito", outros: "Outros" };
 const FINANCE_TYPES_WITH_SHARE = ["projeto", "analise_solo"];
 
 function parseOFXStatement(text) {
@@ -7223,6 +7223,8 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
           <option value="mensalidade">Mensalidade</option>
           <option value="projeto">Projeto</option>
           <option value="analise_solo">Análise de Solo</option>
+          <option value="limite_credito">Limite de Crédito</option>
+          <option value="outros">Outros</option>
         </select>
       </Field>
       {needsResponsible && (
