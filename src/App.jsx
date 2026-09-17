@@ -1610,7 +1610,7 @@ export default function AgroTrackApp() {
         />
       )}
       {modal?.type === "finance" && (
-        <FinanceModal data={modal.data} clients={clients} team={team} onSave={saveFinance} onClose={() => setModal(null)} />
+        <FinanceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} onSave={saveFinance} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bonus" && (
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
@@ -6218,8 +6218,9 @@ function downloadCsv(filename, header, rows) {
   URL.revokeObjectURL(url);
 }
 
+// Tipos antigos (fixos) mantidos aqui só pra continuar exibindo certo honorários já
+// lançados antes da lista de tipos passar a vir de Configurações → Tipos de Serviço.
 const FINANCE_TYPE_LABELS = { mensalidade: "Mensalidade", projeto: "Projeto", analise_solo: "Análise de Solo", limite_credito: "Limite de Crédito", outros: "Outros" };
-const FINANCE_TYPES_WITH_SHARE = ["projeto", "analise_solo"];
 
 function parseOFXStatement(text) {
   const transactions = [];
@@ -6349,7 +6350,7 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
 
   const projectShareByGestor = {};
   monthFinances
-    .filter((f) => (FINANCE_TYPES_WITH_SHARE.includes(f.type) || f.serviceId) && f.status === "pago")
+    .filter((f) => (f.type !== "mensalidade" || f.serviceId) && f.status === "pago")
     .forEach((f) => {
       const gestorId = f.responsibleGestorId || gestorByClientId[f.clientId];
       if (!gestorId) return;
@@ -6409,7 +6410,7 @@ const SERVICE_STATUS = [
   { key: "recebido", label: "Recebido", color: "var(--green)", bg: "var(--green-soft-bg)" },
 ];
 const SERVICE_PERIODICIDADE_LABELS = { unica: "Única", mensal: "Mensal", anual: "Anual" };
-const DEFAULT_SERVICE_TYPES = ["Assistência Técnica", "Projeto de Custeio", "Projeto de Investimento", "Análise de Solo"];
+const DEFAULT_SERVICE_TYPES = ["Assistência Técnica", "Projeto de Custeio", "Projeto de Investimento", "Análise de Solo", "Limite de Crédito"];
 
 function ServiceStatusBadge({ status }) {
   const meta = SERVICE_STATUS.find((s) => s.key === status) || SERVICE_STATUS[0];
@@ -7039,7 +7040,7 @@ function FinanceiroView({
                             {client?.name || "—"}
                           </div>
                         </td>
-                        <td>{FINANCE_TYPE_LABELS[f.type] || "Mensalidade"}</td>
+                        <td>{FINANCE_TYPE_LABELS[f.type] || f.type || "Mensalidade"}</td>
                         <td>{responsible?.name || "—"}</td>
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(f.date)}</td>
                         <td>{fmtCurrency(f.amount)}</td>
@@ -7199,7 +7200,7 @@ function FinanceiroView({
   );
 }
 
-function FinanceModal({ data, clients, team, onSave, onClose }) {
+function FinanceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState({
     clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
@@ -7207,6 +7208,7 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
     responsibleGestorId: "", recurring: false,
     ...(data || {}),
   });
+  const tipoOptions = Array.from(new Set([...(serviceTypes || []).map((t) => t.name), ...DEFAULT_SERVICE_TYPES]));
   const canSave = form.clientId && Number(form.amount) > 0 && form.date
     && (form.type === "mensalidade" || form.responsibleGestorId);
   const needsResponsible = form.type !== "mensalidade";
@@ -7221,11 +7223,12 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
       <Field label="Tipo">
         <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
           <option value="mensalidade">Mensalidade</option>
-          <option value="projeto">Projeto</option>
-          <option value="analise_solo">Análise de Solo</option>
-          <option value="limite_credito">Limite de Crédito</option>
+          {tipoOptions.map((name) => <option key={name} value={name}>{name}</option>)}
           <option value="outros">Outros</option>
         </select>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>
+          Lista puxada dos tipos de serviço cadastrados em Configurações → Tipos de Serviço.
+        </div>
       </Field>
       {needsResponsible && (
         <Field label="Gestor responsável pelo projeto/análise">
@@ -7236,7 +7239,7 @@ function FinanceModal({ data, clients, team, onSave, onClose }) {
         </Field>
       )}
       <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
-        Honorários de "Projeto" ou "Análise de Solo" pagos geram automaticamente pró-labore pro gestor responsável escolhido acima, na aba Pró-labore.
+        Honorários que não sejam "Mensalidade" pagos geram automaticamente pró-labore pro gestor responsável escolhido acima, na aba Pró-labore.
       </div>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 1500" />
