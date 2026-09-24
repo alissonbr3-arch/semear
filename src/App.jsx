@@ -4,7 +4,7 @@ import {
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download,
-  Sun, Moon
+  Sun, Moon, Warehouse, Tag, Truck
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -374,6 +374,9 @@ export default function AgroTrackApp() {
   const [expenseCategories, setExpenseCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [serviceTypes, setServiceTypes] = useState([]);
+  const [estoqueItens, setEstoqueItens] = useState([]);
+  const [estoqueCategorias, setEstoqueCategorias] = useState([]);
+  const [fornecedores, setFornecedores] = useState([]);
   const [team, setTeam] = useState([]);
   const [clientProfiles, setClientProfiles] = useState([]);
   const [teamAvatars, setTeamAvatars] = useState({});
@@ -438,14 +441,14 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa, ei, ecat, fo] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), safeGet("ajudaCusto"), safeGet("expenseCategories"),
         safeGet("services"), safeGet("serviceTypes"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
         safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory"),
-        safeGet("soilAnalyses")
+        safeGet("soilAnalyses"), safeGet("estoqueItens"), safeGet("estoqueCategorias"), safeGet("fornecedores")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -474,6 +477,9 @@ export default function AgroTrackApp() {
       setBills(bl || []);
       setCategoryMemory(cm || {});
       setSoilAnalyses(sa || []);
+      setEstoqueItens(ei || []);
+      setEstoqueCategorias(ecat || []);
+      setFornecedores(fo || []);
       setLoading(false);
     })();
   }, [session, profile]);
@@ -493,6 +499,9 @@ export default function AgroTrackApp() {
   async function persistExpenseCategories(data) { setExpenseCategories(data); await safeSet("expenseCategories", data); }
   async function persistServices(data) { setServices(data); await safeSet("services", data); }
   async function persistServiceTypes(data) { setServiceTypes(data); await safeSet("serviceTypes", data); }
+  async function persistEstoqueItens(data) { setEstoqueItens(data); await safeSet("estoqueItens", data); }
+  async function persistEstoqueCategorias(data) { setEstoqueCategorias(data); await safeSet("estoqueCategorias", data); }
+  async function persistFornecedores(data) { setFornecedores(data); await safeSet("fornecedores", data); }
   async function persistTeamAvatars(data) { setTeamAvatars(data); await safeSet("teamAvatars", data); }
   async function persistTasks(data) { setTasks(data); await safeSet("tasks", data); }
   async function persistDocuments(data) { setDocuments(data); await safeSet("documents", data); }
@@ -963,6 +972,42 @@ export default function AgroTrackApp() {
     persistServiceTypes(serviceTypes.filter((t) => t.id !== id));
   }
 
+  function saveEstoqueItem(form) {
+    if (form.id) {
+      persistEstoqueItens(estoqueItens.map((i) => (i.id === form.id ? form : i)));
+    } else {
+      persistEstoqueItens([...estoqueItens, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteEstoqueItem(id) {
+    persistEstoqueItens(estoqueItens.filter((i) => i.id !== id));
+  }
+
+  function saveEstoqueCategoria(form) {
+    if (form.id) {
+      persistEstoqueCategorias(estoqueCategorias.map((c) => (c.id === form.id ? form : c)));
+    } else {
+      persistEstoqueCategorias([...estoqueCategorias, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteEstoqueCategoria(id) {
+    persistEstoqueCategorias(estoqueCategorias.filter((c) => c.id !== id));
+  }
+
+  function saveFornecedor(form) {
+    if (form.id) {
+      persistFornecedores(fornecedores.map((f) => (f.id === form.id ? form : f)));
+    } else {
+      persistFornecedores([...fornecedores, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteFornecedor(id) {
+    persistFornecedores(fornecedores.filter((f) => f.id !== id));
+  }
+
   async function saveTeamMember(form) {
     if (form.id) {
       const r = await updateColaborador({ id: form.id, name: form.name, phone: form.phone, title: form.title });
@@ -1170,6 +1215,7 @@ export default function AgroTrackApp() {
     { id: "agenda", label: "Agenda", icon: Calendar },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "solo", label: "Análise de Solo", icon: FlaskConical },
+    { id: "estoque", label: "Estoque", icon: Warehouse },
     ...(isFinance ? [{ id: "servicos", label: "Serviços", icon: Briefcase }] : []),
     ...(isFinance ? [{ id: "financeiro", label: "Financeiro", icon: Wallet }] : []),
     { id: "configuracoes", label: "Configurações", icon: Settings },
@@ -1472,6 +1518,15 @@ export default function AgroTrackApp() {
         )}
 
 
+        {view === "estoque" && (
+          <EstoqueView
+            itens={estoqueItens} categorias={estoqueCategorias} fornecedores={fornecedores}
+            onAdd={() => setModal({ type: "estoqueItem", data: null })}
+            onEdit={(i) => setModal({ type: "estoqueItem", data: i })}
+            onDelete={(item) => { if (confirm(`Remover ${item.nome} do estoque?`)) deleteEstoqueItem(item.id); }}
+          />
+        )}
+
         {view === "servicos" && isFinance && (
           <ServicosView
             services={services} clients={clients} serviceTypes={serviceTypes} team={team}
@@ -1506,6 +1561,7 @@ export default function AgroTrackApp() {
           <ConfiguracoesView
             varieties={varieties} pesticides={pesticides} fertilizers={fertilizers}
             pests={pests} diseases={diseases} weeds={weeds} ajudaCusto={ajudaCusto} expenseCategories={expenseCategories} serviceTypes={serviceTypes}
+            estoqueCategorias={estoqueCategorias} fornecedores={fornecedores}
             team={team} teamAvatars={teamAvatars} isMaster={isMaster}
             onAddTeam={() => { setTeamError(""); setModal({ type: "team", data: null }); }}
             onEditTeam={(t) => { setTeamError(""); setModal({ type: "team", data: t }); }}
@@ -1522,6 +1578,12 @@ export default function AgroTrackApp() {
             onAddServiceType={() => setModal({ type: "serviceType", data: null })}
             onEditServiceType={(t) => setModal({ type: "serviceType", data: t })}
             onDeleteServiceType={deleteServiceType}
+            onAddEstoqueCategoria={() => setModal({ type: "estoqueCategoria", data: null })}
+            onEditEstoqueCategoria={(c) => setModal({ type: "estoqueCategoria", data: c })}
+            onDeleteEstoqueCategoria={deleteEstoqueCategoria}
+            onAddFornecedor={() => setModal({ type: "fornecedor", data: null })}
+            onEditFornecedor={(f) => setModal({ type: "fornecedor", data: f })}
+            onDeleteFornecedor={deleteFornecedor}
             onAddVariety={() => setModal({ type: "variety", data: null })}
             onEditVariety={(v) => setModal({ type: "variety", data: v })}
             onDeleteVariety={deleteVariety}
@@ -1590,6 +1652,15 @@ export default function AgroTrackApp() {
       )}
       {modal?.type === "serviceType" && (
         <ServiceTypeModal data={modal.data} onSave={saveServiceType} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "estoqueItem" && (
+        <EstoqueItemModal data={modal.data} categorias={estoqueCategorias} fornecedores={fornecedores} onSave={saveEstoqueItem} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "estoqueCategoria" && (
+        <EstoqueCategoriaModal data={modal.data} onSave={saveEstoqueCategoria} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "fornecedor" && (
+        <FornecedorModal data={modal.data} onSave={saveFornecedor} onClose={() => setModal(null)} />
       )}
       {modal?.type === "team" && (
         <TeamMemberModal data={modal.data} avatarUrl={modal.data ? teamAvatars[modal.data.id] : null} error={teamError} onSave={saveTeamMember} onClose={() => setModal(null)} />
@@ -5617,6 +5688,7 @@ const PESTICIDE_TYPES = ["Herbicida", "Fungicida", "Inseticida", "Acaricida", "O
 
 function ConfiguracoesView({
   varieties, pesticides, fertilizers, pests, diseases, weeds, ajudaCusto, expenseCategories, serviceTypes,
+  estoqueCategorias, fornecedores,
   team, teamAvatars, isMaster, activityLog,
   onAddVariety, onEditVariety, onDeleteVariety,
   onAddPesticide, onEditPesticide, onDeletePesticide,
@@ -5627,6 +5699,8 @@ function ConfiguracoesView({
   onAddAjudaCusto, onEditAjudaCusto, onDeleteAjudaCusto,
   onAddExpenseCategory, onEditExpenseCategory, onDeleteExpenseCategory,
   onAddServiceType, onEditServiceType, onDeleteServiceType,
+  onAddEstoqueCategoria, onEditEstoqueCategoria, onDeleteEstoqueCategoria,
+  onAddFornecedor, onEditFornecedor, onDeleteFornecedor,
   onAddTeam, onEditTeam, onDeleteTeam, onPromoteTeam, onDemoteTeam
 }) {
   const [tab, setTab] = useState("variedades");
@@ -5642,6 +5716,8 @@ function ConfiguracoesView({
     { id: "ajudacusto", label: "Ajuda de Custo", icon: Wallet },
     { id: "categoriasdespesa", label: "Categorias de Despesa", icon: Receipt },
     { id: "tiposservico", label: "Tipos de Serviço", icon: Briefcase },
+    { id: "categoriasestoque", label: "Categorias de Estoque", icon: Tag },
+    { id: "fornecedores", label: "Fornecedores", icon: Truck },
   ];
 
   return (
@@ -5823,6 +5899,37 @@ function ConfiguracoesView({
         />
       )}
 
+      {tab === "categoriasestoque" && (
+        <CatalogTable
+          icon={Tag}
+          items={estoqueCategorias}
+          columns={[{ key: "name", label: "Categoria" }]}
+          emptyTitle="Nenhuma categoria cadastrada"
+          emptySub="Cadastre as categorias usadas pra classificar os itens do Estoque (Sementes, Defensivos, Combustível, etc.)."
+          addLabel="Nova categoria"
+          onAdd={onAddEstoqueCategoria}
+          onEdit={onEditEstoqueCategoria}
+          onDelete={(item) => { if (confirm(`Remover a categoria ${item.name}?`)) onDeleteEstoqueCategoria(item.id); }}
+        />
+      )}
+
+      {tab === "fornecedores" && (
+        <CatalogTable
+          icon={Truck}
+          items={fornecedores}
+          columns={[
+            { key: "name", label: "Fornecedor" },
+            { key: "phone", label: "Telefone" },
+          ]}
+          emptyTitle="Nenhum fornecedor cadastrado"
+          emptySub="Cadastre os fornecedores usados no Estoque (revendas, cooperativas, distribuidoras, etc.)."
+          addLabel="Novo fornecedor"
+          onAdd={onAddFornecedor}
+          onEdit={onEditFornecedor}
+          onDelete={(item) => { if (confirm(`Remover o fornecedor ${item.name}?`)) onDeleteFornecedor(item.id); }}
+        />
+      )}
+
       {tab === "equipe" && (
         <EquipeView
           team={team}
@@ -5890,6 +5997,39 @@ function ExpenseCategoryModal({ data, onSave, onClose }) {
     <Modal title={data?.id ? "Editar categoria" : "Nova categoria de despesa"} onClose={onClose}>
       <Field label="Nome da categoria">
         <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Combustível" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function EstoqueCategoriaModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar categoria" : "Nova categoria de estoque"} onClose={onClose}>
+      <Field label="Nome da categoria">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Sementes" />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+function FornecedorModal({ data, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", phone: "", ...(data || {}) });
+  return (
+    <Modal title={data?.id ? "Editar fornecedor" : "Novo fornecedor"} onClose={onClose}>
+      <Field label="Nome do fornecedor">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Cooperativa Sicredi Insumos" />
+      </Field>
+      <Field label="Telefone (opcional)">
+        <input style={inputStyle} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(67) 99999-9999" />
       </Field>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
@@ -6411,6 +6551,7 @@ const SERVICE_STATUS = [
 ];
 const SERVICE_PERIODICIDADE_LABELS = { unica: "Única", mensal: "Mensal", anual: "Anual" };
 const DEFAULT_SERVICE_TYPES = ["Assistência Técnica", "Projeto de Custeio", "Projeto de Investimento", "Análise de Solo", "Limite de Crédito"];
+const DEFAULT_ESTOQUE_CATEGORIAS = ["Sementes", "Fertilizantes", "Defensivos", "Combustível", "Peças e Manutenção", "Outros"];
 
 function ServiceStatusBadge({ status }) {
   const meta = SERVICE_STATUS.find((s) => s.key === status) || SERVICE_STATUS[0];
@@ -6496,6 +6637,146 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
         </div>
       )}
     </div>
+  );
+}
+
+function EstoqueView({ itens, categorias, fornecedores, onAdd, onEdit, onDelete }) {
+  const [categoriaFiltro, setCategoriaFiltro] = useState("Todas");
+
+  const rows = useMemo(() => {
+    return [...itens]
+      .map((i) => ({
+        ...i,
+        fornecedorNome: fornecedores.find((f) => f.id === i.fornecedorId)?.name || "—",
+        valorTotal: Number(i.quantidade || 0) * Number(i.valorUnitario || 0),
+      }))
+      .sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  }, [itens, fornecedores]);
+
+  const categoriasPresentes = Array.from(new Set(itens.map((i) => i.categoria).filter(Boolean))).sort();
+  const filteredRows = categoriaFiltro === "Todas" ? rows : rows.filter((r) => r.categoria === categoriaFiltro);
+  const valorTotalEstoque = rows.reduce((s, r) => s + r.valorTotal, 0);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: 0 }}>Estoque</h2>
+        <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo item</PrimaryBtn>
+      </div>
+
+      {itens.length > 0 && (
+        <div style={{ display: "flex", gap: 14, marginBottom: 18, flexWrap: "wrap" }}>
+          <StatCard label="Itens cadastrados" value={itens.length} />
+          <StatCard label="Valor total em estoque" value={fmtCurrency(valorTotalEstoque)} accent="var(--green)" />
+        </div>
+      )}
+
+      {categoriasPresentes.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {["Todas", ...categoriasPresentes].map((c) => (
+            <button key={c} onClick={() => setCategoriaFiltro(c)} style={{
+              padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: "pointer",
+              border: "1px solid " + (categoriaFiltro === c ? "var(--green-deep)" : "var(--border)"),
+              background: categoriaFiltro === c ? "var(--green-deep)" : "var(--card)", color: categoriaFiltro === c ? "var(--cream)" : "var(--ink-soft)",
+            }}>{c}</button>
+          ))}
+        </div>
+      )}
+
+      {rows.length === 0 ? (
+        <EmptyState icon={Warehouse} title="Nenhum item cadastrado" sub="Cadastre manualmente os itens em estoque (sementes, defensivos, fertilizantes, peças, etc.) com categoria e fornecedor." />
+      ) : filteredRows.length === 0 ? (
+        <EmptyState icon={Warehouse} title="Nenhum item nessa categoria" sub="Ajuste o filtro acima ou cadastre um novo item." />
+      ) : (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th><th>Categoria</th><th>Fornecedor</th><th>Quantidade</th><th>Valor unitário</th><th>Valor total</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((i) => (
+                <tr key={i.id}>
+                  <td style={{ fontWeight: 600, color: "var(--ink)" }}>{i.nome}</td>
+                  <td>{i.categoria || "—"}</td>
+                  <td>{i.fornecedorNome}</td>
+                  <td>{i.quantidade || 0}{i.unidade ? ` ${i.unidade}` : ""}</td>
+                  <td>{i.valorUnitario ? fmtCurrency(Number(i.valorUnitario)) : "—"}</td>
+                  <td>{i.valorTotal ? fmtCurrency(i.valorTotal) : "—"}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                      <button onClick={() => onEdit(i)} style={iconBtnStyle}><Pencil size={14} /></button>
+                      <button onClick={() => onDelete(i)} style={iconBtnStyle}><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EstoqueItemModal({ data, categorias, fornecedores, onSave, onClose }) {
+  const [form, setForm] = useState({
+    nome: "", categoria: "", fornecedorId: "", quantidade: "", unidade: "",
+    valorUnitario: "", dataEntrada: new Date().toISOString().slice(0, 10), observacoes: "",
+    ...(data || {}),
+  });
+  const categoriaOptions = Array.from(new Set([...(categorias || []).map((c) => c.name), ...DEFAULT_ESTOQUE_CATEGORIAS]));
+  const canSave = form.nome.trim() && Number(form.quantidade) > 0;
+  return (
+    <Modal title={data?.id ? "Editar item" : "Novo item de estoque"} onClose={onClose}>
+      <Field label="Nome do item">
+        <input style={inputStyle} value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex: Semente de Soja TMG 7062" />
+      </Field>
+      <Field label="Categoria">
+        <select style={inputStyle} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>
+          <option value="">Selecione…</option>
+          {categoriaOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>
+          Gerencie a lista em Configurações → Categorias de Estoque.
+        </div>
+      </Field>
+      <Field label="Fornecedor">
+        <select style={inputStyle} value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })}>
+          <option value="">Selecione…</option>
+          {(fornecedores || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+        </select>
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>
+          Gerencie a lista em Configurações → Fornecedores.
+        </div>
+      </Field>
+      <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ flex: 1 }}>
+          <Field label="Quantidade">
+            <input type="number" style={inputStyle} value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} placeholder="Ex: 100" />
+          </Field>
+        </div>
+        <div style={{ flex: 1 }}>
+          <Field label="Unidade">
+            <input style={inputStyle} value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })} placeholder="Ex: kg, L, sc, un" />
+          </Field>
+        </div>
+      </div>
+      <Field label="Valor unitário (R$, opcional)">
+        <input type="number" style={inputStyle} value={form.valorUnitario} onChange={(e) => setForm({ ...form, valorUnitario: e.target.value })} placeholder="Ex: 250" />
+      </Field>
+      <Field label="Data de entrada">
+        <input type="date" style={inputStyle} value={form.dataEntrada} onChange={(e) => setForm({ ...form, dataEntrada: e.target.value })} />
+      </Field>
+      <Field label="Observações (opcional)">
+        <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} />
+      </Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
   );
 }
 
