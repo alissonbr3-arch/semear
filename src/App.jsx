@@ -20,7 +20,7 @@ import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole, fetchBBExtrato, fetchNdvi
+  setTeamRole, fetchNdvi
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 import { estados as ESTADOS, municipiosPorUf as MUNICIPIOS_POR_UF } from "./data/municipios.json";
@@ -7623,7 +7623,6 @@ function ReconciliationModal({
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
   const [confirmedIds, setConfirmedIds] = useState([]);
-  const [fetchingBank, setFetchingBank] = useState(false);
   const [categoryDrafts, setCategoryDrafts] = useState({});
   const fileInputRef = useRef(null);
 
@@ -7634,11 +7633,15 @@ function ReconciliationModal({
 
   async function handleFile(file) {
     setError("");
+    if (!/\.ofx$/i.test(file.name)) {
+      setError('Esse arquivo não parece ser um OFX. Exporte o extrato como OFX ("Open Financial Exchange") pelo internet banking.');
+      return;
+    }
     try {
       const text = await file.text();
-      const transactions = parseBankStatement(file.name, text);
+      const transactions = parseOFXStatement(text);
       if (transactions.length === 0) {
-        setError('Não consegui reconhecer nenhum lançamento nesse arquivo. Confira se é um extrato exportado como CSV ou OFX ("Open Financial Exchange") pelo internet banking.');
+        setError("Não consegui reconhecer nenhum lançamento nesse arquivo OFX.");
         return;
       }
       setFileName(file.name);
@@ -7646,21 +7649,6 @@ function ReconciliationModal({
     } catch {
       setError("Não foi possível ler o arquivo.");
     }
-  }
-
-  async function handleFetchBank() {
-    setError("");
-    setFetchingBank(true);
-    const r = await fetchBBExtrato({});
-    setFetchingBank(false);
-    if (r.error) { setError(r.error); return; }
-    const transactions = r.data?.transactions || [];
-    if (transactions.length === 0) {
-      setError("A busca no banco não retornou nenhum lançamento pro período (mês atual).");
-      return;
-    }
-    setFileName("Banco do Brasil — busca automática");
-    buildRows(transactions);
   }
 
   function handleConfirmFinance(match, transaction) {
@@ -7680,13 +7668,9 @@ function ReconciliationModal({
       {!rows ? (
         <>
           <div style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 14 }}>
-            Busque automaticamente do Banco do Brasil, ou envie o extrato exportado do internet banking (CSV ou OFX). O sistema procura, entre os honorários e despesas com status "Pendente", algum com o mesmo valor de cada lançamento (entrada ou saída).
+            Envie o extrato exportado do internet banking em OFX ("Open Financial Exchange"). O sistema procura, entre os honorários e despesas com status "Pendente", algum com o mesmo valor de cada lançamento (entrada ou saída).
           </div>
-          <PrimaryBtn onClick={handleFetchBank} disabled={fetchingBank} style={{ marginBottom: 14 }}>
-            {fetchingBank ? "Buscando…" : "Buscar automaticamente (Banco do Brasil)"}
-          </PrimaryBtn>
-          <div style={{ fontSize: 10, color: "var(--ink-faint)", marginBottom: 8 }}>ou envie um arquivo:</div>
-          <input ref={fileInputRef} type="file" accept=".csv,.ofx,.txt" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "var(--ink-soft)" }} />
+          <input ref={fileInputRef} type="file" accept=".ofx" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "var(--ink-soft)" }} />
           {error && <div style={{ fontSize: 10.5, color: "var(--red)", marginTop: 10 }}>{error}</div>}
         </>
       ) : (
