@@ -1116,12 +1116,14 @@ export default function AgroTrackApp() {
     return clients.map((c) => {
       const gestor = team.find((t) => t.id === c.gestorId) || null;
       const clientPropertyIds = properties.filter((p) => p.clientId === c.id).map((p) => p.id);
-      const clientFieldIds = fields.filter((f) => clientPropertyIds.includes(f.propertyId)).map((f) => f.id);
+      const clientFields = fields.filter((f) => clientPropertyIds.includes(f.propertyId));
+      const clientFieldIds = clientFields.map((f) => f.id);
       const clientHarvestIds = harvests.filter((h) => clientFieldIds.includes(h.fieldId)).map((h) => h.id);
       const clientVisits = visits.filter((v) => clientHarvestIds.includes(v.harvestId));
       const lastVisitDate = clientVisits.reduce((latest, v) => (!latest || v.date > latest ? v.date : latest), null);
       const visitStatus = !lastVisitDate ? "none" : lastVisitDate >= weekAgo ? "ok" : "late";
-      return { ...c, gestorName: gestor?.name || null, gestorAvatar: gestor ? teamAvatars[gestor.id] || null : null, lastVisitDate, visitStatus };
+      const hasKml = clientFields.some((f) => f.fieldMap?.mode === "kml" && f.fieldMap.points?.length >= 3);
+      return { ...c, gestorName: gestor?.name || null, gestorAvatar: gestor ? teamAvatars[gestor.id] || null : null, lastVisitDate, visitStatus, hasKml };
     });
   }, [clients, team, teamAvatars, properties, fields, harvests, visits]);
 
@@ -1716,7 +1718,7 @@ function StatCard({ label, value, sub, accent }) {
 function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField, onOpenClient, isFinance, monthFinanceSummary }) {
   const pctSoja = totals.areaPlantada ? Math.round((totals.areaSoja / totals.areaPlantada) * 100) : 0;
   const lateClients = clients
-    .filter((c) => c.visitStatus === "late" || c.visitStatus === "none")
+    .filter((c) => c.hasKml && (c.visitStatus === "late" || c.visitStatus === "none"))
     .sort((a, b) => (a.lastVisitDate || "").localeCompare(b.lastVisitDate || ""));
   const monthLabel = new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
   return (
