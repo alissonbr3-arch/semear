@@ -568,9 +568,16 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
     persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString() } : f)));
   }
-  function markBillPaid(entry, transaction) {
+  function markBillPaid(entry, transaction, category) {
+    const finalCategory = (category || "").trim() || entry.category || "";
     logActivity(makeLogEntry("update", "bill", entry.description, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
-    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString() } : b)));
+    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date, category: finalCategory, reconciledBank: true, reconciledAt: new Date().toISOString() } : b)));
+    // Lembra a categoria usada pra descrição desse lançamento do banco, pra
+    // já sugerir certo da próxima vez que aparecer algo parecido no extrato.
+    const key = normalizeDescription(transaction.description);
+    if (key && finalCategory && categoryMemory[key] !== finalCategory) {
+      persistCategoryMemory({ ...categoryMemory, [key]: finalCategory });
+    }
   }
 
   function saveBill(form) {
@@ -1697,7 +1704,7 @@ export default function AgroTrackApp() {
           onConfirmMatch={markFinancePaid}
           onConfirmBillMatch={markBillPaid}
           onCreateFromTransaction={(t) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
-          onCreateBillFromTransaction={(t, category) => setModal({ type: "bill", data: { description: t.description || "", category: category || "", amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
+          onCreateBillFromTransaction={(t, category) => setModal({ type: "bill", data: { description: t.description || "", category: category || "", amount: Math.abs(t.amount), date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
           onClose={() => setModal(null)}
         />
       )}
@@ -6441,9 +6448,13 @@ function matchBankTransactions(transactions, finances, bills, categoryMemory) {
   });
 
   const debits = transactions.filter((t) => t.type === "debit").map((t) => {
-    const candidate = pendingBills.find((b) => !usedBillIds.has(b.id) && Math.abs(Number(b.amount) - t.amount) < 0.01);
+    const candidate = pendingBills.find((b) => !usedBillIds.has(b.id) && Math.abs(Number(b.amount) - Math.abs(t.amount)) < 0.01);
     if (candidate) usedBillIds.add(candidate.id);
-    const suggestedCategory = candidate ? "" : (categoryMemory || {})[normalizeDescription(t.description)] || "";
+    // Sugere a categoria da própria despesa já lançada (se bateu com alguma) ou,
+    // senão, a categoria que a gente lembra de ter usado pra uma descrição
+    // parecida antes — assim todo lançamento do banco já chega com uma
+    // categoria sugerida, pra ficar organizado sem digitar toda vez.
+    const suggestedCategory = candidate?.category || (categoryMemory || {})[normalizeDescription(t.description)] || "";
     return { transaction: t, kind: "debit", match: candidate || null, suggestedCategory };
   });
 
@@ -7656,8 +7667,8 @@ function ReconciliationModal({
     setConfirmedIds((ids) => [...ids, match.id]);
   }
 
-  function handleConfirmBill(match, transaction) {
-    onConfirmBillMatch(match, transaction);
+  function handleConfirmBill(match, transaction, category) {
+    onConfirmBillMatch(match, transaction, category);
     setConfirmedIds((ids) => [...ids, match.id]);
   }
 
@@ -7724,11 +7735,23 @@ function ReconciliationModal({
                         </div>
                       )
                     ) : r.match ? (
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 9.5, color: "var(--green)" }}>
                           Combina com despesa: {r.match.description} ({fmtCurrency(r.match.amount)})
                         </span>
-                        <GhostBtn onClick={() => handleConfirmBill(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            style={{ ...inputStyle, width: 150, fontSize: 10 }}
+                            list={`recon-cat-${i}`}
+                            placeholder="Categoria"
+                            value={draftCategory}
+                            onChange={(e) => setCategoryDrafts((d) => ({ ...d, [i]: e.target.value }))}
+                          />
+                          <datalist id={`recon-cat-${i}`}>
+                            {categorySuggestions.map((c) => <option key={c} value={c} />)}
+                          </datalist>
+                          <GhostBtn onClick={() => handleConfirmBill(r.match, r.transaction, draftCategory)}>Confirmar pagamento</GhostBtn>
+                        </div>
                       </div>
                     ) : (
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
