@@ -7235,20 +7235,23 @@ function FinanceiroView({
             {extratoPeriodo === "anual" && (
               <input type="number" style={{ ...inputStyle, width: 100 }} value={extratoAno} onChange={(e) => setExtratoAno(e.target.value)} />
             )}
-            <button
-              onClick={handleExportExtrato}
-              disabled={extratoRows.length === 0}
-              style={{
-                marginLeft: "auto", display: "flex", alignItems: "center", gap: 6,
-                padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600,
-                cursor: extratoRows.length === 0 ? "default" : "pointer",
-                border: "1px solid var(--border)", background: "var(--card)", color: "var(--ink-soft)",
-                opacity: extratoRows.length === 0 ? 0.5 : 1,
-              }}
-              title="Exporta as movimentações do período em CSV — pronto pra importar na sua consultoria financeira/Ultradash."
-            >
-              <Download size={13} /> Exportar CSV
-            </button>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <GhostBtn onClick={onReconcile}><Wallet size={14} /> Conciliar extrato</GhostBtn>
+              <button
+                onClick={handleExportExtrato}
+                disabled={extratoRows.length === 0}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "7px 14px", borderRadius: 20, fontSize: 10, fontWeight: 600,
+                  cursor: extratoRows.length === 0 ? "default" : "pointer",
+                  border: "1px solid var(--border)", background: "var(--card)", color: "var(--ink-soft)",
+                  opacity: extratoRows.length === 0 ? 0.5 : 1,
+                }}
+                title="Exporta as movimentações do período em CSV — pronto pra importar na sua consultoria financeira/Ultradash."
+              >
+                <Download size={13} /> Exportar CSV
+              </button>
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
@@ -7498,7 +7501,8 @@ function FinanceiroView({
             <StatCard label="Pago no mês" value={fmtCurrency(totalDespesasPagas)} accent="var(--red)" />
             <StatCard label="Pendente no mês" value={fmtCurrency(totalDespesasPendentes)} accent="var(--gold)" />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
+            <GhostBtn onClick={onReconcile}><Wallet size={14} /> Conciliar extrato</GhostBtn>
             <PrimaryBtn onClick={onAddBill}><Plus size={16} /> Nova despesa</PrimaryBtn>
           </div>
           {monthBillsSorted.length === 0 ? (
