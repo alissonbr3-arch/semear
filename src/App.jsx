@@ -1542,7 +1542,7 @@ export default function AgroTrackApp() {
         {view === "financeiro" && isFinance && (
           <FinanceiroView
             finances={finances} bonuses={bonuses} bills={bills} settings={settings}
-            clients={clients} team={team} properties={properties} fields={fields} ajudaCusto={ajudaCusto}
+            clients={clients} team={team} properties={properties} fields={fields} ajudaCusto={ajudaCusto} currentUserId={profile?.id}
             onAddFinance={() => setModal({ type: "finance", data: null })}
             onEditFinance={(f) => setModal({ type: "finance", data: f })}
             onDeleteFinance={deleteFinance}
@@ -6968,7 +6968,7 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 }
 
 function FinanceiroView({
-  finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto,
+  finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
   onAddFinance, onEditFinance, onDeleteFinance,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
@@ -6990,6 +6990,26 @@ function FinanceiroView({
   );
   const monthFinances = [...summary.monthFinances].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const { totalRecebido, totalPendente } = summary;
+
+  // Filtro por gestor nos Honorários: começa só com o gestor logado marcado
+  // (se ele for um gestor de verdade), mas dá pra marcar os outros também.
+  const [selectedGestorIds, setSelectedGestorIds] = useState(() => new Set(currentUserId ? [currentUserId] : []));
+  function toggleGestorFilter(id) {
+    setSelectedGestorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const gestorFilterOptions = useMemo(() => {
+    const ids = new Set(monthFinances.map((f) => f.responsibleGestorId || NO_GESTOR_FILTER_KEY));
+    const named = team.filter((t) => ids.has(t.id)).map((t) => ({ id: t.id, name: t.name }));
+    if (ids.has(NO_GESTOR_FILTER_KEY)) named.push({ id: NO_GESTOR_FILTER_KEY, name: "Sem gestor" });
+    return named;
+  }, [monthFinances, team]);
+  const filteredMonthFinances = selectedGestorIds.size === 0
+    ? monthFinances
+    : monthFinances.filter((f) => selectedGestorIds.has(f.responsibleGestorId || NO_GESTOR_FILTER_KEY));
   const monthBonuses = bonuses.filter((b) => (b.date || "").slice(0, 7) === month).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const monthBillsSorted = [...summary.monthBills].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const { totalDespesasPagas, totalDespesasPendentes } = summary;
@@ -7300,18 +7320,54 @@ function FinanceiroView({
             <StatCard label="Recebido no mês" value={fmtCurrency(totalRecebido)} accent="var(--green)" />
             <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="var(--gold)" />
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
-            <GhostBtn onClick={onReconcile}><Wallet size={14} /> Conciliar extrato</GhostBtn>
-            <PrimaryBtn onClick={onAddFinance}><Plus size={16} /> Novo honorário</PrimaryBtn>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            {gestorFilterOptions.length > 0 ? (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: 9.5, color: "var(--ink-dim)", marginRight: 2 }}>Gestor:</span>
+                {gestorFilterOptions.map((g) => {
+                  const active = selectedGestorIds.has(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => toggleGestorFilter(g.id)}
+                      style={{
+                        padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
+                        border: active ? "1px solid var(--green)" : "1px solid var(--border-input)",
+                        background: active ? "var(--green-soft-bg)" : "transparent",
+                        color: active ? "var(--green)" : "var(--ink-dim)",
+                      }}
+                    >
+                      {g.id === currentUserId ? `${g.name} (você)` : g.name}
+                    </button>
+                  );
+                })}
+                {selectedGestorIds.size > 0 && (
+                  <button
+                    onClick={() => setSelectedGestorIds(new Set())}
+                    style={{ padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer", border: "1px dashed var(--border-input)", background: "transparent", color: "var(--ink-faint)" }}
+                  >
+                    Todos
+                  </button>
+                )}
+              </div>
+            ) : <div />}
+            <div style={{ display: "flex", gap: 8 }}>
+              <GhostBtn onClick={onReconcile}><Wallet size={14} /> Conciliar extrato</GhostBtn>
+              <PrimaryBtn onClick={onAddFinance}><Plus size={16} /> Novo honorário</PrimaryBtn>
+            </div>
           </div>
-          {monthFinances.length === 0 ? (
-            <EmptyState icon={Wallet} title="Nenhum honorário lançado neste mês" sub="Registre os pagamentos recebidos dos clientes." />
+          {filteredMonthFinances.length === 0 ? (
+            <EmptyState
+              icon={Wallet}
+              title={monthFinances.length === 0 ? "Nenhum honorário lançado neste mês" : "Nenhum honorário para esse filtro"}
+              sub={monthFinances.length === 0 ? "Registre os pagamentos recebidos dos clientes." : "Marque outro gestor ou clique em \"Todos\" pra ver mais honorários."}
+            />
           ) : (
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <table>
                 <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                 <tbody>
-                  {monthFinances.map((f) => {
+                  {filteredMonthFinances.map((f) => {
                     const client = clients.find((c) => c.id === f.clientId);
                     const responsible = team.find((t) => t.id === f.responsibleGestorId);
                     return (
