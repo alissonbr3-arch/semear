@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   LayoutDashboard, Users, Home, Sprout, ClipboardList, Plus, X, Trash2,
-  Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight,
+  Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight, ChevronLeft,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download,
   Sun, Moon, Warehouse, Tag, Truck
@@ -7147,7 +7147,15 @@ function FinanceiroView({
           <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Honorários recebidos e pró-labore da equipe</p>
         </div>
         {showMonthPicker && (
-          <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button onClick={() => setMonth((m) => addMonthsToReferenceMonth(m, -1))} style={iconBtnStyle} title="Mês anterior">
+              <ChevronLeft size={14} />
+            </button>
+            <input type="month" style={{ ...inputStyle, width: 160 }} value={month} onChange={(e) => setMonth(e.target.value)} />
+            <button onClick={() => setMonth((m) => addMonthsToReferenceMonth(m, 1))} style={iconBtnStyle} title="Próximo mês">
+              <ChevronRight size={14} />
+            </button>
+          </div>
         )}
       </div>
 
