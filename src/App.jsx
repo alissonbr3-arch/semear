@@ -20,7 +20,7 @@ import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole, fetchNdvi
+  setTeamRole, fetchNdvi, gerarBoletoHonorario
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 import { estados as ESTADOS, municipiosPorUf as MUNICIPIOS_POR_UF } from "./data/municipios.json";
@@ -557,6 +557,19 @@ export default function AgroTrackApp() {
     }
     setModal(null);
   }
+  // Gera o boleto via Asaas chamando a Netlify Function (que já salva o
+  // resultado no banco do lado do servidor) e só atualiza o estado local em
+  // seguida, pra mostrar o link na hora sem precisar recarregar a página.
+  async function handleGerarBoleto(financeId) {
+    const r = await gerarBoletoHonorario({ financeId });
+    if (r.error) return { error: r.error };
+    const entry = finances.find((f) => f.id === financeId);
+    const client = clients.find((c) => c.id === entry?.clientId);
+    logActivity(makeLogEntry("update", "finance", client?.name, `Boleto Asaas gerado · vencimento ${fmtDate(r.data.dueDate)}`));
+    setFinances((prev) => prev.map((f) => (f.id === financeId ? { ...f, asaasBoletoUrl: r.data.url, asaasStatus: r.data.status, asaasDueDate: r.data.dueDate } : f)));
+    return { data: r.data };
+  }
+
   function deleteFinance(id) {
     const entry = finances.find((f) => f.id === id);
     const client = clients.find((c) => c.id === entry?.clientId);
@@ -1553,6 +1566,7 @@ export default function AgroTrackApp() {
             onAddFinance={() => setModal({ type: "finance", data: null })}
             onEditFinance={(f) => setModal({ type: "finance", data: f })}
             onDeleteFinance={deleteFinance}
+            onGerarBoleto={handleGerarBoleto}
             onAddBonus={() => setModal({ type: "bonus", data: null })}
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
             onDeleteBonus={deleteBonus}
@@ -5208,7 +5222,7 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
 }
 
 function ClientModal({ data, team, onSave, onClose }) {
-  const [form, setForm] = useState(data || { name: "", phone: "", city: "", gestorId: "" });
+  const [form, setForm] = useState(data || { name: "", phone: "", cpfCnpj: "", email: "", city: "", gestorId: "" });
   return (
     <Modal title={data ? "Editar cliente" : "Novo cliente"} onClose={onClose}>
       <Field label="Nome do produtor">
@@ -5216,6 +5230,15 @@ function ClientModal({ data, team, onSave, onClose }) {
       </Field>
       <Field label="Telefone">
         <input style={inputStyle} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="(00) 00000-0000" />
+      </Field>
+      <Field label="CPF/CNPJ">
+        <input style={inputStyle} value={form.cpfCnpj || ""} onChange={(e) => setForm({ ...form, cpfCnpj: e.target.value })} placeholder="Ex: 000.000.000-00" />
+      </Field>
+      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
+        Necessário pra gerar boleto de cobrança pelo Asaas, em Financeiro.
+      </div>
+      <Field label="E-mail (opcional)">
+        <input type="email" style={inputStyle} value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="cliente@exemplo.com" />
       </Field>
       <Field label="Cidade / região">
         <input style={inputStyle} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ex: São Gabriel do Oeste, MS" />
@@ -6980,12 +7003,22 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 
 function FinanceiroView({
   finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
-  onAddFinance, onEditFinance, onDeleteFinance,
+  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
 }) {
   const [tab, setTab] = useState("painel");
+  const [gerandoBoletoId, setGerandoBoletoId] = useState(null);
+  const [boletoError, setBoletoError] = useState("");
+
+  async function handleGerarBoletoClick(financeId) {
+    setBoletoError("");
+    setGerandoBoletoId(financeId);
+    const r = await onGerarBoleto(financeId);
+    setGerandoBoletoId(null);
+    if (r?.error) setBoletoError(r.error);
+  }
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [rateInput, setRateInput] = useState(String(settings.commissionRatePerHaYear ?? 30));
   const [projectRateInput, setProjectRateInput] = useState(String(settings.projectShareRate ?? 20));
@@ -7378,6 +7411,11 @@ function FinanceiroView({
               <PrimaryBtn onClick={onAddFinance}><Plus size={16} /> Novo honorário</PrimaryBtn>
             </div>
           </div>
+          {boletoError && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--red-bg)", color: "var(--red)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+              <AlertTriangle size={15} /> {boletoError}
+            </div>
+          )}
           {filteredMonthFinances.length === 0 ? (
             <EmptyState
               icon={Wallet}
@@ -7387,7 +7425,7 @@ function FinanceiroView({
           ) : (
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
               <table>
-                <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th>Boleto</th><th></th></tr></thead>
                 <tbody>
                   {filteredMonthFinances.map((f) => {
                     const client = clients.find((c) => c.id === f.clientId);
@@ -7406,6 +7444,24 @@ function FinanceiroView({
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(f.date)}</td>
                         <td>{fmtCurrency(f.amount)}</td>
                         <td><FinanceStatusBadge status={f.status} /></td>
+                        <td>
+                          {f.status === "pago" ? (
+                            <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>—</span>
+                          ) : f.asaasBoletoUrl ? (
+                            <a href={f.asaasBoletoUrl} target="_blank" rel="noopener" style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
+                              Ver boleto
+                            </a>
+                          ) : (
+                            <GhostBtn
+                              onClick={() => handleGerarBoletoClick(f.id)}
+                              disabled={gerandoBoletoId === f.id || !client?.cpfCnpj}
+                              title={!client?.cpfCnpj ? "Cadastre o CPF/CNPJ do cliente primeiro, em Clientes." : undefined}
+                              style={{ fontSize: 10, padding: "5px 10px", opacity: !client?.cpfCnpj ? 0.5 : 1 }}
+                            >
+                              {gerandoBoletoId === f.id ? "Gerando…" : "Gerar boleto"}
+                            </GhostBtn>
+                          )}
+                        </td>
                         <td>
                           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                             <button onClick={() => onEditFinance(f)} style={iconBtnStyle}><Pencil size={14} /></button>

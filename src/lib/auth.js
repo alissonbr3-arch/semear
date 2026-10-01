@@ -127,3 +127,10 @@ export async function fetchNdvi({ bbox, dateFrom, dateTo } = {}) {
     body: JSON.stringify({ bbox, dateFrom, dateTo }),
   });
 }
+
+export async function gerarBoletoHonorario({ financeId }) {
+  return callNetlifyFunction("gerar-boleto", {
+    method: "POST",
+    body: JSON.stringify({ financeId }),
+  });
+}
