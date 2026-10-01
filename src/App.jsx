@@ -4,7 +4,7 @@ import {
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight, ChevronLeft,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download,
-  Sun, Moon, Warehouse, Tag, Truck
+  Sun, Moon, Warehouse, Tag, Truck, Menu
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -404,6 +404,7 @@ export default function AgroTrackApp() {
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem("semear_theme") || "dark"; } catch { return "dark"; }
   });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -1250,6 +1251,7 @@ export default function AgroTrackApp() {
     setSelectedFieldId(null);
     setSelectedHarvestId(null);
     setSoilAnalysisEditor(null);
+    setMobileNavOpen(false);
   }
 
   function openPropertyFromClient(propId) {
@@ -1306,7 +1308,7 @@ export default function AgroTrackApp() {
   }
 
   return (
-    <div style={{
+    <div className="at-shell" style={{
       fontFamily: "'Inter', -apple-system, sans-serif", display: "flex", minHeight: 640,
       background: "var(--bg)", borderRadius: 14, overflow: "hidden", border: "1px solid var(--border)"
     }}>
@@ -1329,6 +1331,28 @@ export default function AgroTrackApp() {
         .at-sidebar .logo-mark { display: block; height: 24px; width: 24px; object-fit: contain; }
         .at-sidebar:hover .logo-full { display: block; }
         .at-sidebar:hover .logo-mark { display: none; }
+        .at-mobile-topbar { display: none; }
+        /* Celular/tela estreita: a barra lateral deixa de expandir no hover (toque não
+           tem hover) e vira um menu "gaveta" fixo, aberto/fechado pelo botão hambúrguer
+           da barra de topo que só aparece nesse tamanho de tela. */
+        @media (max-width: 760px) {
+          .at-shell { flex-direction: column; }
+          .at-mobile-topbar { display: flex; }
+          .at-main-content { padding: 16px !important; }
+          .at-sidebar {
+            position: fixed; top: 0; left: 0; bottom: 0; z-index: 210;
+            width: 230px !important; max-width: 80vw;
+            transform: translateX(-100%);
+            transition: transform .22s ease;
+            box-shadow: 6px 0 28px rgba(0,0,0,0.35);
+          }
+          .at-sidebar.open { transform: translateX(0); }
+          .at-sidebar .nav-label { max-width: 160px !important; opacity: 1 !important; }
+          .at-sidebar .sidebar-footer-text { opacity: 1 !important; }
+          .at-sidebar .logo-full { display: block !important; }
+          .at-sidebar .logo-mark { display: none !important; }
+        }
+        .at-mobile-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 205; }
         .leaflet-container { background: var(--bg); font-family: 'IBM Plex Mono', monospace; }
         .leaflet-control-layers { background: var(--card) !important; border: 1px solid var(--border) !important; color: var(--ink-soft); }
         .leaflet-control-layers-toggle { filter: invert(1); }
@@ -1342,8 +1366,17 @@ export default function AgroTrackApp() {
         .soil-value-label::before { display: none !important; }
       `}</style>
 
+      {/* Barra de topo só no celular — o menu lateral vira uma gaveta aberta por aqui */}
+      <div className="at-mobile-topbar" style={{ alignItems: "center", gap: 12, padding: "12px 16px", background: "var(--bg-sidebar)", flexShrink: 0 }}>
+        <button onClick={() => setMobileNavOpen(true)} style={{ background: "none", border: "none", color: "var(--sidebar-text)", cursor: "pointer", padding: 4, display: "flex" }}>
+          <Menu size={22} />
+        </button>
+        <img src={LOGO_SRC} alt="Semear" style={{ height: 22 }} />
+      </div>
+      {mobileNavOpen && <div className="at-mobile-backdrop" onClick={() => setMobileNavOpen(false)} />}
+
       {/* Sidebar */}
-      <div className="at-sidebar" style={{ background: "var(--bg-sidebar)", color: "var(--sidebar-text)", padding: "22px 14px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+      <div className={"at-sidebar" + (mobileNavOpen ? " open" : "")} style={{ background: "var(--bg-sidebar)", color: "var(--sidebar-text)", padding: "22px 14px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "6px 4px", margin: "0 0 22px" }}>
           <img src="/favicon.png" alt="Semear" className="logo-mark" />
           <img src={LOGO_SRC} alt="Semear Consultoria Agropecuária" className="logo-full" />
@@ -1383,7 +1416,7 @@ export default function AgroTrackApp() {
       </div>
 
       {/* Main content */}
-      <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto" }}>
+      <div className="at-main-content" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minWidth: 0 }}>
         {soilAnalysisEditor ? (
           <SoilAnalysisPage
             field={fieldsWithMeta.find((f) => f.id === soilAnalysisEditor.fieldId)}
@@ -1827,6 +1860,7 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
         {recentVisits.length === 0 ? (
           <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
         ) : (
+          <div style={{ overflowX: "auto" }}>
           <table>
             <thead><tr><th>Data</th><th>Cliente / Propriedade / Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th></tr></thead>
             <tbody>
@@ -1841,6 +1875,7 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
@@ -2055,6 +2090,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
         {recentVisits.length === 0 ? (
           <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
         ) : (
+          <div style={{ overflowX: "auto" }}>
           <table>
             <thead><tr><th>Data</th><th>Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th><th>Fotos</th></tr></thead>
             <tbody>
@@ -2081,6 +2117,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -2089,6 +2126,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
         {soilAnalyses.length === 0 ? (
           <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma análise de solo registrada ainda.</div>
         ) : (
+          <div style={{ overflowX: "auto" }}>
           <table>
             <thead><tr><th>Data</th><th>Talhão</th><th>Identificação</th><th>Pontos</th><th></th></tr></thead>
             <tbody>
@@ -2108,6 +2146,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -2174,7 +2213,7 @@ function ClientesView({ clients, properties, search, setSearch, onAdd, onEdit, o
         <EmptyState icon={Users} title="Nenhum cliente cadastrado" sub="Cadastre o primeiro produtor para começar a acompanhar as lavouras."
           action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo cliente</PrimaryBtn>} />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Propriedades</th><th>Gestor</th><th>Visita</th><th></th></tr></thead>
             <tbody>
@@ -4594,7 +4633,7 @@ function PropriedadesView({ properties, clients, search, setSearch, onAdd, onEdi
       {properties.length === 0 ? (
         <EmptyState icon={Home} title="Nenhuma propriedade encontrada" sub="Cadastre a primeira propriedade vinculada a um cliente." />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead><tr><th>Propriedade</th><th>Cliente</th><th>Localização</th><th>Talhões</th><th>Área</th><th></th></tr></thead>
             <tbody>
@@ -4708,7 +4747,7 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
       {fields.length === 0 ? (
         <EmptyState icon={Sprout} title="Nenhum talhão encontrado" sub="Ajuste o filtro ou cadastre um novo talhão." />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead><tr><th>Talhão</th><th>Propriedade</th><th>Cliente</th><th>Área</th><th>Safra atual</th><th>Estágio</th><th></th></tr></thead>
             <tbody>
@@ -5991,7 +6030,7 @@ function CatalogTable({ icon, items, columns, emptyTitle, emptySub, addLabel, on
       {items.length === 0 ? (
         <EmptyState icon={icon} title={emptyTitle} sub={emptySub} action={<PrimaryBtn onClick={onAdd}><Plus size={16} /> {addLabel}</PrimaryBtn>} />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead>
               <tr>
@@ -6264,7 +6303,7 @@ function EquipeView({ team, teamAvatars, isMaster, onAdd, onEdit, onDelete, onPr
         <EmptyState icon={UserCog} title="Nenhum colaborador cadastrado" sub="Cadastre sua equipe para atribuir as visitas técnicas a cada um."
           action={isMaster ? <PrimaryBtn onClick={onAdd}><Plus size={16} /> Novo colaborador</PrimaryBtn> : undefined} />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead><tr><th>Nome</th><th>Função</th><th>Papel</th><th>Telefone</th><th>E-mail</th>{isMaster && <th></th>}</tr></thead>
             <tbody>
@@ -6326,7 +6365,7 @@ function ActivityLogView({ log }) {
       {sorted.length === 0 ? (
         <EmptyState icon={History} title="Nenhuma atividade registrada ainda" sub="As ações feitas a partir de agora vão aparecer aqui." />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead><tr><th>Quando</th><th>Quem</th><th>O que</th></tr></thead>
             <tbody>
@@ -6638,7 +6677,7 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
       {rows.length === 0 ? (
         <EmptyState icon={Briefcase} title="Nenhum serviço cadastrado" sub="Cadastre os serviços contratados por cada cliente para acompanhar o andamento e o recebimento." />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead>
               <tr>
@@ -6724,7 +6763,7 @@ function EstoqueView({ itens, categorias, fornecedores, onAdd, onEdit, onDelete 
       ) : filteredRows.length === 0 ? (
         <EmptyState icon={Warehouse} title="Nenhum item nessa categoria" sub="Ajuste o filtro acima ou cadastre um novo item." />
       ) : (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
           <table>
             <thead>
               <tr>
@@ -7315,7 +7354,7 @@ function FinanceiroView({
           {extratoRows.length === 0 ? (
             <EmptyState icon={FileText} title="Nenhuma movimentação neste período" sub="Ajuste o período acima ou registre honorários e despesas." />
           ) : (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
               <table>
                 <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Status</th><th>Valor</th></tr></thead>
                 <tbody>
@@ -7423,7 +7462,7 @@ function FinanceiroView({
               sub={monthFinances.length === 0 ? "Registre os pagamentos recebidos dos clientes." : "Marque outro gestor ou clique em \"Todos\" pra ver mais honorários."}
             />
           ) : (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
               <table>
                 <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th>Boleto</th><th></th></tr></thead>
                 <tbody>
@@ -7502,7 +7541,7 @@ function FinanceiroView({
           {commissionRows.length === 0 ? (
             <div style={{ color: "var(--ink-faint)", fontSize: 10.5, marginBottom: 20 }}>Nenhum gestor com talhões atribuídos, honorário de projeto ou bonificação neste mês.</div>
           ) : (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", marginBottom: 12 }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden", marginBottom: 12 }}>
               <table>
                 <thead><tr><th>Gestor</th><th>Área atendida</th><th>Pró-labore (ha)</th><th>Pró-labore (projetos)</th><th>Ajuda de custo</th><th>Bonificações</th><th>Total</th><th>Pagamento</th></tr></thead>
                 <tbody>
@@ -7542,7 +7581,7 @@ function FinanceiroView({
           {monthBonuses.length === 0 ? (
             <EmptyState icon={Wallet} title="Nenhuma bonificação lançada neste mês" sub="Lance bonificações avulsas por projeto elaborado." />
           ) : (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
               <table>
                 <thead><tr><th>Gestor</th><th>Descrição</th><th>Data</th><th>Valor</th><th></th></tr></thead>
                 <tbody>
@@ -7583,7 +7622,7 @@ function FinanceiroView({
           {monthBillsSorted.length === 0 ? (
             <EmptyState icon={Receipt} title="Nenhuma despesa lançada neste mês" sub="Registre os custos do escritório: salários, energia, manutenção, etc." />
           ) : (
-            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
               <table>
                 <thead><tr><th>Descrição</th><th>Categoria</th><th>Data</th><th>Valor</th><th>Status</th><th></th></tr></thead>
                 <tbody>
