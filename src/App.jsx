@@ -582,6 +582,23 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
     persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString() } : f)));
   }
+  // Troca o status pendente <-> pago direto do Extrato de Movimentações (sem
+  // passar por conciliação bancária).
+  function toggleMovementStatus(kind, id) {
+    const flip = (s) => (s === "pago" ? "pendente" : "pago");
+    if (kind === "entrada") {
+      const entry = finances.find((f) => f.id === id);
+      if (!entry) return;
+      const client = clients.find((c) => c.id === entry.clientId);
+      logActivity(makeLogEntry("update", "finance", client?.name, `Status → ${flip(entry.status)} (pelo extrato) · R$ ${Number(entry.amount).toLocaleString("pt-BR")}`));
+      persistFinances(finances.map((f) => (f.id === id ? { ...f, status: flip(f.status) } : f)));
+    } else {
+      const entry = bills.find((b) => b.id === id);
+      if (!entry) return;
+      logActivity(makeLogEntry("update", "bill", entry.description, `Status → ${flip(entry.status)} (pelo extrato) · R$ ${Number(entry.amount).toLocaleString("pt-BR")}`));
+      persistBills(bills.map((b) => (b.id === id ? { ...b, status: flip(b.status) } : b)));
+    }
+  }
   function markBillPaid(entry, transaction, category) {
     const finalCategory = (category || "").trim() || entry.category || "";
     logActivity(makeLogEntry("update", "bill", entry.description, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
@@ -1599,6 +1616,7 @@ export default function AgroTrackApp() {
             onAddFinance={() => setModal({ type: "finance", data: null })}
             onEditFinance={(f) => setModal({ type: "finance", data: f })}
             onDeleteFinance={deleteFinance}
+            onToggleMovementStatus={toggleMovementStatus}
             onGerarBoleto={handleGerarBoleto}
             onAddBonus={() => setModal({ type: "bonus", data: null })}
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
@@ -7042,7 +7060,7 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 
 function FinanceiroView({
   finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
-  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto,
+  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onToggleMovementStatus,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
@@ -7141,10 +7159,10 @@ function FinanceiroView({
   const extratoRows = useMemo(() => {
     const entradas = finances.map((f) => ({
       id: `f-${f.id}`, kind: "entrada", label: clients.find((c) => c.id === f.clientId)?.name || "Honorário",
-      date: f.date, amount: Number(f.amount), status: f.status,
+      date: f.date, amount: Number(f.amount), status: f.status, raw: f,
     }));
     const saidas = bills.map((b) => ({
-      id: `b-${b.id}`, kind: "saida", label: b.description, date: b.date, amount: Number(b.amount), status: b.status,
+      id: `b-${b.id}`, kind: "saida", label: b.description, date: b.date, amount: Number(b.amount), status: b.status, raw: b,
     }));
     return [...entradas, ...saidas]
       .filter((m) => {
@@ -7356,7 +7374,7 @@ function FinanceiroView({
           ) : (
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
               <table>
-                <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Status</th><th>Valor</th></tr></thead>
+                <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Status</th><th>Valor</th><th></th></tr></thead>
                 <tbody>
                   {extratoRows.map((m) => (
                     <tr key={m.id}>
@@ -7367,8 +7385,31 @@ function FinanceiroView({
                           {m.kind === "entrada" ? "↑ Entrada" : "↓ Saída"}
                         </span>
                       </td>
-                      <td><FinanceStatusBadge status={m.status} /></td>
+                      <td>
+                        <button
+                          onClick={() => {
+                            if (m.status === "pago" && !confirm("Voltar este lançamento pra Pendente?")) return;
+                            onToggleMovementStatus(m.kind, m.raw.id);
+                          }}
+                          title={m.status === "pago" ? "Clique pra voltar pra Pendente" : "Clique pra marcar como Pago"}
+                          style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                        >
+                          <FinanceStatusBadge status={m.status} />
+                        </button>
+                      </td>
                       <td>{fmtCurrency(m.amount)}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                          <button onClick={() => (m.kind === "entrada" ? onEditFinance(m.raw) : onEditBill(m.raw))} style={iconBtnStyle}><Pencil size={14} /></button>
+                          <button
+                            onClick={() => {
+                              if (!confirm("Remover este lançamento?")) return;
+                              if (m.kind === "entrada") onDeleteFinance(m.raw.id); else onDeleteBill(m.raw.id);
+                            }}
+                            style={iconBtnStyle}
+                          ><Trash2 size={14} /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
