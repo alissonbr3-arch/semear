@@ -7098,7 +7098,7 @@ function FinanceiroView({
   const { totalDespesasPagas, totalDespesasPendentes } = summary;
 
   const commissionRows = summary.proLaboreRows
-    .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal > 0 || r.ajudaCustoTotal > 0)
+    .filter((r) => r.areaHa > 0 || r.projectShare > 0 || r.bonusTotal !== 0 || r.ajudaCustoTotal > 0)
     .sort((a, b) => b.total - a.total);
 
   const totalComissoes = summary.totalProLabore;
@@ -7552,7 +7552,7 @@ function FinanceiroView({
                       <td>{fmtCurrency(r.base)}</td>
                       <td>{fmtCurrency(r.projectShare)}</td>
                       <td>{fmtCurrency(r.ajudaCustoTotal)}</td>
-                      <td>{fmtCurrency(r.bonusTotal)}</td>
+                      <td style={r.bonusTotal < 0 ? { color: "var(--red)", fontWeight: 600 } : undefined}>{fmtCurrency(r.bonusTotal)}</td>
                       <td style={{ fontWeight: 600, color: "var(--green)" }}>{fmtCurrency(r.total)}</td>
                       <td>
                         {proLaboreGeneratedIds.has(r.gestor.id) ? (
@@ -7592,7 +7592,7 @@ function FinanceiroView({
                         <td style={{ fontWeight: 600, color: "var(--ink)" }}>{gestor?.name || "—"}</td>
                         <td>{b.description}</td>
                         <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(b.date)}</td>
-                        <td>{fmtCurrency(b.amount)}</td>
+                        <td style={Number(b.amount) < 0 ? { color: "var(--red)", fontWeight: 600 } : undefined}>{fmtCurrency(b.amount)}</td>
                         <td>
                           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                             <button onClick={() => onEditBonus(b)} style={iconBtnStyle}><Pencil size={14} /></button>
@@ -7891,11 +7891,11 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
     date: new Date().toISOString().slice(0, 10),
     ...(data || {}),
   });
-  const canSave = form.gestorId && form.description.trim() && Number(form.amount) > 0 && form.date;
+  const canSave = form.gestorId && form.description.trim() && Number(form.amount) !== 0 && !Number.isNaN(Number(form.amount)) && form.date;
   return (
     <Modal title={data?.id ? "Editar bonificação" : "Nova bonificação"} onClose={onClose}>
       <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -4, marginBottom: 14 }}>
-        Use só pra valores fora da regra padrão (R$/ha + % de projeto/análise de solo). Honorários do tipo "Projeto" ou "Análise de Solo" já geram pró-labore automaticamente pro gestor responsável escolhido no lançamento.
+        Use só pra valores fora da regra padrão (R$/ha + % de projeto/análise de solo). Honorários do tipo "Projeto" ou "Análise de Solo" já geram pró-labore automaticamente pro gestor responsável escolhido no lançamento. Pra lançar um <strong>desconto</strong>, coloque o valor negativo (ex: -500).
       </div>
       <Field label="Gestor">
         <select style={inputStyle} value={form.gestorId} onChange={(e) => setForm({ ...form, gestorId: e.target.value })}>
@@ -7913,7 +7913,7 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
         <input style={inputStyle} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Ex: Ajuste pontual combinado com o cliente" />
       </Field>
       <Field label="Valor (R$)">
-        <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 500" />
+        <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 500 (ou -500 pra desconto)" />
       </Field>
       <Field label="Data">
         <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
