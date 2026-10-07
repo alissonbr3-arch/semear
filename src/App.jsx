@@ -6794,7 +6794,7 @@ function EstoqueView({ itens, categorias, fornecedores, onAdd, onEdit, onDelete 
                   <td style={{ fontWeight: 600, color: "var(--ink)" }}>{i.nome}</td>
                   <td>{i.categoria || "—"}</td>
                   <td>{i.fornecedorNome}</td>
-                  <td>{i.quantidade || 0}{i.unidade ? ` ${i.unidade}` : ""}</td>
+                  <td style={Number(i.quantidade || 0) < 0 ? { color: "var(--red)", fontWeight: 700 } : undefined}>{i.quantidade || 0}{i.unidade ? ` ${i.unidade}` : ""}</td>
                   <td>{i.valorUnitario ? fmtCurrency(Number(i.valorUnitario)) : "—"}</td>
                   <td>{i.valorTotal ? fmtCurrency(i.valorTotal) : "—"}</td>
                   <td>
