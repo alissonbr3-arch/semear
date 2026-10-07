@@ -20,7 +20,7 @@ import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole, fetchNdvi, gerarBoletoHonorario
+  setTeamRole, fetchNdvi, gerarBoletoHonorario, gerarNotaFiscalHonorario
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 import { estados as ESTADOS, municipiosPorUf as MUNICIPIOS_POR_UF } from "./data/municipios.json";
@@ -570,6 +570,16 @@ export default function AgroTrackApp() {
     setFinances((prev) => prev.map((f) => (f.id === financeId ? { ...f, asaasBoletoUrl: r.data.url, asaasStatus: r.data.status, asaasDueDate: r.data.dueDate } : f)));
     return { data: r.data };
   }
+  // Mesma lógica do boleto, mas emitindo a Nota Fiscal de Serviço (NFS-e).
+  async function handleGerarNotaFiscal(financeId) {
+    const r = await gerarNotaFiscalHonorario({ financeId });
+    if (r.error) return { error: r.error };
+    const entry = finances.find((f) => f.id === financeId);
+    const client = clients.find((c) => c.id === entry?.clientId);
+    logActivity(makeLogEntry("update", "finance", client?.name, `Nota fiscal solicitada via Asaas · status ${r.data.status}`));
+    setFinances((prev) => prev.map((f) => (f.id === financeId ? { ...f, asaasInvoiceId: r.data.id, asaasInvoiceStatus: r.data.status, asaasInvoicePdfUrl: r.data.pdfUrl } : f)));
+    return { data: r.data };
+  }
 
   function deleteFinance(id) {
     const entry = finances.find((f) => f.id === id);
@@ -690,6 +700,10 @@ export default function AgroTrackApp() {
   function updateProjectShareRate(rate) {
     logActivity(makeLogEntry("update", "settings", "Pró-labore de projetos", `${rate}% dos honorários de projeto`));
     persistSettings({ ...settings, projectShareRate: rate });
+  }
+  function updateNotaFiscalConfig(config) {
+    logActivity(makeLogEntry("update", "settings", "Nota Fiscal", `${config.municipalServiceName || "?"} · ISS ${config.issPercent || 0}%`));
+    persistSettings({ ...settings, notaFiscal: config });
   }
 
   async function promoteToAdmin(id) {
@@ -1618,6 +1632,8 @@ export default function AgroTrackApp() {
             onDeleteFinance={deleteFinance}
             onToggleMovementStatus={toggleMovementStatus}
             onGerarBoleto={handleGerarBoleto}
+            onGerarNotaFiscal={handleGerarNotaFiscal}
+            onChangeNotaFiscalConfig={updateNotaFiscalConfig}
             onAddBonus={() => setModal({ type: "bonus", data: null })}
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
             onDeleteBonus={deleteBonus}
@@ -7060,7 +7076,7 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 
 function FinanceiroView({
   finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
-  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onToggleMovementStatus,
+  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onChangeNotaFiscalConfig, onToggleMovementStatus,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
@@ -7068,6 +7084,21 @@ function FinanceiroView({
   const [tab, setTab] = useState("painel");
   const [gerandoBoletoId, setGerandoBoletoId] = useState(null);
   const [boletoError, setBoletoError] = useState("");
+  const [gerandoNotaFiscalId, setGerandoNotaFiscalId] = useState(null);
+  const [notaFiscalError, setNotaFiscalError] = useState("");
+  const [nfServiceName, setNfServiceName] = useState(settings.notaFiscal?.municipalServiceName || "");
+  const [nfServiceCode, setNfServiceCode] = useState(settings.notaFiscal?.municipalServiceCode || "");
+  const [nfIssPercent, setNfIssPercent] = useState(String(settings.notaFiscal?.issPercent ?? ""));
+  const [nfRetainIss, setNfRetainIss] = useState(!!settings.notaFiscal?.retainIss);
+  const notaFiscalConfigured = !!(settings.notaFiscal?.municipalServiceName && settings.notaFiscal?.municipalServiceCode);
+
+  async function handleGerarNotaFiscalClick(financeId) {
+    setNotaFiscalError("");
+    setGerandoNotaFiscalId(financeId);
+    const r = await onGerarNotaFiscal(financeId);
+    setGerandoNotaFiscalId(null);
+    if (r?.error) setNotaFiscalError(r.error);
+  }
 
   async function handleGerarBoletoClick(financeId) {
     setBoletoError("");
@@ -7455,6 +7486,35 @@ function FinanceiroView({
             <StatCard label="Recebido no mês" value={fmtCurrency(totalRecebido)} accent="var(--green)" />
             <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="var(--gold)" />
           </div>
+
+          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>Configuração da Nota Fiscal</div>
+            <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 12 }}>
+              Antes de emitir, habilite "Notas Fiscais" no painel do Asaas (Configurações › Notas fiscais) com os dados fiscais da empresa. Aqui você só define qual serviço/alíquota usar em toda nota emitida pelo app.
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 9.5, color: "var(--ink-dim)" }}>
+                Nome do serviço (como cadastrado no Asaas)
+                <input style={{ ...inputStyle, width: 240 }} value={nfServiceName} onChange={(e) => setNfServiceName(e.target.value)} placeholder="Ex: Consultoria agropecuária" />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 9.5, color: "var(--ink-dim)" }}>
+                Código do serviço municipal
+                <input style={{ ...inputStyle, width: 140 }} value={nfServiceCode} onChange={(e) => setNfServiceCode(e.target.value)} placeholder="Ex: 7.01" />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 9.5, color: "var(--ink-dim)" }}>
+                Alíquota ISS (%)
+                <input type="number" style={{ ...inputStyle, width: 90 }} value={nfIssPercent} onChange={(e) => setNfIssPercent(e.target.value)} placeholder="Ex: 3" />
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--ink-soft)", paddingBottom: 8 }}>
+                <input type="checkbox" checked={nfRetainIss} onChange={(e) => setNfRetainIss(e.target.checked)} />
+                Reter ISS na fonte
+              </label>
+              <GhostBtn onClick={() => onChangeNotaFiscalConfig({ municipalServiceName: nfServiceName.trim(), municipalServiceCode: nfServiceCode.trim(), issPercent: Number(nfIssPercent) || 0, retainIss: nfRetainIss })}>
+                Salvar
+              </GhostBtn>
+            </div>
+          </div>
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             {gestorFilterOptions.length > 0 ? (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -7496,6 +7556,11 @@ function FinanceiroView({
               <AlertTriangle size={15} /> {boletoError}
             </div>
           )}
+          {notaFiscalError && (
+            <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--red-bg)", color: "var(--red)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
+              <AlertTriangle size={15} /> {notaFiscalError}
+            </div>
+          )}
           {filteredMonthFinances.length === 0 ? (
             <EmptyState
               icon={Wallet}
@@ -7505,7 +7570,7 @@ function FinanceiroView({
           ) : (
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto", overflowY: "hidden" }}>
               <table>
-                <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th>Boleto</th><th></th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Tipo</th><th>Gestor responsável</th><th>Data</th><th>Valor</th><th>Status</th><th>Boleto</th><th>Nota Fiscal</th><th></th></tr></thead>
                 <tbody>
                   {filteredMonthFinances.map((f) => {
                     const client = clients.find((c) => c.id === f.clientId);
@@ -7539,6 +7604,26 @@ function FinanceiroView({
                               style={{ fontSize: 10, padding: "5px 10px", opacity: !client?.cpfCnpj ? 0.5 : 1 }}
                             >
                               {gerandoBoletoId === f.id ? "Gerando…" : "Gerar boleto"}
+                            </GhostBtn>
+                          )}
+                        </td>
+                        <td>
+                          {f.asaasInvoicePdfUrl ? (
+                            <a href={f.asaasInvoicePdfUrl} target="_blank" rel="noopener" style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
+                              Ver nota fiscal
+                            </a>
+                          ) : f.asaasInvoiceId ? (
+                            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }} title="Status informado pelo Asaas após o envio à prefeitura">
+                              {f.asaasInvoiceStatus === "ERROR" ? "Erro na emissão" : "Processando…"}
+                            </span>
+                          ) : (
+                            <GhostBtn
+                              onClick={() => handleGerarNotaFiscalClick(f.id)}
+                              disabled={gerandoNotaFiscalId === f.id || !notaFiscalConfigured}
+                              title={!notaFiscalConfigured ? "Configure o serviço municipal da Nota Fiscal acima primeiro." : undefined}
+                              style={{ fontSize: 10, padding: "5px 10px", opacity: !notaFiscalConfigured ? 0.5 : 1 }}
+                            >
+                              {gerandoNotaFiscalId === f.id ? "Emitindo…" : "Gerar nota fiscal"}
                             </GhostBtn>
                           )}
                         </td>

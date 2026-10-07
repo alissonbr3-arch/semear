@@ -134,3 +134,10 @@ export async function gerarBoletoHonorario({ financeId }) {
     body: JSON.stringify({ financeId }),
   });
 }
+
+export async function gerarNotaFiscalHonorario({ financeId }) {
+  return callNetlifyFunction("gerar-nota-fiscal", {
+    method: "POST",
+    body: JSON.stringify({ financeId }),
+  });
+}
