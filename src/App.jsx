@@ -7204,9 +7204,9 @@ function FinanceiroView({
   const monthFinances = [...summary.monthFinances].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const { totalRecebido, totalPendente } = summary;
 
-  // Filtro por gestor nos Honorários: começa só com o gestor logado marcado
-  // (se ele for um gestor de verdade), mas dá pra marcar os outros também.
-  const [selectedGestorIds, setSelectedGestorIds] = useState(() => new Set(currentUserId ? [currentUserId] : []));
+  // Filtro por gestor nos Honorários: começa sem nada marcado (= todos os
+  // gestores); dá pra marcar um ou mais gestores pra filtrar.
+  const [selectedGestorIds, setSelectedGestorIds] = useState(() => new Set());
   function toggleGestorFilter(id) {
     setSelectedGestorIds((prev) => {
       const next = new Set(prev);
@@ -7589,14 +7589,17 @@ function FinanceiroView({
                     </button>
                   );
                 })}
-                {selectedGestorIds.size > 0 && (
-                  <button
-                    onClick={() => setSelectedGestorIds(new Set())}
-                    style={{ padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer", border: "1px dashed var(--border-input)", background: "transparent", color: "var(--ink-faint)" }}
-                  >
-                    Todos
-                  </button>
-                )}
+                <button
+                  onClick={() => setSelectedGestorIds(new Set())}
+                  style={{
+                    padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
+                    border: selectedGestorIds.size === 0 ? "1px solid var(--green)" : "1px dashed var(--border-input)",
+                    background: selectedGestorIds.size === 0 ? "var(--green-soft-bg)" : "transparent",
+                    color: selectedGestorIds.size === 0 ? "var(--green)" : "var(--ink-faint)",
+                  }}
+                >
+                  Todos
+                </button>
               </div>
             ) : <div />}
             <div style={{ display: "flex", gap: 8 }}>
