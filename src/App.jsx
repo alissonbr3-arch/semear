@@ -5338,7 +5338,26 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
 }
 
 function ClientModal({ data, team, onSave, onClose }) {
-  const [form, setForm] = useState(data || { name: "", phone: "", cpfCnpj: "", email: "", city: "", gestorId: "" });
+  const [form, setForm] = useState(data || { name: "", phone: "", cpfCnpj: "", email: "", postalCode: "", address: "", addressNumber: "", complement: "", province: "", city: "", gestorId: "" });
+  const [cepLoading, setCepLoading] = useState(false);
+  async function buscarCep(raw) {
+    const cep = String(raw || "").replace(/\D/g, "");
+    if (cep.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+      const d = await r.json();
+      if (!d.erro) {
+        setForm((f) => ({
+          ...f,
+          address: d.logradouro || f.address || "",
+          province: d.bairro || f.province || "",
+          city: f.city || (d.localidade ? `${d.localidade} - ${d.uf}` : ""),
+        }));
+      }
+    } catch {}
+    setCepLoading(false);
+  }
   return (
     <Modal title={data ? "Editar cliente" : "Novo cliente"} onClose={onClose}>
       <Field label="Nome do produtor">
@@ -5353,8 +5372,32 @@ function ClientModal({ data, team, onSave, onClose }) {
       <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
         Necessário pra gerar boleto de cobrança pelo Asaas, em Financeiro.
       </div>
-      <Field label="E-mail (opcional)">
+      <Field label="E-mail">
         <input type="email" style={inputStyle} value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="cliente@exemplo.com" />
+      </Field>
+      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
+        E-mail e endereço completo são exigidos pela prefeitura pra emitir nota fiscal.
+      </div>
+      <Field label={cepLoading ? "CEP (buscando…)" : "CEP"}>
+        <input style={inputStyle} value={form.postalCode || ""} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} onBlur={(e) => buscarCep(e.target.value)} placeholder="00000-000" />
+      </Field>
+      <Field label="Endereço (rua/avenida)">
+        <input style={inputStyle} value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Ex: Av. Getúlio Vargas" />
+      </Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <Field label="Número">
+            <input style={inputStyle} value={form.addressNumber || ""} onChange={(e) => setForm({ ...form, addressNumber: e.target.value })} placeholder="Ex: 1263" />
+          </Field>
+        </div>
+        <div style={{ flex: 2 }}>
+          <Field label="Complemento (opcional)">
+            <input style={inputStyle} value={form.complement || ""} onChange={(e) => setForm({ ...form, complement: e.target.value })} placeholder="Ex: Sala 2" />
+          </Field>
+        </div>
+      </div>
+      <Field label="Bairro">
+        <input style={inputStyle} value={form.province || ""} onChange={(e) => setForm({ ...form, province: e.target.value })} placeholder="Ex: Centro" />
       </Field>
       <Field label="Cidade / região">
         <input style={inputStyle} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ex: São Gabriel do Oeste, MS" />

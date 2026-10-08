@@ -120,20 +120,51 @@ export const handler = async (event) => {
   const client = clients.find((c) => c.id === finance.clientId);
   if (!client) return json({ error: "Não encontrei o cliente deste honorário." }, 404);
 
+  // A prefeitura exige e-mail e endereço completo do tomador — confere antes de
+  // chamar o Asaas, pra devolver uma mensagem clara em vez de "Erro na emissão".
+  const cep = somenteDigitos(client.postalCode);
+  const faltando = [];
+  if (!client.email || !String(client.email).includes("@")) faltando.push("e-mail");
+  if (cep.length !== 8) faltando.push("CEP");
+  if (!client.address) faltando.push("endereço");
+  if (!client.addressNumber) faltando.push("número");
+  if (!client.province) faltando.push("bairro");
+  if (faltando.length) {
+    return json({ error: `Complete o cadastro de ${client.name} em Clientes antes de emitir a nota: falta ${faltando.join(", ")}.` }, 400);
+  }
+
+  const customerBody = {
+    name: client.name,
+    email: client.email,
+    mobilePhone: somenteDigitos(client.phone) || undefined,
+    postalCode: cep,
+    address: client.address,
+    addressNumber: client.addressNumber,
+    complement: client.complement || undefined,
+    province: client.province,
+    externalReference: client.id,
+  };
+
   let customerId = client.asaasCustomerId;
-  if (!finance.asaasPaymentId && !customerId) {
+  if (customerId) {
+    // Cliente já existe no Asaas: atualiza com e-mail/endereço atuais.
+    const upResp = await fetch(`${ASAAS_BASE_URL}/customers/${customerId}`, {
+      method: "PUT",
+      headers: asaasHeaders,
+      body: JSON.stringify(customerBody),
+    });
+    if (!upResp.ok) {
+      const upData = await upResp.json().catch(() => ({}));
+      const msg = upData.errors?.[0]?.description || upData.message || `Asaas retornou ${upResp.status}`;
+      return json({ error: `Erro ao atualizar ${client.name} no Asaas: ${msg}` }, 500);
+    }
+  } else {
     const cpfCnpj = somenteDigitos(client.cpfCnpj);
     if (!cpfCnpj) return json({ error: `Cadastre o CPF/CNPJ de ${client.name} antes de emitir a nota fiscal.` }, 400);
     const custResp = await fetch(`${ASAAS_BASE_URL}/customers`, {
       method: "POST",
       headers: asaasHeaders,
-      body: JSON.stringify({
-        name: client.name,
-        cpfCnpj,
-        email: client.email || undefined,
-        mobilePhone: somenteDigitos(client.phone) || undefined,
-        externalReference: client.id,
-      }),
+      body: JSON.stringify({ ...customerBody, cpfCnpj }),
     });
     const custData = await custResp.json().catch(() => ({}));
     if (!custResp.ok || !custData.id) {
