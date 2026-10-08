@@ -405,6 +405,28 @@ export default function AgroTrackApp() {
     try { return localStorage.getItem("semear_theme") || "dark"; } catch { return "dark"; }
   });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
+  const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
+  const isIOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    const onInstalled = () => setInstallPrompt(null);
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => {});
+      setInstallPrompt(null);
+    } else {
+      setShowInstallHelp(true);
+    }
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -1438,6 +1460,30 @@ export default function AgroTrackApp() {
           {theme === "dark" ? <Sun size={17} style={{ flexShrink: 0 }} /> : <Moon size={17} style={{ flexShrink: 0 }} />}
           <span className="nav-label">{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
         </button>
+        {!isStandalone && (
+          <>
+            <button
+              onClick={handleInstallApp}
+              style={{
+                display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", marginTop: 4,
+                borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
+                background: "transparent", color: "var(--ink-dim)", fontSize: 11, fontWeight: 500, flexShrink: 0,
+              }}
+              title="Adicionar o app Semear na tela inicial / no computador"
+            >
+              <Download size={17} style={{ flexShrink: 0 }} />
+              <span className="nav-label">Instalar app</span>
+            </button>
+            {showInstallHelp && (
+              <div className="nav-label" style={{ margin: "4px 4px 8px", padding: 10, borderRadius: 8, background: "var(--green-deep)", color: "var(--cream)", fontSize: 10.5, lineHeight: 1.5 }}>
+                {isIOS
+                  ? "No iPhone/iPad: abra no Safari, toque em Compartilhar (quadrado com seta) e depois em \"Adicionar à Tela de Início\"."
+                  : "No Chrome: clique no menu (⋮) → \"Transmitir, salvar e compartilhar\" → \"Instalar página como app\". No Android: menu (⋮) → \"Adicionar à tela inicial\"."}
+                <button onClick={() => setShowInstallHelp(false)} style={{ display: "block", marginTop: 6, background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 10.5, padding: 0 }}>Fechar</button>
+              </div>
+            )}
+          </>
+        )}
         <div className="sidebar-footer-text" style={{ padding: "14px 8px 0", fontSize: 9.5, color: "var(--ink-faint)", borderTop: "1px solid var(--green-deep)" }}>
           <div style={{ marginBottom: 6, color: "var(--ink-dim)" }}>{profile?.name || session.user.email}</div>
           <button onClick={() => signOut()} style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 9.5, padding: 0 }}>
