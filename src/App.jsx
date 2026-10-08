@@ -4,7 +4,7 @@ import {
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight, ChevronLeft,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download,
-  Sun, Moon, Warehouse, Tag, Truck, Menu
+  Sun, Moon, Warehouse, Tag, Truck, Menu, MessageCircle
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -20,7 +20,7 @@ import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole, fetchNdvi, gerarBoletoHonorario, gerarNotaFiscalHonorario
+  setTeamRole, fetchNdvi, gerarBoletoHonorario, gerarNotaFiscalHonorario, enviarWhatsapp
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 import { estados as ESTADOS, municipiosPorUf as MUNICIPIOS_POR_UF } from "./data/municipios.json";
@@ -601,6 +601,29 @@ export default function AgroTrackApp() {
     if (!r.data.sincronizada) logActivity(makeLogEntry("update", "finance", client?.name, `Nota fiscal solicitada via Asaas · status ${r.data.status}`));
     setFinances((prev) => prev.map((f) => (f.id === financeId ? { ...f, asaasInvoiceId: r.data.id, asaasInvoiceStatus: r.data.status, asaasInvoicePdfUrl: r.data.pdfUrl } : f)));
     return { data: r.data };
+  }
+
+  // Envio de WhatsApp (Z-API) pro cliente: boleto, nota fiscal, resumo de visita
+  // ou confirmação de agenda. Sempre confirma antes, mostrando o telefone.
+  async function handleEnviarWhatsapp({ kind, financeId, visitId, taskId, clientId, clientName, phone }) {
+    const oQue = { boleto: "o boleto", nota: "a nota fiscal", visita: "o resumo da visita", agenda: "a confirmação da visita" }[kind];
+    if (!confirm(`Enviar ${oQue} por WhatsApp para ${clientName || "o cliente"}${phone ? ` (${phone})` : ""}?`)) return;
+    const r = await enviarWhatsapp({ kind, financeId, visitId, taskId });
+    if (r.error) { alert(r.error); return; }
+    if (financeId) {
+      const campo = kind === "boleto" ? "whatsappBoletoEnviadoAt" : "whatsappNotaEnviadaAt";
+      setFinances((prev) => prev.map((f) => (f.id === financeId ? { ...f, [campo]: r.data.at } : f)));
+    }
+    alert("WhatsApp enviado ✅");
+  }
+  async function handleTesteWhatsapp() {
+    if (!confirm("Enviar uma mensagem de teste pro número de teste (67 99969-3705)?")) return;
+    const r = await enviarWhatsapp({ kind: "teste" });
+    alert(r.error ? r.error : "Mensagem de teste enviada ✅");
+  }
+  function updateWhatsappCobranca(modo) {
+    logActivity(makeLogEntry("update", "settings", "WhatsApp", `Cobrança automática: ${modo}`));
+    persistSettings({ ...settings, whatsappCobranca: modo });
   }
 
   function deleteFinance(id) {
@@ -1213,6 +1236,7 @@ export default function AgroTrackApp() {
         fieldArea: field ? fieldAreaHa(field) : 0,
         propertyName: property ? property.name : "—",
         clientName: client ? client.name : "—",
+        clientId: client ? client.id : null,
         fieldMap: field ? field.fieldMap : null,
         gestorId: client?.gestorId || null,
         status: h.harvestDate ? "Colhida" : "Em andamento",
@@ -1262,6 +1286,7 @@ export default function AgroTrackApp() {
         fieldName: harvest ? harvest.fieldName : "—",
         culture: harvest ? harvest.culture : null,
         clientName: harvest ? harvest.clientName : "—",
+        clientId: harvest ? harvest.clientId : null,
         propertyName: harvest ? harvest.propertyName : "—",
       };
     });
@@ -1625,6 +1650,7 @@ export default function AgroTrackApp() {
             onEdit={(t) => setModal({ type: "task", data: t })}
             onDelete={deleteTask}
             onToggleDone={toggleTaskDone}
+            onEnviarWhatsapp={handleEnviarWhatsapp}
           />
         )}
 
@@ -1635,6 +1661,8 @@ export default function AgroTrackApp() {
             onEdit={(v) => setModal({ type: "visit", data: v })}
             onDelete={deleteVisit}
             hasHarvests={harvests.length > 0}
+            clients={clients}
+            onEnviarWhatsapp={handleEnviarWhatsapp}
           />
         )}
 
@@ -1677,6 +1705,9 @@ export default function AgroTrackApp() {
             onToggleMovementStatus={toggleMovementStatus}
             onGerarBoleto={handleGerarBoleto}
             onGerarNotaFiscal={handleGerarNotaFiscal}
+            onEnviarWhatsapp={handleEnviarWhatsapp}
+            onTesteWhatsapp={handleTesteWhatsapp}
+            onChangeWhatsappCobranca={updateWhatsappCobranca}
             onAddBonus={() => setModal({ type: "bonus", data: null })}
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
             onDeleteBonus={deleteBonus}
@@ -4871,7 +4902,7 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
 
 const NO_GESTOR_FILTER_KEY = "__sem_gestor__";
 
-function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onDelete, hasHarvests }) {
+function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onDelete, hasHarvests, clients, onEnviarWhatsapp }) {
   const list = useMemo(() => {
     return [...visits].sort((a, b) => b.date.localeCompare(a.date)).map((v) => {
       const harvest = harvests.find((h) => h.id === v.harvestId);
@@ -5031,6 +5062,14 @@ function VisitasView({ visits, harvests, team, currentUserId, onAdd, onEdit, onD
                   <GhostBtn onClick={() => downloadVisitReportPdf([v]).catch((e) => setReportError(e.message || "Não consegui gerar o relatório."))}>
                     <FileText size={13} /> Relatório
                   </GhostBtn>
+                  {v.clientId && (
+                    <GhostBtn onClick={() => {
+                      const c = (clients || []).find((cl) => cl.id === v.clientId);
+                      onEnviarWhatsapp({ kind: "visita", visitId: v.id, clientName: v.clientName, phone: c?.phone });
+                    }}>
+                      <MessageCircle size={13} /> WhatsApp
+                    </GhostBtn>
+                  )}
                   <button onClick={() => onEdit(v)} style={iconBtnStyle}><Pencil size={14} /></button>
                   <button onClick={() => { if (confirm("Remover esta visita?")) onDelete(v.id); }} style={iconBtnStyle}><Trash2 size={14} /></button>
                 </div>
@@ -5188,7 +5227,7 @@ function TaskTypeBadge({ type }) {
   );
 }
 
-function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone }) {
+function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
   const [assigneeFilter, setAssigneeFilter] = useState("Todos");
 
@@ -5270,6 +5309,15 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
                           {t.title}
                         </div>
                         {client && <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 4 }}>{client.name}</div>}
+                        {client && t.type === "visita" && (
+                          <button
+                            onClick={() => onEnviarWhatsapp({ kind: "agenda", taskId: t.id, clientName: client.name, phone: client.phone })}
+                            title="Avisar o cliente da visita por WhatsApp"
+                            style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", padding: 0, marginBottom: 4, cursor: "pointer", fontSize: 9.5, color: "var(--green)", fontWeight: 600 }}
+                          >
+                            <MessageCircle size={11} /> Avisar cliente
+                          </button>
+                        )}
                         {assignee && (
                           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                             <Avatar name={assignee.name} url={teamAvatars?.[assignee.id]} size={16} />
@@ -7162,7 +7210,7 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 
 function FinanceiroView({
   finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
-  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onToggleMovementStatus,
+  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onEnviarWhatsapp, onTesteWhatsapp, onChangeWhatsappCobranca, onToggleMovementStatus,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
@@ -7568,6 +7616,22 @@ function FinanceiroView({
             <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="var(--gold)" />
           </div>
 
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, fontSize: 10.5, color: "var(--ink-dim)" }}>
+            <MessageCircle size={14} />
+            <span>Cobrança automática por WhatsApp:</span>
+            <select
+              style={{ ...inputStyle, width: "auto", padding: "5px 10px", fontSize: 10.5 }}
+              value={settings.whatsappCobranca || "off"}
+              onChange={(e) => onChangeWhatsappCobranca(e.target.value)}
+            >
+              <option value="off">Desligada</option>
+              <option value="teste">Modo teste (só pro meu número)</option>
+              <option value="ativa">Ativa (envia pros clientes)</option>
+            </select>
+            <GhostBtn onClick={onTesteWhatsapp} style={{ fontSize: 10, padding: "5px 10px" }}>Enviar teste</GhostBtn>
+            <span style={{ color: "var(--ink-faint)", fontSize: 9.5 }}>Lembretes dos boletos: 3 dias antes, no vencimento, +3 e +7 dias de atraso.</span>
+          </div>
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             {gestorFilterOptions.length > 0 ? (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -7649,9 +7713,17 @@ function FinanceiroView({
                           {f.status === "pago" ? (
                             <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>—</span>
                           ) : f.asaasBoletoUrl ? (
-                            <a href={f.asaasBoletoUrl} target="_blank" rel="noopener" style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
-                              Ver boleto
-                            </a>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                              <a href={f.asaasBoletoUrl} target="_blank" rel="noopener" style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
+                                Ver boleto
+                              </a>
+                              <button
+                                onClick={() => onEnviarWhatsapp({ kind: "boleto", financeId: f.id, clientName: client?.name, phone: client?.phone })}
+                                style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 9.5, color: "var(--ink-dim)" }}
+                              >
+                                <MessageCircle size={11} /> {f.whatsappBoletoEnviadoAt ? `Reenviar (enviado ${fmtDate(f.whatsappBoletoEnviadoAt.slice(0, 10))})` : "Enviar por WhatsApp"}
+                              </button>
+                            </div>
                           ) : (
                             <GhostBtn
                               onClick={() => handleGerarBoletoClick(f.id)}
@@ -7665,9 +7737,17 @@ function FinanceiroView({
                         </td>
                         <td>
                           {f.asaasInvoicePdfUrl ? (
-                            <a href={f.asaasInvoicePdfUrl} target="_blank" rel="noopener" style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
-                              Ver nota fiscal
-                            </a>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                              <a href={f.asaasInvoicePdfUrl} target="_blank" rel="noopener" style={{ fontSize: 10, color: "var(--green)", fontWeight: 600 }}>
+                                Ver nota fiscal
+                              </a>
+                              <button
+                                onClick={() => onEnviarWhatsapp({ kind: "nota", financeId: f.id, clientName: client?.name, phone: client?.phone })}
+                                style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 9.5, color: "var(--ink-dim)" }}
+                              >
+                                <MessageCircle size={11} /> {f.whatsappNotaEnviadaAt ? `Reenviar (enviada ${fmtDate(f.whatsappNotaEnviadaAt.slice(0, 10))})` : "Enviar por WhatsApp"}
+                              </button>
+                            </div>
                           ) : f.asaasInvoiceId ? (
                             <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }} title="Status informado pelo Asaas após o envio à prefeitura">
                               {({ ERROR: "Erro na emissão", SCHEDULED: "Agendada", WAITING_OVERDUE_PAYMENT: "Aguardando pagamento", PENDING: "Pendente", SYNCHRONIZED: "Enviada à prefeitura", PROCESSING_CANCELLATION: "Cancelando", CANCELED: "Cancelada", CANCELLATION_DENIED: "Cancelamento negado" })[f.asaasInvoiceStatus] || "Processando…"}
