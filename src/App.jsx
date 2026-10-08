@@ -723,10 +723,6 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("update", "settings", "Pró-labore de projetos", `${rate}% dos honorários de projeto`));
     persistSettings({ ...settings, projectShareRate: rate });
   }
-  function updateNotaFiscalConfig(config) {
-    logActivity(makeLogEntry("update", "settings", "Nota Fiscal", `${config.municipalServiceName || "?"} · ISS ${config.issPercent || 0}%`));
-    persistSettings({ ...settings, notaFiscal: config });
-  }
 
   async function promoteToAdmin(id) {
     const r = await setTeamRole({ id, role: "administrador" });
@@ -1271,7 +1267,9 @@ export default function AgroTrackApp() {
     });
   }, [visits, harvestsWithMeta]);
 
-  const filteredClients = clientsWithMeta.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredClients = clientsWithMeta
+    .filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }));
   const filteredProperties = propertiesWithMeta.filter((p) => (p.name + p.clientName).toLowerCase().includes(propSearch.toLowerCase()));
   const filteredFields = fieldsWithMeta.filter((f) => cultureFilter === "Todas" || f.activeHarvest?.culture === cultureFilter);
 
@@ -1679,7 +1677,6 @@ export default function AgroTrackApp() {
             onToggleMovementStatus={toggleMovementStatus}
             onGerarBoleto={handleGerarBoleto}
             onGerarNotaFiscal={handleGerarNotaFiscal}
-            onChangeNotaFiscalConfig={updateNotaFiscalConfig}
             onAddBonus={() => setModal({ type: "bonus", data: null })}
             onEditBonus={(b) => setModal({ type: "bonus", data: b })}
             onDeleteBonus={deleteBonus}
@@ -7122,7 +7119,7 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 
 function FinanceiroView({
   finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
-  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onChangeNotaFiscalConfig, onToggleMovementStatus,
+  onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onToggleMovementStatus,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
@@ -7132,11 +7129,6 @@ function FinanceiroView({
   const [boletoError, setBoletoError] = useState("");
   const [gerandoNotaFiscalId, setGerandoNotaFiscalId] = useState(null);
   const [notaFiscalError, setNotaFiscalError] = useState("");
-  const [nfServiceName, setNfServiceName] = useState(settings.notaFiscal?.municipalServiceName || "");
-  const [nfServiceCode, setNfServiceCode] = useState(settings.notaFiscal?.municipalServiceCode || "");
-  const [nfIssPercent, setNfIssPercent] = useState(String(settings.notaFiscal?.issPercent ?? ""));
-  const [nfRetainIss, setNfRetainIss] = useState(!!settings.notaFiscal?.retainIss);
-  const notaFiscalConfigured = !!(settings.notaFiscal?.municipalServiceName && settings.notaFiscal?.municipalServiceCode);
 
   async function handleGerarNotaFiscalClick(financeId) {
     setNotaFiscalError("");
@@ -7533,34 +7525,6 @@ function FinanceiroView({
             <StatCard label="Pendente no mês" value={fmtCurrency(totalPendente)} accent="var(--gold)" />
           </div>
 
-          <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 20 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 4 }}>Configuração da Nota Fiscal</div>
-            <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 12 }}>
-              Antes de emitir, habilite "Notas Fiscais" no painel do Asaas (Configurações › Notas fiscais) com os dados fiscais da empresa. Aqui você só define qual serviço/alíquota usar em toda nota emitida pelo app.
-            </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 9.5, color: "var(--ink-dim)" }}>
-                Nome do serviço (como cadastrado no Asaas)
-                <input style={{ ...inputStyle, width: 240 }} value={nfServiceName} onChange={(e) => setNfServiceName(e.target.value)} placeholder="Ex: Consultoria agropecuária" />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 9.5, color: "var(--ink-dim)" }}>
-                Código do serviço municipal
-                <input style={{ ...inputStyle, width: 140 }} value={nfServiceCode} onChange={(e) => setNfServiceCode(e.target.value)} placeholder="Ex: 7.01" />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 9.5, color: "var(--ink-dim)" }}>
-                Alíquota ISS (%)
-                <input type="number" style={{ ...inputStyle, width: 90 }} value={nfIssPercent} onChange={(e) => setNfIssPercent(e.target.value)} placeholder="Ex: 3" />
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--ink-soft)", paddingBottom: 8 }}>
-                <input type="checkbox" checked={nfRetainIss} onChange={(e) => setNfRetainIss(e.target.checked)} />
-                Reter ISS na fonte
-              </label>
-              <GhostBtn onClick={() => onChangeNotaFiscalConfig({ municipalServiceName: nfServiceName.trim(), municipalServiceCode: nfServiceCode.trim(), issPercent: Number(nfIssPercent) || 0, retainIss: nfRetainIss })}>
-                Salvar
-              </GhostBtn>
-            </div>
-          </div>
-
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             {gestorFilterOptions.length > 0 ? (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -7660,14 +7624,13 @@ function FinanceiroView({
                             </a>
                           ) : f.asaasInvoiceId ? (
                             <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }} title="Status informado pelo Asaas após o envio à prefeitura">
-                              {f.asaasInvoiceStatus === "ERROR" ? "Erro na emissão" : "Processando…"}
+                              {({ ERROR: "Erro na emissão", SCHEDULED: "Agendada", WAITING_OVERDUE_PAYMENT: "Aguardando pagamento", PENDING: "Pendente", SYNCHRONIZED: "Enviada à prefeitura", PROCESSING_CANCELLATION: "Cancelando", CANCELED: "Cancelada", CANCELLATION_DENIED: "Cancelamento negado" })[f.asaasInvoiceStatus] || "Processando…"}
                             </span>
                           ) : (
                             <GhostBtn
                               onClick={() => handleGerarNotaFiscalClick(f.id)}
-                              disabled={gerandoNotaFiscalId === f.id || !notaFiscalConfigured}
-                              title={!notaFiscalConfigured ? "Configure o serviço municipal da Nota Fiscal acima primeiro." : undefined}
-                              style={{ fontSize: 10, padding: "5px 10px", opacity: !notaFiscalConfigured ? 0.5 : 1 }}
+                              disabled={gerandoNotaFiscalId === f.id}
+                              style={{ fontSize: 10, padding: "5px 10px" }}
                             >
                               {gerandoNotaFiscalId === f.id ? "Emitindo…" : "Gerar nota fiscal"}
                             </GhostBtn>

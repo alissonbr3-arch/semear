@@ -12,9 +12,8 @@
 //   1. Configurações > Notas fiscais > habilitar emissão e preencher os
 //      dados fiscais da Semear Consultoria (CNAE, regime tributário,
 //      inscrição municipal, etc.).
-//   2. Configurar aqui no app, em Financeiro > Honorários, o nome/código do
-//      serviço municipal e a alíquota de ISS (fica salvo em
-//      settings.notaFiscal e é usado em toda nota emitida).
+//   2. Cadastrar o serviço municipal no Asaas — a função usa o primeiro
+//      serviço da lista dele (alíquota de ISS incluída).
 //
 // Precisa de ASAAS_API_KEY configurada em Site settings > Environment
 // variables do Netlify (mesma chave usada em gerar-boleto). Só quem está
@@ -95,9 +94,22 @@ export const handler = async (event) => {
     getBlob(adminClient, "settings", {}),
   ]);
 
-  const nf = settings?.notaFiscal || {};
+  // O serviço municipal vem direto do cadastro fiscal do Asaas (Configurações >
+  // Notas fiscais). Se existir um override salvo em settings.notaFiscal, ele vence.
+  let nf = settings?.notaFiscal || {};
   if (!nf.municipalServiceName || !(nf.municipalServiceId || nf.municipalServiceCode)) {
-    return json({ error: "Configure o serviço municipal da Nota Fiscal em Financeiro > Honorários antes de emitir." }, 400);
+    const svcResp = await fetch(`${ASAAS_BASE_URL}/invoices/municipalServices?limit=20`, { headers: asaasHeaders });
+    const svcData = await svcResp.json().catch(() => ({}));
+    const svc = svcData?.data?.[0];
+    if (!svcResp.ok || !svc) {
+      return json({ error: "Não encontrei nenhum serviço municipal cadastrado no Asaas. Confira em Asaas > Configurações > Notas fiscais." }, 400);
+    }
+    nf = {
+      municipalServiceId: svc.id,
+      municipalServiceName: svc.description || svc.name,
+      issPercent: svc.issTax ?? svc.iss ?? 0,
+      retainIss: false,
+    };
   }
 
   const finance = finances.find((f) => f.id === financeId);
