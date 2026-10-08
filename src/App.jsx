@@ -7668,6 +7668,14 @@ function FinanceiroView({
                           ) : f.asaasInvoiceId ? (
                             <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }} title="Status informado pelo Asaas após o envio à prefeitura">
                               {({ ERROR: "Erro na emissão", SCHEDULED: "Agendada", WAITING_OVERDUE_PAYMENT: "Aguardando pagamento", PENDING: "Pendente", SYNCHRONIZED: "Enviada à prefeitura", PROCESSING_CANCELLATION: "Cancelando", CANCELED: "Cancelada", CANCELLATION_DENIED: "Cancelamento negado" })[f.asaasInvoiceStatus] || "Processando…"}
+                              <button
+                                onClick={() => handleGerarNotaFiscalClick(f.id)}
+                                disabled={gerandoNotaFiscalId === f.id}
+                                title="Confere no Asaas. Se a nota foi cancelada ou deu erro, emite uma nova."
+                                style={{ marginLeft: 8, background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 9.5, color: "var(--gold)", textDecoration: "underline" }}
+                              >
+                                {gerandoNotaFiscalId === f.id ? "Verificando…" : "Verificar / refazer"}
+                              </button>
                             </span>
                           ) : (
                             <GhostBtn

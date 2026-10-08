@@ -114,7 +114,28 @@ export const handler = async (event) => {
 
   const finance = finances.find((f) => f.id === financeId);
   if (!finance) return json({ error: "Honorário não encontrado." }, 404);
-  if (finance.asaasInvoiceId) return json({ error: "Este honorário já tem uma nota fiscal emitida/em andamento." }, 400);
+  if (finance.asaasInvoiceId) {
+    // Já existe uma nota ligada a este honorário: confere o status atual no
+    // Asaas (o webhook pode não ter avisado de um cancelamento/erro). Só deixa
+    // emitir outra se a anterior foi cancelada ou deu erro.
+    const curResp = await fetch(`${ASAAS_BASE_URL}/invoices/${finance.asaasInvoiceId}`, { headers: asaasHeaders });
+    const cur = await curResp.json().catch(() => ({}));
+    const gone = curResp.status === 404 || ["CANCELED", "ERROR"].includes(cur.status);
+    if (!gone) {
+      if (curResp.ok && cur.status) {
+        await setBlob(adminClient, "finances", finances.map((f) => (
+          f.id === finance.id
+            ? { ...f, asaasInvoiceStatus: cur.status, asaasInvoicePdfUrl: cur.pdfUrl || f.asaasInvoicePdfUrl || null, asaasInvoiceNumber: cur.number || f.asaasInvoiceNumber || null }
+            : f
+        )));
+      }
+      return json({ error: `Este honorário já tem uma nota fiscal em andamento (status: ${cur.status || finance.asaasInvoiceStatus || "?"}). Cancele no Asaas pra emitir outra.` }, 400);
+    }
+    delete finance.asaasInvoiceId;
+    delete finance.asaasInvoiceStatus;
+    delete finance.asaasInvoicePdfUrl;
+    delete finance.asaasInvoiceNumber;
+  }
   if (!(Number(finance.amount) > 0)) return json({ error: "Este honorário não tem valor definido." }, 400);
 
   const client = clients.find((c) => c.id === finance.clientId);
@@ -201,7 +222,7 @@ export const handler = async (event) => {
 
   await setBlob(adminClient, "finances", finances.map((f) => (
     f.id === finance.id
-      ? { ...f, asaasInvoiceId: invData.id, asaasInvoiceStatus: invData.status, asaasInvoicePdfUrl: invData.pdfUrl || null }
+      ? { ...finance, asaasInvoiceId: invData.id, asaasInvoiceStatus: invData.status, asaasInvoicePdfUrl: invData.pdfUrl || null }
       : f
   )));
 
