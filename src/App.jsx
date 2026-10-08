@@ -598,7 +598,7 @@ export default function AgroTrackApp() {
     if (r.error) return { error: r.error };
     const entry = finances.find((f) => f.id === financeId);
     const client = clients.find((c) => c.id === entry?.clientId);
-    logActivity(makeLogEntry("update", "finance", client?.name, `Nota fiscal solicitada via Asaas · status ${r.data.status}`));
+    if (!r.data.sincronizada) logActivity(makeLogEntry("update", "finance", client?.name, `Nota fiscal solicitada via Asaas · status ${r.data.status}`));
     setFinances((prev) => prev.map((f) => (f.id === financeId ? { ...f, asaasInvoiceId: r.data.id, asaasInvoiceStatus: r.data.status, asaasInvoicePdfUrl: r.data.pdfUrl } : f)));
     return { data: r.data };
   }

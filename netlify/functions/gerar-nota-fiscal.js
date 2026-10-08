@@ -122,14 +122,17 @@ export const handler = async (event) => {
     const cur = await curResp.json().catch(() => ({}));
     const gone = curResp.status === 404 || ["CANCELED", "ERROR"].includes(cur.status);
     if (!gone) {
+      // Nota ainda válida: só sincroniza o status/PDF e devolve pro app atualizar a tela.
+      const status = cur.status || finance.asaasInvoiceStatus;
+      const pdfUrl = cur.pdfUrl || finance.asaasInvoicePdfUrl || null;
       if (curResp.ok && cur.status) {
         await setBlob(adminClient, "finances", finances.map((f) => (
           f.id === finance.id
-            ? { ...f, asaasInvoiceStatus: cur.status, asaasInvoicePdfUrl: cur.pdfUrl || f.asaasInvoicePdfUrl || null, asaasInvoiceNumber: cur.number || f.asaasInvoiceNumber || null }
+            ? { ...f, asaasInvoiceStatus: cur.status, asaasInvoicePdfUrl: pdfUrl, asaasInvoiceNumber: cur.number || f.asaasInvoiceNumber || null }
             : f
         )));
       }
-      return json({ error: `Este honorário já tem uma nota fiscal em andamento (status: ${cur.status || finance.asaasInvoiceStatus || "?"}). Cancele no Asaas pra emitir outra.` }, 400);
+      return json({ id: finance.asaasInvoiceId, status, pdfUrl, sincronizada: true });
     }
     delete finance.asaasInvoiceId;
     delete finance.asaasInvoiceStatus;
