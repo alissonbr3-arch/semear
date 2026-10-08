@@ -1284,6 +1284,7 @@ export default function AgroTrackApp() {
 
   const NAV = [
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
+    ...(isFinance ? [{ id: "financeiro", label: "Financeiro", icon: Wallet }] : []),
     { id: "clientes", label: "Clientes", icon: Users },
     { id: "propriedades", label: "Propriedades", icon: Home },
     { id: "agenda", label: "Agenda", icon: Calendar },
@@ -1291,7 +1292,6 @@ export default function AgroTrackApp() {
     { id: "solo", label: "Análise de Solo", icon: FlaskConical },
     { id: "estoque", label: "Estoque", icon: Warehouse },
     ...(isFinance ? [{ id: "servicos", label: "Serviços", icon: Briefcase }] : []),
-    ...(isFinance ? [{ id: "financeiro", label: "Financeiro", icon: Wallet }] : []),
     { id: "configuracoes", label: "Configurações", icon: Settings },
   ];
 
