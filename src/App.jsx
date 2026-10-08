@@ -405,6 +405,13 @@ export default function AgroTrackApp() {
     try { return localStorage.getItem("semear_theme") || "dark"; } catch { return "dark"; }
   });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showNovidades, setShowNovidades] = useState(() => {
+    try { return localStorage.getItem("semear_novidades_visto") !== NOVIDADES_VERSAO; } catch { return false; }
+  });
+  function closeNovidades() {
+    setShowNovidades(false);
+    try { localStorage.setItem("semear_novidades_visto", NOVIDADES_VERSAO); } catch {}
+  }
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
@@ -1483,6 +1490,18 @@ export default function AgroTrackApp() {
           {theme === "dark" ? <Sun size={17} style={{ flexShrink: 0 }} /> : <Moon size={17} style={{ flexShrink: 0 }} />}
           <span className="nav-label">{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
         </button>
+        <button
+          onClick={() => setShowNovidades(true)}
+          style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", marginTop: 4,
+            borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
+            background: "transparent", color: "var(--ink-dim)", fontSize: 11, fontWeight: 500, flexShrink: 0,
+          }}
+          title="Ver as novidades do app"
+        >
+          <Sparkles size={17} style={{ flexShrink: 0 }} />
+          <span className="nav-label">Novidades</span>
+        </button>
         {!isStandalone && (
           <>
             <button
@@ -1772,6 +1791,7 @@ export default function AgroTrackApp() {
         )}
       </div>
 
+      {showNovidades && profile?.role !== "cliente" && <NovidadesModal onClose={closeNovidades} isFinance={isFinance} />}
       {modal?.type === "client" && (
         <ClientModal data={modal.data} team={team} onSave={saveClient} onClose={() => setModal(null)} />
       )}
@@ -5380,6 +5400,38 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+// Novidades mostradas ao abrir o app. Pra anunciar algo novo: adicione um item
+// no topo de NOVIDADES_ITENS e troque NOVIDADES_VERSAO (quem já viu a anterior
+// vê o aviso de novo uma vez).
+const NOVIDADES_VERSAO = "2026-10-08";
+const NOVIDADES_ITENS = [
+  { titulo: "WhatsApp da Semear", texto: "Envie boleto, nota fiscal, resumo da visita e confirmação de agenda direto pro cliente. Também tem cobrança automática dos boletos (Financeiro → Honorários)." },
+  { financeiro: true, titulo: "Nota fiscal pelo app", texto: "Emita a NFS-e do honorário em um clique. O cadastro do cliente agora pede e-mail e endereço com CEP, que a prefeitura exige." },
+  { financeiro: true, titulo: "Boleto pelo Asaas", texto: "Gere o boleto do honorário e acompanhe: quando o cliente paga, o honorário vira \"Pago\" sozinho." },
+  { titulo: "Instalar o app", texto: "Use o botão \"Instalar app\" no menu pra ter o Semear como aplicativo no Mac, iPhone ou Android." },
+  { financeiro: true, titulo: "Financeiro mais prático", texto: "Financeiro logo abaixo do Painel, Honorários já mostra todos os gestores, Extrato com lápis, lixeira e clique no status pra marcar como pago, e bonificação aceita valor negativo (desconto)." },
+  { financeiro: true, titulo: "Conciliação por OFX", texto: "Importe o extrato em OFX e classifique cada lançamento do banco por categoria." },
+  { titulo: "Estoque e tema claro/escuro", texto: "Controle de estoque com categoria e fornecedor, e a opção de tema claro ou escuro no menu." },
+];
+
+function NovidadesModal({ onClose, isFinance }) {
+  return (
+    <Modal title="🌱 Novidades no Semear" onClose={onClose} maxWidth={520}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {NOVIDADES_ITENS.filter((n) => isFinance || !n.financeiro).map((n) => (
+          <div key={n.titulo}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)", marginBottom: 2 }}>{n.titulo}</div>
+            <div style={{ fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.5 }}>{n.texto}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+        <PrimaryBtn onClick={onClose}>Entendi</PrimaryBtn>
       </div>
     </Modal>
   );
