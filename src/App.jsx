@@ -372,6 +372,7 @@ export default function AgroTrackApp() {
   const [weeds, setWeeds] = useState([]);
   const [ajudaCusto, setAjudaCusto] = useState([]);
   const [expenseCategories, setExpenseCategories] = useState([]);
+  const [revenueCategories, setRevenueCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [serviceTypes, setServiceTypes] = useState([]);
   const [estoqueItens, setEstoqueItens] = useState([]);
@@ -471,14 +472,14 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa, ei, ecat, fo] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa, ei, ecat, fo, rcat] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), safeGet("ajudaCusto"), safeGet("expenseCategories"),
         safeGet("services"), safeGet("serviceTypes"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
         safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory"),
-        safeGet("soilAnalyses"), safeGet("estoqueItens"), safeGet("estoqueCategorias"), safeGet("fornecedores")
+        safeGet("soilAnalyses"), safeGet("estoqueItens"), safeGet("estoqueCategorias"), safeGet("fornecedores"), safeGet("revenueCategories")
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -493,6 +494,7 @@ export default function AgroTrackApp() {
       setWeeds(ws || []);
       setAjudaCusto(ac || []);
       setExpenseCategories(ec || []);
+      setRevenueCategories(rcat || []);
       setServices(sv || []);
       setServiceTypes(st2 || []);
       setTeam((allProfiles || []).filter((pr) => pr.role !== "cliente"));
@@ -527,6 +529,7 @@ export default function AgroTrackApp() {
   async function persistWeeds(data) { setWeeds(data); await safeSet("weeds", data); }
   async function persistAjudaCusto(data) { setAjudaCusto(data); await safeSet("ajudaCusto", data); }
   async function persistExpenseCategories(data) { setExpenseCategories(data); await safeSet("expenseCategories", data); }
+  async function persistRevenueCategories(data) { setRevenueCategories(data); await safeSet("revenueCategories", data); }
   async function persistServices(data) { setServices(data); await safeSet("services", data); }
   async function persistServiceTypes(data) { setServiceTypes(data); await safeSet("serviceTypes", data); }
   async function persistEstoqueItens(data) { setEstoqueItens(data); await safeSet("estoqueItens", data); }
@@ -1020,6 +1023,65 @@ export default function AgroTrackApp() {
     if (existing) return existing.name;
     persistExpenseCategories([...expenseCategories, { id: uid(), name: clean }]);
     return clean;
+  }
+
+  function saveRevenueCategory(form) {
+    if (form.id) {
+      persistRevenueCategories(revenueCategories.map((c) => (c.id === form.id ? form : c)));
+    } else {
+      persistRevenueCategories([...revenueCategories, { ...form, id: uid() }]);
+    }
+    setModal(null);
+  }
+  function deleteRevenueCategory(id) {
+    persistRevenueCategories(revenueCategories.filter((c) => c.id !== id));
+  }
+
+  // Carrega o modelo do DRE (categoria > subcategoria) sem apagar nada:
+  // categorias que já existem ganham o grupo; as antigas com nome equivalente
+  // são renomeadas (e as despesas já lançadas acompanham); o resto é adicionado.
+  function importCategoryTemplate(kind) {
+    if (kind === "despesa") {
+      const renames = [];
+      let next = expenseCategories.map((c) => ({ ...c }));
+      const byNorm = () => new Map(next.map((c) => [normalizeCategoryName(c.name), c]));
+      DRE_DESPESAS_MODELO.forEach(({ group, items }) => {
+        items.forEach((name) => {
+          const norm = normalizeCategoryName(name);
+          let found = byNorm().get(norm);
+          if (!found) {
+            const oldKey = Object.keys(DRE_RENAME_DESPESAS).find((k) => DRE_RENAME_DESPESAS[k] === name && byNorm().has(k));
+            if (oldKey) {
+              found = byNorm().get(oldKey);
+              renames.push([found.name, name]);
+              found.name = name;
+            }
+          }
+          if (found) found.group = group;
+          else next.push({ id: uid(), name, group });
+        });
+      });
+      if (renames.length && !confirm(`Vou renomear ${renames.length} categoria(s) pra o nome do modelo e atualizar as despesas já lançadas:\n\n${renames.map(([a, b]) => `${a} → ${b}`).join("\n")}\n\nContinuar?`)) return;
+      if (renames.length) {
+        const map = new Map(renames);
+        persistBills(bills.map((b) => (map.has(b.category) ? { ...b, category: map.get(b.category) } : b)));
+        persistCategoryMemory(Object.fromEntries(Object.entries(categoryMemory).map(([k, v]) => [k, map.get(v) || v])));
+      }
+      persistExpenseCategories(next);
+      logActivity(makeLogEntry("update", "settings", "Categorias de despesa", "Modelo DRE carregado"));
+    } else {
+      const next = revenueCategories.map((c) => ({ ...c }));
+      DRE_RECEITAS_MODELO.forEach(({ group, items }) => {
+        items.forEach((name) => {
+          const found = next.find((c) => normalizeCategoryName(c.name) === normalizeCategoryName(name));
+          if (found) found.group = group; else next.push({ id: uid(), name, group });
+        });
+      });
+      persistRevenueCategories(next);
+      // Honorários antigos ganham uma categoria de receita sugerida pelo tipo.
+      persistFinances(finances.map((f) => (f.revenueCategory ? f : { ...f, revenueCategory: defaultRevenueCategory(f.type) })));
+      logActivity(makeLogEntry("update", "settings", "Categorias de receita", "Modelo DRE carregado"));
+    }
   }
 
   function saveExpenseCategory(form) {
@@ -1788,6 +1850,11 @@ export default function AgroTrackApp() {
             onAddAjudaCusto={() => setModal({ type: "ajudaCusto", data: null })}
             onEditAjudaCusto={(a) => setModal({ type: "ajudaCusto", data: a })}
             onDeleteAjudaCusto={deleteAjudaCusto}
+            revenueCategories={revenueCategories}
+            onImportCategoryTemplate={importCategoryTemplate}
+            onAddRevenueCategory={() => setModal({ type: "revenueCategory", data: null })}
+            onEditRevenueCategory={(c) => setModal({ type: "revenueCategory", data: c })}
+            onDeleteRevenueCategory={deleteRevenueCategory}
             onAddExpenseCategory={() => setModal({ type: "expenseCategory", data: null })}
             onEditExpenseCategory={(c) => setModal({ type: "expenseCategory", data: c })}
             onDeleteExpenseCategory={deleteExpenseCategory}
@@ -1862,7 +1929,10 @@ export default function AgroTrackApp() {
         <AjudaCustoModal data={modal.data} onSave={saveAjudaCusto} onClose={() => setModal(null)} />
       )}
       {modal?.type === "expenseCategory" && (
-        <ExpenseCategoryModal data={modal.data} onSave={saveExpenseCategory} onClose={() => setModal(null)} />
+        <ExpenseCategoryModal kind="despesa" data={modal.data} groups={groupCategories(expenseCategories)} onSave={saveExpenseCategory} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === "revenueCategory" && (
+        <ExpenseCategoryModal kind="receita" data={modal.data} groups={groupCategories(revenueCategories)} onSave={saveRevenueCategory} onClose={() => setModal(null)} />
       )}
       {modal?.type === "service" && (
         <ServiceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} services={services} onSave={saveService} onClose={() => setModal(null)} />
@@ -1898,13 +1968,13 @@ export default function AgroTrackApp() {
         />
       )}
       {modal?.type === "finance" && (
-        <FinanceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} onSave={saveFinance} onClose={() => setModal(null)} />
+        <FinanceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} revenueCategories={revenueCategories} onSave={saveFinance} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bonus" && (
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bill" && (
-        <BillModal data={modal.data} categoryMemory={categoryMemory} expenseCategories={expenseCategories} onSave={saveBill} onClose={() => setModal(null)} />
+        <BillModal data={modal.data} categoryMemory={categoryMemory} expenseCategories={expenseCategories} onAddCategory={addExpenseCategoryQuick} onSave={saveBill} onClose={() => setModal(null)} />
       )}
     </div>
   );
@@ -6012,6 +6082,7 @@ function ConfiguracoesView({
   onAddWeed, onEditWeed, onDeleteWeed,
   onAddAjudaCusto, onEditAjudaCusto, onDeleteAjudaCusto,
   onAddExpenseCategory, onEditExpenseCategory, onDeleteExpenseCategory,
+  revenueCategories, onImportCategoryTemplate, onAddRevenueCategory, onEditRevenueCategory, onDeleteRevenueCategory,
   onAddServiceType, onEditServiceType, onDeleteServiceType,
   onAddEstoqueCategoria, onEditEstoqueCategoria, onDeleteEstoqueCategoria,
   onAddFornecedor, onEditFornecedor, onDeleteFornecedor,
@@ -6029,6 +6100,7 @@ function ConfiguracoesView({
     { id: "daninhas", label: "Daninhas", icon: Flower2 },
     { id: "ajudacusto", label: "Ajuda de Custo", icon: Wallet },
     { id: "categoriasdespesa", label: "Categorias de Despesa", icon: Receipt },
+    { id: "categoriasreceita", label: "Categorias de Receita", icon: TrendingUp },
     { id: "tiposservico", label: "Tipos de Serviço", icon: Briefcase },
     { id: "categoriasestoque", label: "Categorias de Estoque", icon: Tag },
     { id: "fornecedores", label: "Fornecedores", icon: Truck },
@@ -6182,17 +6254,43 @@ function ConfiguracoesView({
       )}
 
       {tab === "categoriasdespesa" && (
-        <CatalogTable
-          icon={Receipt}
-          items={expenseCategories}
-          columns={[{ key: "name", label: "Categoria" }]}
-          emptyTitle="Nenhuma categoria cadastrada"
-          emptySub="Cadastre as categorias usadas para classificar as despesas em Financeiro."
-          addLabel="Nova categoria"
-          onAdd={onAddExpenseCategory}
-          onEdit={onEditExpenseCategory}
-          onDelete={(item) => { if (confirm(`Remover a categoria ${item.name}?`)) onDeleteExpenseCategory(item.id); }}
-        />
+        <>
+          <CategoryTemplateBar onImport={() => onImportCategoryTemplate("despesa")} />
+          <CatalogTable
+            icon={Receipt}
+            items={groupCategories(expenseCategories).flatMap((g) => g.items)}
+            columns={[
+              { key: "group", label: "Categoria", render: (c) => (c.group ? categoryGroupLabel(c.group) : "—") },
+              { key: "name", label: "Subcategoria" },
+            ]}
+            emptyTitle="Nenhuma categoria cadastrada"
+            emptySub='Cadastre as categorias e subcategorias usadas para classificar as despesas em Financeiro, ou carregue o modelo do DRE.'
+            addLabel="Nova subcategoria"
+            onAdd={onAddExpenseCategory}
+            onEdit={onEditExpenseCategory}
+            onDelete={(item) => { if (confirm(`Remover a subcategoria ${item.name}?`)) onDeleteExpenseCategory(item.id); }}
+          />
+        </>
+      )}
+
+      {tab === "categoriasreceita" && (
+        <>
+          <CategoryTemplateBar onImport={() => onImportCategoryTemplate("receita")} />
+          <CatalogTable
+            icon={TrendingUp}
+            items={groupCategories(revenueCategories).flatMap((g) => g.items)}
+            columns={[
+              { key: "group", label: "Categoria", render: (c) => (c.group ? categoryGroupLabel(c.group) : "—") },
+              { key: "name", label: "Subcategoria" },
+            ]}
+            emptyTitle="Nenhuma categoria de receita"
+            emptySub="Cadastre as categorias e subcategorias das receitas (honorários), ou carregue o modelo do DRE."
+            addLabel="Nova subcategoria"
+            onAdd={onAddRevenueCategory}
+            onEdit={onEditRevenueCategory}
+            onDelete={(item) => { if (confirm(`Remover a subcategoria ${item.name}?`)) onDeleteRevenueCategory(item.id); }}
+          />
+        </>
       )}
 
       {tab === "tiposservico" && (
@@ -6305,16 +6403,46 @@ function CatalogTable({ icon, items, columns, emptyTitle, emptySub, addLabel, on
   );
 }
 
-function ExpenseCategoryModal({ data, onSave, onClose }) {
-  const [form, setForm] = useState({ name: "", ...(data || {}) });
+function CategoryTemplateBar({ onImport }) {
   return (
-    <Modal title={data?.id ? "Editar categoria" : "Nova categoria de despesa"} onClose={onClose}>
-      <Field label="Nome da categoria">
-        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex: Combustível" />
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", background: "var(--bg-inset-green)", border: "1px solid var(--green-info-border)", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
+      <span style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>
+        Organize em <strong>categoria › subcategoria</strong>, no mesmo formato do DRE da consultoria financeira.
+      </span>
+      <GhostBtn onClick={() => { if (confirm("Carregar o modelo do DRE? Nada é apagado: o que já existe ganha a categoria e o que falta é adicionado.")) onImport(); }}>
+        Carregar modelo do DRE
+      </GhostBtn>
+    </div>
+  );
+}
+
+function ExpenseCategoryModal({ kind = "despesa", data, groups, onSave, onClose }) {
+  const [form, setForm] = useState({ name: "", group: "", ...(data || {}) });
+  const [newGroup, setNewGroup] = useState("");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const finalGroup = creatingGroup ? newGroup.trim() : form.group;
+  return (
+    <Modal title={data?.id ? "Editar subcategoria" : `Nova subcategoria de ${kind}`} onClose={onClose}>
+      <Field label="Categoria (grupo)">
+        {creatingGroup ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={inputStyle} value={newGroup} onChange={(e) => setNewGroup(e.target.value)} placeholder={kind === "receita" ? "Ex: 01.1 Receita de Serviços" : "Ex: 04.2 Despesas Administrativas"} />
+            <GhostBtn onClick={() => setCreatingGroup(false)}>Voltar</GhostBtn>
+          </div>
+        ) : (
+          <select style={inputStyle} value={form.group || ""} onChange={(e) => { if (e.target.value === "__nova__") setCreatingGroup(true); else setForm({ ...form, group: e.target.value }); }}>
+            <option value="">Sem categoria</option>
+            <option value="__nova__">＋ Nova categoria…</option>
+            {groups.filter((g) => g.group).map((g) => <option key={g.group} value={g.group}>{g.label}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Subcategoria (nome)">
+        <input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={kind === "receita" ? "Ex: Receita de Serviços - Projetos" : "Ex: Combustíveis"} />
       </Field>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
-        <PrimaryBtn onClick={() => form.name.trim() && onSave(form)}>Salvar</PrimaryBtn>
+        <PrimaryBtn onClick={() => form.name.trim() && onSave({ ...form, name: form.name.trim(), group: finalGroup })}>Salvar</PrimaryBtn>
       </div>
     </Modal>
   );
@@ -8021,7 +8149,7 @@ function FinanceiroView({
   );
 }
 
-function FinanceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
+function FinanceModal({ data, clients, team, serviceTypes, revenueCategories, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState({
     clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
@@ -8042,7 +8170,12 @@ function FinanceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
         </select>
       </Field>
       <Field label="Tipo">
-        <select style={inputStyle} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+        <select style={inputStyle} value={form.type} onChange={(e) => {
+          const type = e.target.value;
+          // Acompanha a categoria sugerida do tipo, a menos que tenha sido escolhida à mão.
+          const wasAuto = !form.revenueCategory || form.revenueCategory === defaultRevenueCategory(form.type);
+          setForm({ ...form, type, ...(wasAuto ? { revenueCategory: defaultRevenueCategory(type) } : {}) });
+        }}>
           <option value="mensalidade">Mensalidade</option>
           {tipoOptions.map((name) => <option key={name} value={name}>{name}</option>)}
           <option value="outros">Outros</option>
@@ -8051,6 +8184,16 @@ function FinanceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
           Lista puxada dos tipos de serviço cadastrados em Configurações → Tipos de Serviço.
         </div>
       </Field>
+      {(revenueCategories || []).length > 0 && (
+        <Field label="Categoria da receita">
+          <CategorySelect
+            categories={revenueCategories}
+            value={form.revenueCategory || defaultRevenueCategory(form.type)}
+            onChange={(v) => setForm({ ...form, revenueCategory: v })}
+            placeholder="Sem categoria"
+          />
+        </Field>
+      )}
       {needsResponsible && (
         <Field label="Gestor responsável pelo projeto/análise">
           <select style={inputStyle} value={form.responsibleGestorId} onChange={(e) => setForm({ ...form, responsibleGestorId: e.target.value })}>
@@ -8230,10 +8373,6 @@ function ReconciliationView({
     todos: rows.length,
   };
   const visibleRows = rows.filter((r) => filter === "todos" || (filter === "abertos" ? r.state === "aberto" : r.state === filter));
-  // Categorias cadastradas em Configurações > Categorias de Despesa vêm primeiro.
-  const categoryOptions = Array.from(new Set([...(expenseCategories || []).map((c) => c.name), ...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})].filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-
   function toggleIgnore(key) {
     const ignored = new Set(session.ignored || []);
     if (ignored.has(key)) ignored.delete(key); else ignored.add(key);
@@ -8350,24 +8489,14 @@ function ReconciliationView({
                       {r.match ? `Combina com despesa: ${r.match.description} (${fmtCurrency(r.match.amount)})` : "Nenhuma despesa pendente com esse valor"}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <select
-                        style={{ ...inputStyle, width: 200, fontSize: 10 }}
+                      <CategorySelect
+                        style={{ ...inputStyle, width: 220, fontSize: 10 }}
+                        categories={expenseCategories || []}
+                        extraNames={[...((expenseCategories || []).length === 0 ? BILL_CATEGORY_SUGGESTIONS : []), ...Object.values(categoryMemory || {})]}
                         value={draftCategory}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === "__nova__") {
-                            const nome = window.prompt("Nome da nova categoria de despesa:");
-                            const criada = nome ? onAddExpenseCategory(nome) : "";
-                            if (criada) setCategoryDrafts((d) => ({ ...d, [t.key]: criada }));
-                            return;
-                          }
-                          setCategoryDrafts((d) => ({ ...d, [t.key]: v }));
-                        }}
-                      >
-                        <option value="">Categoria…</option>
-                        <option value="__nova__">＋ Adicionar nova categoria…</option>
-                        {(draftCategory && !categoryOptions.includes(draftCategory) ? [draftCategory, ...categoryOptions] : categoryOptions).map((c) => <option key={c} value={c}>{c}</option>)}
-                      </select>
+                        onChange={(v) => setCategoryDrafts((d) => ({ ...d, [t.key]: v }))}
+                        onAdd={onAddExpenseCategory}
+                      />
                       <GhostBtn onClick={() => toggleIgnore(t.key)}>Ignorar</GhostBtn>
                       {r.match ? (
                         <GhostBtn onClick={() => onConfirmBillMatch(r.match, t, draftCategory, t.key)}>Confirmar pagamento</GhostBtn>
@@ -8456,7 +8585,105 @@ function BonusModal({ data, team, clients, onSave, onClose }) {
 
 const BILL_CATEGORY_SUGGESTIONS = ["Salários", "Energia Elétrica", "Água", "Aluguel", "Manutenção de Máquinas e Equipamentos", "Combustível", "Internet/Telefone", "Material de Escritório", "Impostos", "Outros"];
 
-function BillModal({ data, categoryMemory, expenseCategories, onSave, onClose }) {
+// Modelo de categorias (categoria > subcategoria) no formato do DRE usado pela
+// consultoria financeira. "group" guarda o código + nome do grupo (o código
+// mantém a ordem do DRE); a subcategoria é o nome do item.
+const DRE_DESPESAS_MODELO = [
+  { group: "02.1 Impostos Sobre Vendas", items: ["Impostos retidos em vendas", "Simples Nacional"] },
+  { group: "02.2 Comissões Sobre Vendas", items: ["Comissões de Vendedores"] },
+  { group: "02.3 Descontos Incondicionais", items: ["Descontos Incondicionais Concedidos"] },
+  { group: "03.2 Custo dos Serviços Prestados", items: ["CREA", "Manutenção de Equipamentos Operacional", "Materiais / utensílios operacionais", "Software Operacional"] },
+  { group: "04.2 Despesas Administrativas", items: ["Aluguel Escritório", "Alvará de Funcionamento", "Cartório e Matrículas", "Copa e Cozinha/Mercado", "Doações e Patrocínios", "Energia Elétrica", "Honorários Contábeis / Contabilidade", "IPTU", "Manutenção Predial / Escritório", "Materiais de Escritório", "Materiais de Limpeza e de Higiene/Diarista", "Seguro de Imóveis", "Softwares Administrativo", "Telefonia e Internet", "Vigilância e Segurança Patrimonial"] },
+  { group: "04.3 Despesas Operacionais", items: ["Combustíveis", "Confraternizações e Eventos", "Cursos e Treinamentos", "Férias", "FGTS", "INSS sobre Salários", "IPVA / DPVAT / Licenciamento", "IRRF sobre Salários", "Limpeza veículos - Lava Jato", "Manutenção de Veículos", "Pedágios", "Plano de Saúde Colaboradores", "Rescisões / Acordo trabalhistas", "Salários Colaboradores", "Seguros de Veículos", "Uniformes e EPI"] },
+  { group: "04.4 Despesas Diretoria", items: ["Pró-labore"] },
+  { group: "05.2 Despesas Financeiras", items: ["Descontos Financeiros Concedidos", "IOF, encargos financeiros empréstimos", "Juros Pagos", "Tarifas Bancárias / Mensalidade", "Tarifas DOC / TED / PIX"] },
+  { group: "06.2 Outras Despesas Não Operacionais", items: ["Despesas reembolsáveis, estornos - outras saidas", "Perdas"] },
+  { group: "07.1 Investimentos em Imobilizado", items: ["Aplicações financeiras / Capitalização", "Aquisição de Computadores e Periféricos", "Aquisição de Veículos", "Aquisição Máquinas, Equipamentos Operacional", "Aquisição Móveis, Utensílios e Instalações Administrativos"] },
+  { group: "07.2 Empréstimos e Dívidas", items: ["Empréstimos Sócios / Fazenda", "Pagamento de Empréstimos Álisson", "Pagamento de Empréstimos de Bancos"] },
+];
+const DRE_RECEITAS_MODELO = [
+  { group: "01.1 Receita de Vendas de Produtos e Serviços", items: ["Receita de Serviços - Análises de Solo", "Receita de Serviços - Assistência Técnica", "Receita de Serviços - Outros", "Receita de Serviços - Projetos"] },
+  { group: "05.1 Receitas e Rendimentos Financeiros", items: ["Descontos financeiros obtidos", "Juros recebidos", "Rendimentos de Aplicações"] },
+  { group: "06.1 Outras Receitas Não Operacionais", items: ["Aporte/Entrada de Empréstimo Álisson", "Receita de Aluguel", "Reembolsos diversos / Outras entradas"] },
+];
+// Categorias antigas do app/Configurações -> nome equivalente no modelo.
+const DRE_RENAME_DESPESAS = {
+  "aluguel": "Aluguel Escritório", "energia eletrica": "Energia Elétrica", "internet/telefone": "Telefonia e Internet",
+  "combustivel": "Combustíveis", "salarios": "Salários Colaboradores", "inss": "INSS sobre Salários",
+  "material de escritorio": "Materiais de Escritório", "manutencao de maquinas e equipamentos": "Manutenção de Equipamentos Operacional",
+  "conselho regional agronomia": "CREA", "softwares adminstrativos": "Softwares Administrativo", "softwares administrativos": "Softwares Administrativo",
+  "softwares operacionais": "Software Operacional", "doacoes": "Doações e Patrocínios", "eventos": "Confraternizações e Eventos",
+  "pro-labore": "Pró-labore", "assessoria financeira": "Honorários Contábeis / Contabilidade",
+};
+
+function categoryGroupLabel(group) {
+  return String(group || "").replace(/^\d+(\.\d+)?[A-Z]?\s+/, "").trim();
+}
+function normalizeCategoryName(name) {
+  return String(name || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+// Agrupa a lista de categorias (cada uma com "group") em [{ group, label, items }],
+// na ordem do código do grupo; as sem grupo vão pro fim, em "Outras".
+function groupCategories(categories) {
+  const map = new Map();
+  (categories || []).forEach((c) => {
+    const g = c.group || "";
+    if (!map.has(g)) map.set(g, []);
+    map.get(g).push(c);
+  });
+  return [...map.entries()]
+    .sort(([a], [b]) => (a === "" ? 1 : b === "" ? -1 : a.localeCompare(b, "pt-BR", { numeric: true })))
+    .map(([group, items]) => ({
+      group, label: group ? categoryGroupLabel(group) : "Sem categoria",
+      items: [...items].sort((x, y) => x.name.localeCompare(y.name, "pt-BR", { sensitivity: "base" })),
+    }));
+}
+// Categoria de receita sugerida a partir do tipo do honorário.
+function defaultRevenueCategory(type) {
+  const t = normalizeCategoryName(FINANCE_TYPE_LABELS[type] || type);
+  if (t.includes("solo")) return "Receita de Serviços - Análises de Solo";
+  if (t.includes("mensalidade") || t.includes("assist")) return "Receita de Serviços - Assistência Técnica";
+  if (t.includes("projeto") || t.includes("custeio") || t.includes("investimento")) return "Receita de Serviços - Projetos";
+  return "Receita de Serviços - Outros";
+}
+
+// Lista suspensa Categoria > Subcategoria. onAdd(nome) cria uma subcategoria nova.
+function CategorySelect({ categories, extraNames = [], value, onChange, onAdd, placeholder = "Categoria…", style }) {
+  const groups = groupCategories(categories);
+  const known = new Set((categories || []).map((c) => c.name));
+  const extras = Array.from(new Set([...extraNames, value].filter((n) => n && !known.has(n)))).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  return (
+    <select
+      style={style || inputStyle}
+      value={value || ""}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === "__nova__") {
+          const nome = window.prompt("Nome da nova subcategoria:");
+          const criada = nome && onAdd ? onAdd(nome) : "";
+          if (criada) onChange(criada);
+          return;
+        }
+        onChange(v);
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {onAdd && <option value="__nova__">＋ Adicionar nova subcategoria…</option>}
+      {groups.map((g) => (
+        <optgroup key={g.group || "_"} label={g.label}>
+          {g.items.map((c) => <option key={c.id || c.name} value={c.name}>{c.name}</option>)}
+        </optgroup>
+      ))}
+      {extras.length > 0 && (
+        <optgroup label="Outras">
+          {extras.map((n) => <option key={n} value={n}>{n}</option>)}
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
+function BillModal({ data, categoryMemory, expenseCategories, onAddCategory, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState({
     description: "", category: "", amount: "", date: new Date().toISOString().slice(0, 10),
@@ -8464,7 +8691,6 @@ function BillModal({ data, categoryMemory, expenseCategories, onSave, onClose })
     ...(data || {}),
   });
   const canSave = form.description.trim() && Number(form.amount) > 0 && form.date;
-  const categoryOptions = Array.from(new Set([...(expenseCategories || []).map((c) => c.name), ...BILL_CATEGORY_SUGGESTIONS]));
   return (
     <Modal title={isEdit ? "Editar despesa" : "Nova despesa"} onClose={onClose}>
       <Field label="Descrição">
@@ -8478,11 +8704,14 @@ function BillModal({ data, categoryMemory, expenseCategories, onSave, onClose })
         }} placeholder="Ex: Energia elétrica — sede" />
       </Field>
       <Field label="Categoria">
-        <input style={inputStyle} list="bill-categories" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Ex: Energia Elétrica" />
-        <datalist id="bill-categories">
-          {categoryOptions.map((c) => <option key={c} value={c} />)}
-        </datalist>
-        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>Gerencie a lista de categorias em Configurações.</div>
+        <CategorySelect
+          categories={expenseCategories || []}
+          extraNames={(expenseCategories || []).length === 0 ? BILL_CATEGORY_SUGGESTIONS : []}
+          value={form.category}
+          onChange={(v) => setForm({ ...form, category: v })}
+          onAdd={onAddCategory}
+        />
+        <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 4 }}>Gerencie categorias e subcategorias em Configurações.</div>
       </Field>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 350" />
