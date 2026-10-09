@@ -1736,6 +1736,7 @@ export default function AgroTrackApp() {
             onChangeRate={updateCommissionRate}
             onChangeProjectRate={updateProjectShareRate}
             categoryMemory={categoryMemory}
+            expenseCategories={expenseCategories}
             onConfirmMatch={markFinancePaid}
             onConfirmBillMatch={markBillPaid}
             onCreateFromTransaction={(t, bankTxKey) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago", bankTxKey } })}
@@ -7267,7 +7268,7 @@ function FinanceiroView({
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onGenerateProLaboreBills,
-  categoryMemory, onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
+  categoryMemory, expenseCategories, onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
   const [tab, setTab] = useState("painel");
   const [reconSession, setReconSession] = useState(() => loadReconSession());
@@ -7542,7 +7543,7 @@ function FinanceiroView({
 
       {tab === "conciliacao" && (
         <ReconciliationView
-          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory}
+          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory} expenseCategories={expenseCategories}
           session={reconSession} onSessionChange={setReconSession}
           onConfirmMatch={onConfirmMatch} onConfirmBillMatch={onConfirmBillMatch}
           onCreateFromTransaction={onCreateFromTransaction} onCreateBillFromTransaction={onCreateBillFromTransaction}
@@ -8112,7 +8113,7 @@ function loadReconSession() {
 // editar, navegar e voltar sem precisar enviar o arquivo de novo. O que já foi
 // conciliado/lançado é reconhecido pela marca bankTxKey gravada no lançamento.
 function ReconciliationView({
-  finances, bills, clients, categoryMemory, session, onSessionChange,
+  finances, bills, clients, categoryMemory, expenseCategories, session, onSessionChange,
   onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
   const [error, setError] = useState("");
@@ -8201,7 +8202,8 @@ function ReconciliationView({
     todos: rows.length,
   };
   const visibleRows = rows.filter((r) => filter === "todos" || (filter === "abertos" ? r.state === "aberto" : r.state === filter));
-  const categorySuggestions = Array.from(new Set([...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})]));
+  // Categorias cadastradas em Configurações > Categorias de Despesa vêm primeiro.
+  const categoryOptions = Array.from(new Set([...(expenseCategories || []).map((c) => c.name), ...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})].filter(Boolean)));
 
   function toggleIgnore(key) {
     const ignored = new Set(session.ignored || []);
@@ -8271,7 +8273,6 @@ function ReconciliationView({
             const client = r.state === "aberto" && isCredit && r.match ? clients.find((c) => c.id === r.match.clientId) : null;
             const draftCategory = categoryDrafts[t.key] ?? r.suggestedCategory ?? "";
             const done = r.state !== "aberto";
-            const listId = `recon-cat-${r.idx}`;
             return (
               <div key={t.key} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", opacity: done ? 0.7 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11, color: "var(--ink-soft)", marginBottom: 2 }}>
@@ -8320,16 +8321,14 @@ function ReconciliationView({
                       {r.match ? `Combina com despesa: ${r.match.description} (${fmtCurrency(r.match.amount)})` : "Nenhuma despesa pendente com esse valor"}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <input
-                        style={{ ...inputStyle, width: 170, fontSize: 10 }}
-                        list={listId}
-                        placeholder="Categoria"
+                      <select
+                        style={{ ...inputStyle, width: 200, fontSize: 10 }}
                         value={draftCategory}
                         onChange={(e) => setCategoryDrafts((d) => ({ ...d, [t.key]: e.target.value }))}
-                      />
-                      <datalist id={listId}>
-                        {categorySuggestions.map((c) => <option key={c} value={c} />)}
-                      </datalist>
+                      >
+                        <option value="">Categoria…</option>
+                        {(draftCategory && !categoryOptions.includes(draftCategory) ? [draftCategory, ...categoryOptions] : categoryOptions).map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
                       <GhostBtn onClick={() => toggleIgnore(t.key)}>Ignorar</GhostBtn>
                       {r.match ? (
                         <GhostBtn onClick={() => onConfirmBillMatch(r.match, t, draftCategory, t.key)}>Confirmar pagamento</GhostBtn>
