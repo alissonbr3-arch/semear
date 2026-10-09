@@ -673,6 +673,23 @@ export default function AgroTrackApp() {
     }
   }
 
+  // "Lançar despesa" direto da conciliação: cria a despesa já paga, sem abrir
+  // formulário (descrição e data do banco, categoria escolhida na linha).
+  function createBillFromBankTransaction(t, category, bankTxKey) {
+    const cat = (category || "").trim();
+    if (!cat) { alert("Escolha a categoria da despesa antes de lançar."); return; }
+    const description = (t.description || "").replace(/^\d{2}\/\d{2}\s+\d{2}:\d{2}\s+/, "").trim() || "Lançamento bancário";
+    const now = new Date().toISOString();
+    const entry = {
+      id: uid(), description, category: cat, amount: Math.abs(t.amount), date: t.date, referenceMonth: t.date.slice(0, 7),
+      status: "pago", recurring: false, reconciledBank: true, reconciledAt: now, ...(bankTxKey ? { bankTxKey } : {}),
+    };
+    logActivity(makeLogEntry("create", "bill", description, `Lançada pela conciliação · R$ ${Math.abs(t.amount).toLocaleString("pt-BR")} · ${entry.referenceMonth}`));
+    persistBills([...bills, entry]);
+    const key = normalizeDescription(t.description);
+    if (key && categoryMemory[key] !== cat) persistCategoryMemory({ ...categoryMemory, [key]: cat });
+  }
+
   function saveBill(form) {
     if (form.category && form.description) {
       const key = normalizeDescription(form.description);
@@ -1740,7 +1757,7 @@ export default function AgroTrackApp() {
             onConfirmMatch={markFinancePaid}
             onConfirmBillMatch={markBillPaid}
             onCreateFromTransaction={(t, bankTxKey) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago", bankTxKey } })}
-            onCreateBillFromTransaction={(t, category, bankTxKey) => setModal({ type: "bill", data: { description: t.description || "", category: category || "", amount: Math.abs(t.amount), date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago", bankTxKey } })}
+            onCreateBillFromTransaction={createBillFromBankTransaction}
             onGenerateProLaboreBills={generateProLaboreBills}
           />
         )}
