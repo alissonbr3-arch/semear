@@ -639,10 +639,10 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("delete", "finance", client?.name));
     persistFinances(finances.filter((f) => f.id !== id));
   }
-  function markFinancePaid(entry, transaction) {
+  function markFinancePaid(entry, transaction, bankTxKey) {
     const client = clients.find((c) => c.id === entry.clientId);
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
-    persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString() } : f)));
+    persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString(), ...(bankTxKey ? { bankTxKey } : {}) } : f)));
   }
   // Troca o status pendente <-> pago direto do Extrato de Movimentações (sem
   // passar por conciliação bancária).
@@ -661,10 +661,10 @@ export default function AgroTrackApp() {
       persistBills(bills.map((b) => (b.id === id ? { ...b, status: flip(b.status) } : b)));
     }
   }
-  function markBillPaid(entry, transaction, category) {
+  function markBillPaid(entry, transaction, category, bankTxKey) {
     const finalCategory = (category || "").trim() || entry.category || "";
     logActivity(makeLogEntry("update", "bill", entry.description, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
-    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date, category: finalCategory, reconciledBank: true, reconciledAt: new Date().toISOString() } : b)));
+    persistBills(bills.map((b) => (b.id === entry.id ? { ...b, status: "pago", date: transaction.date, category: finalCategory, reconciledBank: true, reconciledAt: new Date().toISOString(), ...(bankTxKey ? { bankTxKey } : {}) } : b)));
     // Lembra a categoria usada pra descrição desse lançamento do banco, pra
     // já sugerir certo da próxima vez que aparecer algo parecido no extrato.
     const key = normalizeDescription(transaction.description);
@@ -1735,7 +1735,11 @@ export default function AgroTrackApp() {
             onDeleteBill={deleteBill}
             onChangeRate={updateCommissionRate}
             onChangeProjectRate={updateProjectShareRate}
-            onReconcile={() => setModal({ type: "reconcile", data: null })}
+            categoryMemory={categoryMemory}
+            onConfirmMatch={markFinancePaid}
+            onConfirmBillMatch={markBillPaid}
+            onCreateFromTransaction={(t, bankTxKey) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago", bankTxKey } })}
+            onCreateBillFromTransaction={(t, category, bankTxKey) => setModal({ type: "bill", data: { description: t.description || "", category: category || "", amount: Math.abs(t.amount), date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago", bankTxKey } })}
             onGenerateProLaboreBills={generateProLaboreBills}
           />
         )}
@@ -1872,16 +1876,6 @@ export default function AgroTrackApp() {
       )}
       {modal?.type === "bill" && (
         <BillModal data={modal.data} categoryMemory={categoryMemory} expenseCategories={expenseCategories} onSave={saveBill} onClose={() => setModal(null)} />
-      )}
-      {modal?.type === "reconcile" && (
-        <ReconciliationModal
-          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory}
-          onConfirmMatch={markFinancePaid}
-          onConfirmBillMatch={markBillPaid}
-          onCreateFromTransaction={(t) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
-          onCreateBillFromTransaction={(t, category) => setModal({ type: "bill", data: { description: t.description || "", category: category || "", amount: Math.abs(t.amount), date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago" } })}
-          onClose={() => setModal(null)}
-        />
       )}
     </div>
   );
@@ -7272,9 +7266,12 @@ function FinanceiroView({
   onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onEnviarWhatsapp, onTesteWhatsapp, onChangeWhatsappCobranca, onToggleMovementStatus,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
-  onChangeRate, onChangeProjectRate, onReconcile, onGenerateProLaboreBills,
+  onChangeRate, onChangeProjectRate, onGenerateProLaboreBills,
+  categoryMemory, onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
   const [tab, setTab] = useState("painel");
+  const [reconSession, setReconSession] = useState(() => loadReconSession());
+  const onReconcile = () => setTab("conciliacao");
   const [gerandoBoletoId, setGerandoBoletoId] = useState(null);
   const [boletoError, setBoletoError] = useState("");
   const [gerandoNotaFiscalId, setGerandoNotaFiscalId] = useState(null);
@@ -7441,6 +7438,7 @@ function FinanceiroView({
   const FINANCEIRO_TABS = [
     { id: "painel", label: "Painel", icon: LayoutDashboard },
     { id: "extrato", label: "Extrato de Movimentações", icon: FileText },
+    { id: "conciliacao", label: "Conciliação", icon: Repeat },
     { id: "fluxocaixa", label: "Fluxo de Caixa", icon: TrendingUp },
     { id: "honorarios", label: "Honorários", icon: Wallet },
     { id: "comissoes", label: "Pró-labore", icon: UserCog },
@@ -7540,6 +7538,15 @@ function FinanceiroView({
             </div>
           </div>
         </div>
+      )}
+
+      {tab === "conciliacao" && (
+        <ReconciliationView
+          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory}
+          session={reconSession} onSessionChange={setReconSession}
+          onConfirmMatch={onConfirmMatch} onConfirmBillMatch={onConfirmBillMatch}
+          onCreateFromTransaction={onCreateFromTransaction} onCreateBillFromTransaction={onCreateBillFromTransaction}
+        />
       )}
 
       {tab === "extrato" && (
@@ -8057,20 +8064,35 @@ function FinanceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
   );
 }
 
-function ReconciliationModal({
-  finances, bills, clients, categoryMemory,
-  onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction, onClose,
+const RECON_STORAGE_KEY = "semear_recon_session";
+
+function loadReconSession() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECON_STORAGE_KEY) || "null");
+    if (raw?.transactions?.length) return { fileName: raw.fileName || "", transactions: raw.transactions, ignored: raw.ignored || [] };
+  } catch {}
+  return null;
+}
+
+// Página de conciliação do extrato (OFX). A sessão (arquivo lido + lançamentos
+// ignorados) fica guardada no navegador, então dá pra lançar despesa/honorário,
+// editar, navegar e voltar sem precisar enviar o arquivo de novo. O que já foi
+// conciliado/lançado é reconhecido pela marca bankTxKey gravada no lançamento.
+function ReconciliationView({
+  finances, bills, clients, categoryMemory, session, onSessionChange,
+  onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
-  const [rows, setRows] = useState(null);
-  const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
-  const [confirmedIds, setConfirmedIds] = useState([]);
+  const [filter, setFilter] = useState("abertos");
   const [categoryDrafts, setCategoryDrafts] = useState({});
   const fileInputRef = useRef(null);
 
-  function buildRows(transactions) {
-    setRows(matchBankTransactions(transactions, finances, bills, categoryMemory));
-    setCategoryDrafts({});
+  function saveSession(next) {
+    onSessionChange(next);
+    try {
+      if (next) localStorage.setItem(RECON_STORAGE_KEY, JSON.stringify(next));
+      else localStorage.removeItem(RECON_STORAGE_KEY);
+    } catch {}
   }
 
   async function handleFile(file) {
@@ -8086,130 +8108,190 @@ function ReconciliationModal({
         setError("Não consegui reconhecer nenhum lançamento nesse arquivo OFX.");
         return;
       }
-      setFileName(file.name);
-      buildRows(transactions);
+      setCategoryDrafts({});
+      saveSession({ fileName: file.name, transactions, ignored: [] });
     } catch {
       setError("Não foi possível ler o arquivo.");
     }
   }
 
-  function handleConfirmFinance(match, transaction) {
-    onConfirmMatch(match, transaction);
-    setConfirmedIds((ids) => [...ids, match.id]);
-  }
+  // Chave estável de cada lançamento do banco (data + valor + descrição, com
+  // contador pra lançamentos idênticos no mesmo dia).
+  const keyed = useMemo(() => {
+    const seen = {};
+    return (session?.transactions || []).map((t) => {
+      const base = `${t.date}|${Number(t.amount).toFixed(2)}|${t.description || ""}`;
+      seen[base] = (seen[base] || 0) + 1;
+      return { ...t, key: `${base}#${seen[base]}` };
+    });
+  }, [session]);
 
-  function handleConfirmBill(match, transaction, category) {
-    onConfirmBillMatch(match, transaction, category);
-    setConfirmedIds((ids) => [...ids, match.id]);
-  }
+  const rows = useMemo(() => {
+    const doneKeys = new Set([...finances, ...bills].map((e) => e.bankTxKey).filter(Boolean));
+    const ignored = new Set(session?.ignored || []);
+    const open = keyed.filter((t) => !doneKeys.has(t.key) && !ignored.has(t.key));
+    const matches = new Map(matchBankTransactions(open, finances, bills, categoryMemory).map((m) => [m.transaction.key, m]));
+    return keyed
+      .map((t, idx) => {
+        if (doneKeys.has(t.key)) return { transaction: t, idx, state: "conciliado" };
+        if (ignored.has(t.key)) return { transaction: t, idx, state: "ignorado" };
+        const m = matches.get(t.key);
+        return { transaction: t, idx, state: "aberto", kind: t.type === "credit" ? "credit" : "debit", match: m?.match || null, suggestedCategory: m?.suggestedCategory || "" };
+      })
+      .sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || "") || a.idx - b.idx);
+  }, [keyed, finances, bills, categoryMemory, session]);
 
+  const counts = {
+    abertos: rows.filter((r) => r.state === "aberto").length,
+    conciliado: rows.filter((r) => r.state === "conciliado").length,
+    ignorado: rows.filter((r) => r.state === "ignorado").length,
+    todos: rows.length,
+  };
+  const visibleRows = rows.filter((r) => filter === "todos" || (filter === "abertos" ? r.state === "aberto" : r.state === filter));
   const categorySuggestions = Array.from(new Set([...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})]));
 
-  return (
-    <Modal title="Conciliar extrato bancário" onClose={onClose} maxWidth={760}>
-      {!rows ? (
-        <>
-          <div style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 14 }}>
-            Envie o extrato exportado do internet banking em OFX ("Open Financial Exchange"). O sistema procura, entre os honorários e despesas com status "Pendente", algum com o mesmo valor de cada lançamento (entrada ou saída).
-          </div>
-          <input ref={fileInputRef} type="file" accept=".ofx" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "var(--ink-soft)" }} />
-          {error && <div style={{ fontSize: 10.5, color: "var(--red)", marginTop: 10 }}>{error}</div>}
-        </>
-      ) : (
-        <div>
-          <div style={{ fontSize: 10, color: "var(--ink-faint)", marginBottom: 12 }}>{fileName} · {rows.length} lançamento(s) encontrado(s)</div>
-          {rows.length === 0 ? (
-            <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhum lançamento encontrado no extrato.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 560, overflowY: "auto" }}>
-              {rows.map((r, i) => {
-                const isConfirmed = r.match && confirmedIds.includes(r.match.id);
-                const isCredit = r.kind === "credit";
-                const client = isCredit && r.match ? clients.find((c) => c.id === r.match.clientId) : null;
-                const draftCategory = categoryDrafts[i] ?? r.suggestedCategory ?? "";
-                return (
-                  <div key={i} style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 2 }}>
-                      <span>
-                        <span style={{
-                          display: "inline-block", fontSize: 8.5, fontWeight: 700, textTransform: "uppercase",
-                          color: isCredit ? "var(--green)" : "var(--red)", marginRight: 6,
-                        }}>
-                          {isCredit ? "Entrada" : "Saída"}
-                        </span>
-                        {fmtDate(r.transaction.date)} · {r.transaction.description || "—"}
-                      </span>
-                      <strong>{fmtCurrency(r.transaction.amount)}</strong>
-                    </div>
-                    {r.transaction.counterpartyDoc && (
-                      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 6 }}>
-                        CPF/CNPJ da contraparte: {r.transaction.counterpartyDoc}
-                      </div>
-                    )}
+  function toggleIgnore(key) {
+    const ignored = new Set(session.ignored || []);
+    if (ignored.has(key)) ignored.delete(key); else ignored.add(key);
+    saveSession({ ...session, ignored: [...ignored] });
+  }
 
-                    {isConfirmed ? (
-                      <div style={{ fontSize: 9.5, color: "var(--green)" }}>
-                        {isCredit ? `Conciliado com ${client?.name || "—"}` : "Despesa conciliada"}
-                      </div>
-                    ) : isCredit ? (
-                      r.match ? (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9.5, color: "var(--green)" }}>
-                            Combina com: {client?.name || "—"} ({fmtCurrency(r.match.amount)}, {r.match.referenceMonth})
-                          </span>
-                          <GhostBtn onClick={() => handleConfirmFinance(r.match, r.transaction)}>Confirmar pagamento</GhostBtn>
-                        </div>
-                      ) : (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9.5, color: "var(--gold)" }}>Nenhum honorário pendente com esse valor</span>
-                          <GhostBtn onClick={() => onCreateFromTransaction(r.transaction)}>Lançar honorário</GhostBtn>
-                        </div>
-                      )
-                    ) : r.match ? (
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ fontSize: 9.5, color: "var(--green)" }}>
-                          Combina com despesa: {r.match.description} ({fmtCurrency(r.match.amount)})
-                        </span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <input
-                            style={{ ...inputStyle, width: 150, fontSize: 10 }}
-                            list={`recon-cat-${i}`}
-                            placeholder="Categoria"
-                            value={draftCategory}
-                            onChange={(e) => setCategoryDrafts((d) => ({ ...d, [i]: e.target.value }))}
-                          />
-                          <datalist id={`recon-cat-${i}`}>
-                            {categorySuggestions.map((c) => <option key={c} value={c} />)}
-                          </datalist>
-                          <GhostBtn onClick={() => handleConfirmBill(r.match, r.transaction, draftCategory)}>Confirmar pagamento</GhostBtn>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <input
-                          style={{ ...inputStyle, width: 180, fontSize: 10 }}
-                          list={`recon-cat-${i}`}
-                          placeholder="Categoria"
-                          value={draftCategory}
-                          onChange={(e) => setCategoryDrafts((d) => ({ ...d, [i]: e.target.value }))}
-                        />
-                        <datalist id={`recon-cat-${i}`}>
-                          {categorySuggestions.map((c) => <option key={c} value={c} />)}
-                        </datalist>
-                        <GhostBtn onClick={() => onCreateBillFromTransaction(r.transaction, draftCategory)}>Lançar despesa</GhostBtn>
-                      </div>
-                    )}
+  if (!session) {
+    return (
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 24, maxWidth: 720 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", marginBottom: 6 }}>Conciliação bancária</div>
+        <div style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 16, lineHeight: 1.5 }}>
+          Envie o extrato exportado do internet banking em OFX ("Open Financial Exchange"). O sistema procura, entre os honorários e despesas com status "Pendente", algum com o mesmo valor de cada lançamento (entrada ou saída). O arquivo fica guardado neste navegador enquanto você concilia — dá pra sair e voltar sem enviar de novo.
+        </div>
+        <input ref={fileInputRef} type="file" accept=".ofx" onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])} style={{ fontSize: 10.5, color: "var(--ink-soft)" }} />
+        {error && <div style={{ fontSize: 10.5, color: "var(--red)", marginTop: 10 }}>{error}</div>}
+      </div>
+    );
+  }
+
+  const FILTERS = [
+    { id: "abertos", label: "A conciliar", n: counts.abertos },
+    { id: "conciliado", label: "Conciliados", n: counts.conciliado },
+    { id: "ignorado", label: "Ignorados", n: counts.ignorado },
+    { id: "todos", label: "Todos", n: counts.todos },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, color: "var(--ink-dim)" }}>
+          <strong style={{ color: "var(--ink-soft)" }}>{session.fileName}</strong> · {counts.todos} lançamento(s) · {counts.conciliado} conciliado(s) · {counts.abertos} a conciliar
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <GhostBtn onClick={() => fileInputRef.current?.click()}>Trocar arquivo</GhostBtn>
+          <GhostBtn onClick={() => { if (confirm("Limpar o extrato carregado? Os lançamentos já conciliados continuam salvos.")) saveSession(null); }}>Limpar</GhostBtn>
+          <input ref={fileInputRef} type="file" accept=".ofx" style={{ display: "none" }} onChange={(e) => { if (e.target.files[0]) handleFile(e.target.files[0]); e.target.value = ""; }} />
+        </div>
+      </div>
+      {error && <div style={{ fontSize: 10.5, color: "var(--red)", marginBottom: 10 }}>{error}</div>}
+
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {FILTERS.map((f) => {
+          const active = filter === f.id;
+          return (
+            <button key={f.id} onClick={() => setFilter(f.id)} style={{
+              padding: "6px 14px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
+              border: active ? "1px solid var(--green)" : "1px solid var(--border-input)",
+              background: active ? "var(--green-soft-bg)" : "transparent",
+              color: active ? "var(--green)" : "var(--ink-dim)",
+            }}>
+              {f.label} ({f.n})
+            </button>
+          );
+        })}
+      </div>
+
+      {visibleRows.length === 0 ? (
+        <div style={{ color: "var(--ink-faint)", fontSize: 10.5, padding: "24px 0" }}>
+          {filter === "abertos" ? "Tudo conciliado por aqui. 🎉" : "Nenhum lançamento nesta lista."}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {visibleRows.map((r) => {
+            const t = r.transaction;
+            const isCredit = t.type === "credit";
+            const client = r.state === "aberto" && isCredit && r.match ? clients.find((c) => c.id === r.match.clientId) : null;
+            const draftCategory = categoryDrafts[t.key] ?? r.suggestedCategory ?? "";
+            const done = r.state !== "aberto";
+            const listId = `recon-cat-${r.idx}`;
+            return (
+              <div key={t.key} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", opacity: done ? 0.7 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11, color: "var(--ink-soft)", marginBottom: 2 }}>
+                  <span>
+                    <span style={{ display: "inline-block", fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", color: isCredit ? "var(--green)" : "var(--red)", marginRight: 8 }}>
+                      {isCredit ? "Entrada" : "Saída"}
+                    </span>
+                    {fmtDate(t.date)} · {t.description || "—"}
+                  </span>
+                  <strong style={{ color: isCredit ? "var(--green)" : "var(--ink)" }}>{fmtCurrency(t.amount)}</strong>
+                </div>
+                {t.counterpartyDoc && (
+                  <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 6 }}>CPF/CNPJ da contraparte: {t.counterpartyDoc}</div>
+                )}
+
+                {r.state === "conciliado" ? (
+                  <div style={{ fontSize: 9.5, color: "var(--green)" }}>✓ Conciliado</div>
+                ) : r.state === "ignorado" ? (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>Ignorado (não precisa lançar)</span>
+                    <GhostBtn onClick={() => toggleIgnore(t.key)}>Desfazer</GhostBtn>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                ) : isCredit ? (
+                  r.match ? (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 9.5, color: "var(--green)" }}>
+                        Combina com: {client?.name || "—"} ({fmtCurrency(r.match.amount)}, {r.match.referenceMonth})
+                      </span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <GhostBtn onClick={() => toggleIgnore(t.key)}>Ignorar</GhostBtn>
+                        <GhostBtn onClick={() => onConfirmMatch(r.match, t, t.key)}>Confirmar pagamento</GhostBtn>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 9.5, color: "var(--gold)" }}>Nenhum honorário pendente com esse valor</span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <GhostBtn onClick={() => toggleIgnore(t.key)}>Ignorar</GhostBtn>
+                        <GhostBtn onClick={() => onCreateFromTransaction(t, t.key)}>Lançar honorário</GhostBtn>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 9.5, color: r.match ? "var(--green)" : "var(--gold)" }}>
+                      {r.match ? `Combina com despesa: ${r.match.description} (${fmtCurrency(r.match.amount)})` : "Nenhuma despesa pendente com esse valor"}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <input
+                        style={{ ...inputStyle, width: 170, fontSize: 10 }}
+                        list={listId}
+                        placeholder="Categoria"
+                        value={draftCategory}
+                        onChange={(e) => setCategoryDrafts((d) => ({ ...d, [t.key]: e.target.value }))}
+                      />
+                      <datalist id={listId}>
+                        {categorySuggestions.map((c) => <option key={c} value={c} />)}
+                      </datalist>
+                      <GhostBtn onClick={() => toggleIgnore(t.key)}>Ignorar</GhostBtn>
+                      {r.match ? (
+                        <GhostBtn onClick={() => onConfirmBillMatch(r.match, t, draftCategory, t.key)}>Confirmar pagamento</GhostBtn>
+                      ) : (
+                        <GhostBtn onClick={() => onCreateBillFromTransaction(t, draftCategory, t.key)}>Lançar despesa</GhostBtn>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-        <GhostBtn onClick={onClose}>Fechar</GhostBtn>
-      </div>
-    </Modal>
+    </div>
   );
 }
 
