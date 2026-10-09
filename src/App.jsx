@@ -2015,7 +2015,7 @@ function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenFi
           <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="var(--green)"
             sub={monthFinanceSummary.totalPendente > 0 ? `${fmtCurrency(monthFinanceSummary.totalPendente)} pendente` : "tudo recebido"} />
           <StatCard label={`Saídas previstas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalSaidasPrevistas)} accent="var(--gold)"
-            sub={`Pró-labore ${fmtCurrency(monthFinanceSummary.totalProLabore)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasDoMes)}`} />
+            sub={`Pró-labore do mês anterior ${fmtCurrency(monthFinanceSummary.totalProLaboreCaixa)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasDoMes)}`} />
         </div>
       )}
 
@@ -2633,6 +2633,48 @@ const SOIL_NUTRIENTS = [
   { key: "zn", label: "Zinco (Zn)", unit: "mg/dm³" },
 ];
 
+// Faixas de interpretação usadas no Relatório de Análise (barra colorida por
+// elemento): [mínimo da escala, limite baixo, limite alto, máximo da escala].
+// Abaixo do limite baixo = "Baixa", entre os dois = "Média", acima = "Alta".
+// São valores de referência comuns pro Cerrado (os mesmos que o Geodata usa
+// por padrão) — "invert" marca os elementos em que valor alto é ruim (Al).
+const SOIL_REFERENCE = {
+  ph: [5, 5.5, 6.6, 7],
+  p: [8, 15, 35, 50],
+  p_mel: [8, 15, 35, 50],
+  p_res: [5, 8, 35, 40],
+  k: [20, 40, 80, 120],
+  ca: [0.5, 1.5, 7, 10],
+  mg: [0.2, 0.5, 2, 3],
+  al: [0, 0.01, 0.05, 0.1],
+  ctc: [2, 4.3, 8.6, 15],
+  v: [30, 55, 85, 100],
+  mo: [10, 15, 30, 50],
+  s: [1, 6, 15, 20],
+  b: [0.3, 0.5, 2, 5],
+  cu: [0.3, 0.8, 7, 15],
+  fe: [4, 12, 20, 30],
+  mn: [1, 2, 10, 20],
+  zn: [0.5, 2, 10, 30],
+};
+const SOIL_REFERENCE_INVERTED = new Set(["al"]);
+
+// Paletas dos mapas: vermelho→verde (6 faixas) pros nutrientes e azul pro
+// calcário, no padrão de mapa de fertilidade do mercado.
+const SOIL_PALETTE = [[215, 25, 28], [253, 174, 97], [255, 255, 191], [166, 217, 106], [96, 184, 86], [26, 150, 65]];
+const LIME_PALETTE = [[239, 243, 255], [181, 202, 230], [123, 162, 205], [65, 121, 180], [8, 81, 156]];
+function soilPaletteFor(nutrientKey) {
+  return SOIL_REFERENCE_INVERTED.has(nutrientKey) ? [...SOIL_PALETTE].reverse() : SOIL_PALETTE;
+}
+
+function fmtNum(v, digits = 2) {
+  return Number(v).toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function soilDepthLabel(depth) {
+  return depth === "20-40" ? "20 a 40 cm" : "00 a 20 cm";
+}
+
 // Duas camadas de coleta (0-20cm é a padrão/principal, já usada em tudo do
 // jeito que sempre foi; 20-40cm é opcional — só existe quando a planilha
 // importada traz uma segunda coluna por nutriente pra essa profundidade).
@@ -2752,33 +2794,17 @@ function idwInterpolate(lat, lng, points, valueKey, power = 2) {
   return weightSum > 0 ? weightedSum / weightSum : null;
 }
 
-function heatColor(t) {
-  const stops = [[0, [214, 69, 65]], [0.5, [227, 180, 85]], [1, [123, 193, 66]]];
-  for (let i = 0; i < stops.length - 1; i++) {
-    const [t0, c0] = stops[i], [t1, c1] = stops[i + 1];
-    if (t >= t0 && t <= t1) {
-      const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
-      return [
-        Math.round(c0[0] + f * (c1[0] - c0[0])),
-        Math.round(c0[1] + f * (c1[1] - c0[1])),
-        Math.round(c0[2] + f * (c1[2] - c0[2])),
-      ];
-    }
-  }
-  return stops[stops.length - 1][1];
-}
-
-const HEAT_NUM_CLASSES = 5;
-
-// Mapa de calor "em blocos" (classificado em faixas de igual amplitude), no
-// estilo de mapa de prescrição usado no mercado (Geodata etc.) — cores sólidas
-// por faixa em vez de gradiente contínuo, com área/porcentagem por faixa pra
-// dar dimensão real de quanto do talhão cai em cada nível.
-function buildHeatOverlay(polygon, points, valueKey, resolution = 70, numClasses = HEAT_NUM_CLASSES) {
+// Mapa de fertilidade "em faixas" (classificado em faixas de igual amplitude),
+// no estilo dos mapas do mercado (Geodata etc.) — cores sólidas por faixa,
+// interpoladas em alta resolução pra ficar com contorno suave, e com
+// área/porcentagem por faixa pra dar dimensão real de quanto do talhão cai em
+// cada nível. O número de faixas é o tamanho da paleta.
+function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette = SOIL_PALETTE) {
   if (!polygon || polygon.length < 3) return null;
-  const values = points
-    .map((p) => Number(p[valueKey]))
-    .filter((v) => isValidNumber(v));
+  const numClasses = palette.length;
+  // Só os pontos com valor entram (campo vazio não pode virar zero).
+  const validPoints = points.filter((p) => p[valueKey] !== "" && p[valueKey] !== null && p[valueKey] !== undefined && isValidNumber(Number(p[valueKey])));
+  const values = validPoints.map((p) => Number(p[valueKey]));
   if (values.length === 0) return null;
   const minV = Math.min(...values), maxV = Math.max(...values);
   const range = maxV > minV ? maxV - minV : 1;
@@ -2789,11 +2815,7 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 70, numClasses
     const idx = Math.floor(((val - minV) / range) * numClasses);
     return Math.max(0, Math.min(numClasses - 1, idx));
   }
-  const classColors = [];
-  for (let i = 0; i < numClasses; i++) {
-    const t = numClasses > 1 ? i / (numClasses - 1) : 0.5;
-    classColors.push(heatColor(t));
-  }
+  const classColors = palette;
 
   const lats = polygon.map((p) => p[0]);
   const lngs = polygon.map((p) => p[1]);
@@ -2814,14 +2836,14 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 70, numClasses
       const lng = minLng + (x / (w - 1)) * (maxLng - minLng);
       const idx = (y * w + x) * 4;
       if (!pointInPolygon(lat, lng, polygon)) continue;
-      const val = idwInterpolate(lat, lng, points, valueKey);
+      const val = idwInterpolate(lat, lng, validPoints, valueKey);
       if (val === null) continue;
       const cls = classify(val);
       const [r, g, b] = classColors[cls];
       imgData.data[idx] = r;
       imgData.data[idx + 1] = g;
       imgData.data[idx + 2] = b;
-      imgData.data[idx + 3] = 210;
+      imgData.data[idx + 3] = 255;
       classCounts[cls]++;
       totalCount++;
       sumVal += val;
@@ -3450,7 +3472,7 @@ function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, 
   doc.text(title, marginX, y);
   y += 8;
 
-  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260);
+  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260, soilPaletteFor(nutrientDef.key));
   const contentWidth = pageWidth - marginX * 2;
   if (!overlay) {
     doc.setFont("helvetica", "normal");
@@ -3739,6 +3761,225 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Cartão flutuante por cima do mapa (legenda / informações), recolhível.
+function SoilMapCard({ title, subtitle, open, onToggle, children }) {
+  return (
+    <div style={{
+      pointerEvents: "auto", background: "rgba(255,255,255,0.88)", color: "#222", borderRadius: 5,
+      padding: "9px 12px", fontSize: 10, fontFamily: "'Montserrat', 'Manrope', sans-serif", minWidth: 170, maxWidth: "100%",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.18)", backdropFilter: "blur(2px)",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#222" }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 9.5, color: "#444", marginTop: 1 }}>{subtitle}</div>}
+        </div>
+        <button onClick={onToggle} title={open ? "Recolher" : "Expandir"} style={{
+          background: "#4E8B6A", color: "#fff", border: "none", borderRadius: 3, width: 18, height: 18,
+          display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0, flexShrink: 0,
+        }}>
+          <ChevronRight size={12} style={{ transform: open ? "rotate(90deg)" : "rotate(-90deg)" }} />
+        </button>
+      </div>
+      {open && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(0,0,0,0.1)" }}>{children}</div>}
+    </div>
+  );
+}
+
+function SoilInfoItem({ label, value }) {
+  return (
+    <div style={{ marginBottom: 5 }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, color: "#222" }}>{label}</div>
+      <div style={{ fontSize: 10, color: "#333" }}>{value}</div>
+    </div>
+  );
+}
+
+// Classifica a média contra as faixas de referência do elemento.
+function soilLevel(value, ref) {
+  if (!ref || value === null) return null;
+  if (value < ref[1]) return "Baixa";
+  if (value > ref[2]) return "Alta";
+  return "Média";
+}
+
+// Posição (0-100%) do valor na barra: cada trecho entre os limites ocupa uma
+// fatia fixa (0-25% até o limite baixo, 25-75% na faixa média, 75-100% acima),
+// pra faixa adequada ficar sempre no meio, qualquer que seja a escala.
+function soilGaugePos(value, ref) {
+  const [min, low, high, max] = ref;
+  const seg = (v, a, b, p0, p1) => p0 + ((v - a) / (b - a || 1)) * (p1 - p0);
+  if (value <= min) return 0;
+  if (value <= low) return seg(value, min, low, 0, 25);
+  if (value <= high) return seg(value, low, high, 25, 75);
+  if (value <= max) return seg(value, high, max, 75, 100);
+  return 100;
+}
+
+function SoilGauge({ value, refRange, inverted }) {
+  const pos = soilGaugePos(value, refRange);
+  const gradient = "linear-gradient(90deg, #e53935 0%, #f39c12 22%, #f4d03f 42%, #8bc34a 72%, #2e7d32 100%)";
+  const gradientInv = "linear-gradient(90deg, #2e7d32 0%, #8bc34a 28%, #f4d03f 58%, #f39c12 78%, #e53935 100%)";
+  return (
+    <div style={{ position: "relative", padding: "16px 4px 14px" }}>
+      <div style={{ position: "absolute", left: `calc(${pos}% )`, top: 0, transform: "translateX(-50%)", fontSize: 10.5, fontWeight: 700, color: "var(--ink)", whiteSpace: "nowrap" }}>
+        {fmtNum(value)}
+      </div>
+      <div style={{ position: "relative", height: 9, borderRadius: 5, background: inverted ? gradientInv : gradient }}>
+        {[25, 75].map((t) => (
+          <span key={t} style={{ position: "absolute", left: `${t}%`, top: 0, bottom: 0, width: 1, background: "rgba(0,0,0,0.45)" }} />
+        ))}
+        <span style={{
+          position: "absolute", left: `${pos}%`, top: -4, transform: "translateX(-50%)", width: 10, height: 17,
+          borderRadius: 3, background: "#fff", border: "1px solid #888", boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+        }} />
+      </div>
+      {[0, 25, 75, 100].map((t, i) => (
+        <span key={t} style={{
+          position: "absolute", left: `calc(4px + (100% - 8px) * ${t / 100})`, bottom: 0,
+          transform: t === 0 ? "none" : t === 100 ? "translateX(-100%)" : "translateX(-50%)",
+          fontSize: 8.5, color: "var(--ink-faint)",
+        }}>
+          {String(refRange[i]).replace(".", ",")}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function soilStats(points, key) {
+  const values = points
+    .map((p) => p[key])
+    .filter((v) => v !== "" && v !== null && v !== undefined && !Number.isNaN(Number(v)))
+    .map(Number);
+  if (values.length === 0) return null;
+  return { avg: values.reduce((a, b) => a + b, 0) / values.length, min: Math.min(...values), max: Math.max(...values), n: values.length };
+}
+
+const SOIL_LEVEL_STYLE = {
+  good: { color: "#2e7d32", background: "rgba(46,125,50,0.10)", border: "1px solid rgba(46,125,50,0.35)" },
+  bad: { color: "#d32f2f", background: "rgba(211,47,47,0.08)", border: "1px solid rgba(211,47,47,0.35)" },
+  warn: { color: "#b7791f", background: "rgba(214,158,46,0.12)", border: "1px solid rgba(214,158,46,0.4)" },
+};
+
+function SoilLevelBadge({ level, inverted }) {
+  if (!level) return null;
+  const kind = level === "Média" ? "good" : inverted ? (level === "Baixa" ? "good" : "bad") : level === "Baixa" ? "bad" : "warn";
+  return (
+    <span style={{ ...SOIL_LEVEL_STYLE[kind], display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 600, whiteSpace: "nowrap" }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor" }} /> {level}
+    </span>
+  );
+}
+
+// Uma linha da barra: título da linha (profundidade), barra, amostras e nível.
+function SoilReportLine({ caption, stats, refRange, inverted }) {
+  const lbl = { fontSize: 8.5, color: "var(--ink-faint)" };
+  const val = { fontSize: 11, fontWeight: 700, color: "var(--ink)" };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", padding: "6px 0" }}>
+      <div style={{ width: 90 }}>
+        <div style={lbl}>Profundidade</div>
+        <div style={{ ...val, fontSize: 11.5 }}>{caption}</div>
+      </div>
+      <div style={{ flex: "1 1 220px", minWidth: 180 }}>
+        <SoilGauge value={stats.avg} refRange={refRange} inverted={inverted} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 56px)", gap: 6 }}>
+        <div style={{ ...lbl, gridColumn: "1 / 4", textAlign: "right", textTransform: "uppercase", letterSpacing: ".04em" }}>Amostras ({stats.n})</div>
+        <div><div style={lbl}>Média</div><div style={val}>{fmtNum(stats.avg)}</div></div>
+        <div><div style={lbl}>Mínimo</div><div style={val}>{fmtNum(stats.min)}</div></div>
+        <div><div style={lbl}>Máximo</div><div style={val}>{fmtNum(stats.max)}</div></div>
+      </div>
+      <div style={{ width: 80, display: "flex", justifyContent: "flex-end" }}>
+        <SoilLevelBadge level={soilLevel(stats.avg, refRange)} inverted={inverted} />
+      </div>
+    </div>
+  );
+}
+
+// Relatório de Análise: um cartão por elemento com a média das amostras numa
+// barra colorida (vermelho = deficiente → verde = adequado), mínimo/máximo e
+// a interpretação. "Perfil de solo" compara 0-20 com 20-40cm no mesmo cartão.
+function SoilAnalysisReport({ points, hasDeepData, onClose }) {
+  const [view, setView] = useState("element");
+  const [depth, setDepth] = useState("0-20");
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const depths = view === "soil" ? ["0-20", "20-40"] : [depth];
+  const items = SOIL_NUTRIENTS
+    .filter((n) => SOIL_REFERENCE[n.key] && (!q || n.label.toLowerCase().includes(q)))
+    .map((n) => ({
+      n,
+      lines: depths
+        .map((d) => ({ d, stats: soilStats(points, soilDepthKey(n.key, d)) }))
+        .filter((l) => l.stats),
+    }))
+    .filter((it) => it.lines.length > 0);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, width: "min(1100px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--border-soft)" }}>
+          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>Relatório de Análise</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "14px 18px 0" }}>
+          <div style={{ flex: "1 1 180px" }}>
+            <Field label="Tipo de visualização">
+              <select style={inputStyle} value={view} onChange={(e) => setView(e.target.value)}>
+                <option value="element">Resumo por elemento</option>
+                {hasDeepData && <option value="soil">Perfil de solo</option>}
+              </select>
+            </Field>
+          </div>
+          {view === "element" && hasDeepData && (
+            <div style={{ flex: "1 1 140px" }}>
+              <Field label="Profundidade">
+                <select style={inputStyle} value={depth} onChange={(e) => setDepth(e.target.value)}>
+                  {SOIL_DEPTHS.map((d) => <option key={d.key} value={d.key}>{soilDepthLabel(d.key)}</option>)}
+                </select>
+              </Field>
+            </div>
+          )}
+          <div style={{ flex: "1 1 180px" }}>
+            <Field label="Buscar">
+              <input style={inputStyle} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Elemento…" />
+            </Field>
+          </div>
+        </div>
+        <div style={{ overflowY: "auto", padding: "4px 18px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {items.length === 0 && (
+            <div style={{ fontSize: 10.5, color: "var(--ink-faint)", padding: "20px 0" }}>Nenhum resultado de laboratório preenchido ainda.</div>
+          )}
+          {items.map(({ n, lines }) => (
+            <div key={n.key} style={{ display: "flex", flexWrap: "wrap", border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-inset)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+              <div style={{ flex: "0 0 150px", padding: "12px 14px", borderRight: "1px solid var(--border-soft)" }}>
+                <div style={{ fontSize: 8.5, color: "var(--ink-faint)" }}>Elemento</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink)" }}>{n.label}</div>
+                {n.unit && <div style={{ fontSize: 9, color: "var(--ink-faint)" }}>{n.unit}</div>}
+              </div>
+              <div style={{ flex: "1 1 520px", padding: "6px 14px" }}>
+                {lines.map((l, i) => (
+                  <div key={l.d} style={{ borderTop: i > 0 ? "1px solid var(--border-soft)" : "none" }}>
+                    <SoilReportLine caption={soilDepthLabel(l.d)} stats={l.stats} refRange={SOIL_REFERENCE[n.key]} inverted={SOIL_REFERENCE_INVERTED.has(n.key)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ fontSize: 8.5, color: "var(--ink-faint)" }}>
+            Faixas de interpretação de referência para o Cerrado (baixa / média / alta). Confira com a recomendação regional da sua cultura.
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 18px", borderTop: "1px solid var(--border-soft)" }}>
+          <GhostBtn onClick={onClose}>Voltar</GhostBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, onClose }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
@@ -3747,7 +3988,11 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   });
   const [step, setStep] = useState(initialStep || (readOnly ? "visualizacao" : "coleta"));
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
-  const [nutrient, setNutrient] = useState("p");
+  // Abre no primeiro nutriente que tem resultado (laudos variam: uns trazem
+  // P Mehlich, outros P Resina…), senão o mapa começaria vazio.
+  const firstNutrientWithData = (points) =>
+    SOIL_NUTRIENTS.find((n) => points.some((p) => p[n.key] !== undefined && p[n.key] !== "" && p[n.key] !== null))?.key || "p";
+  const [nutrient, setNutrient] = useState(() => firstNutrientWithData(data?.points || []));
   const [soilDepth, setSoilDepth] = useState("0-20");
   const [showDeepPoint, setShowDeepPoint] = useState(false);
   const [desiredV, setDesiredV] = useState(70);
@@ -3785,7 +4030,14 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const [ndviShowLayer, setNdviShowLayer] = useState(true);
   const [ndviDateTo, setNdviDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [ndviDateFrom, setNdviDateFrom] = useState(() => new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10));
-  const [overlayOpacity, setOverlayOpacity] = useState(0.65);
+  const [overlayOpacity, setOverlayOpacity] = useState(0.9);
+  const [showContour, setShowContour] = useState(true);
+  const [showPoints, setShowPoints] = useState(true);
+  const [showValues, setShowValues] = useState(false);
+  // No celular a legenda e as informações começam recolhidas pra não cobrir o mapa.
+  const [legendOpen, setLegendOpen] = useState(() => window.innerWidth > 640);
+  const [infoOpen, setInfoOpen] = useState(() => window.innerWidth > 640);
+  const [reportOpen, setReportOpen] = useState(false);
   const watchIdRef = useRef(null);
 
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
@@ -3798,7 +4050,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   function switchStep(next) {
     setStep(next);
     if (next === "insumos" && !isLimeMode && !isNpkMode) setNutrient("nc_calcario");
-    if (next === "visualizacao" && (isLimeMode || isNpkMode)) setNutrient("p");
+    if (next === "visualizacao" && (isLimeMode || isNpkMode)) setNutrient(firstNutrientWithData(form.points));
   }
 
   useEffect(() => {
@@ -4004,10 +4256,10 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     if (!showHeatMap) return null;
     if (isLimeMode) {
       const withLime = form.points.map((p) => ({ ...p, __lime: limeNeedTonPerHa(p, Number(desiredV)) }));
-      return buildHeatOverlay(polygon, withLime, "__lime");
+      return buildHeatOverlay(polygon, withLime, "__lime", undefined, LIME_PALETTE);
     }
-    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey);
-  }, [polygon, form.points, effectiveNutrientKey, isLimeMode, desiredV, showHeatMap]);
+    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey, undefined, soilPaletteFor(nutrient));
+  }, [polygon, form.points, effectiveNutrientKey, nutrient, isLimeMode, desiredV, showHeatMap]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
   async function handleExportShp() {
@@ -4046,8 +4298,10 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           <TileLayer attribution="" url={WHITE_TILE_URL} maxZoom={19} />
         </LayersControl.BaseLayer>
       </LayersControl>
-      <Polygon positions={bounds} pathOptions={{ color: "#7BC142", weight: 1.5, fillOpacity: 0 }} />
       {heatOverlay && <ImageOverlay url={heatOverlay.dataUrl} bounds={heatOverlay.bounds} opacity={overlayOpacity} />}
+      {(step === "coleta" || showContour) && (
+        <Polygon positions={bounds} pathOptions={step === "coleta" ? { color: "#7BC142", weight: 1.5, fillOpacity: 0 } : { color: "#111", weight: 2, fillOpacity: 0 }} />
+      )}
       {step === "coleta" && ndviShowLayer && !ndviZones && ndviOverlay && (
         <ImageOverlay url={ndviOverlay.dataUrl} bounds={ndviOverlay.bounds} opacity={overlayOpacity} />
       )}
@@ -4082,8 +4336,23 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       {form.points.map((p) => {
         const val = pointValue(p);
         const hasValue = val !== null && !Number.isNaN(val);
-        const showValue = !!heatOverlay && hasValue;
         const isSelected = selectedPointId === p.id;
+        // Nas telas de mapa (fora da coleta) os pontos viram pontinhos pretos
+        // discretos por cima do mapa de cores, e o valor só aparece se pedir.
+        if (heatOverlay && !showPoints) return null;
+        if (heatOverlay && !showValues) {
+          return (
+            <CircleMarker
+              key={p.id}
+              center={[p.lat, p.lng]}
+              radius={2.5}
+              pathOptions={{ color: "#111", weight: 0, fillColor: "#111", fillOpacity: 0.9 }}
+            >
+              <Tooltip direction="top">{p.label}{hasValue ? ` · ${val.toFixed(2)}` : ""}</Tooltip>
+            </CircleMarker>
+          );
+        }
+        const showValue = !!heatOverlay && hasValue;
         return (
           <CircleMarker
             key={p.id}
@@ -4115,50 +4384,73 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </MapContainer>
   );
 
-  const heatUnit = isLimeMode ? "t/ha" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.unit || "";
-  const legendEl = heatOverlay && (
-    <div style={{
-      position: "absolute", bottom: 10, right: 10, zIndex: 1000,
-      background: "rgba(14,19,16,0.92)", border: "1px solid var(--border)", borderRadius: 8,
-      padding: "9px 11px", fontSize: 9, color: "var(--ink-soft)", minWidth: 175,
-    }}>
-      <div style={{ fontWeight: 600, marginBottom: 6, whiteSpace: "nowrap" }}>
-        {isLimeMode ? "Necessidade de Calcário (t/ha)" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label}
-      </div>
-      {heatOverlay.classColors.map((c, i) => {
-        if (heatOverlay.classCounts[i] === 0) return null;
-        const areaHa = heatOverlay.totalCount > 0 ? (heatOverlay.classCounts[i] / heatOverlay.totalCount) * fieldAreaHaValue : 0;
-        const pct = heatOverlay.totalCount > 0 ? (heatOverlay.classCounts[i] / heatOverlay.totalCount) * 100 : 0;
-        return (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: `rgb(${c[0]},${c[1]},${c[2]})`, flexShrink: 0 }} />
-            <span>{heatOverlay.breaks[i].toFixed(1)}–{heatOverlay.breaks[i + 1].toFixed(1)}</span>
-            <span style={{ color: "var(--ink-faint)", marginLeft: "auto" }}>{areaHa.toFixed(1)}ha · {pct.toFixed(0)}%</span>
-          </div>
-        );
-      })}
-    </div>
+  // A profundidade 20-40cm só fica clicável quando a análise realmente tem
+  // dado dessa camada importado.
+  const hasDeepData = form.points.some((p) =>
+    SOIL_NUTRIENTS.some((n) => {
+      const v = p[soilDepthKey(n.key, "20-40")];
+      return v !== undefined && v !== null && v !== "";
+    })
   );
 
-  const statsEl = heatOverlay && (
-    <div style={{
-      position: "absolute", bottom: 10, left: 10, zIndex: 1000,
-      background: "rgba(14,19,16,0.92)", border: "1px solid var(--border)", borderRadius: 8,
-      padding: "9px 11px", fontSize: 9, color: "var(--ink-soft)", minWidth: 130,
-    }}>
-      <div style={{ fontWeight: 600, marginBottom: 6 }}>Resumo</div>
-      <div style={{ display: "grid", gridTemplateColumns: "auto auto", gap: "3px 12px", fontFamily: "'IBM Plex Mono', monospace" }}>
-        <span style={{ color: "var(--ink-faint)" }}>Área do talhão</span><span>{fieldAreaHaValue.toFixed(1)} ha</span>
-        {isLimeMode && (
-          <>
-            <span style={{ color: "var(--ink-faint)" }}>Total necessário</span>
-            <span>{(heatOverlay.avgV * fieldAreaHaValue).toFixed(1)} t</span>
-          </>
-        )}
-        <span style={{ color: "var(--ink-faint)" }}>Média</span><span>{heatOverlay.avgV.toFixed(1)} {heatUnit}</span>
-        <span style={{ color: "var(--ink-faint)" }}>Mínima</span><span>{heatOverlay.minV.toFixed(1)} {heatUnit}</span>
-        <span style={{ color: "var(--ink-faint)" }}>Máxima</span><span>{heatOverlay.maxV.toFixed(1)} {heatUnit}</span>
+  const heatUnit = isLimeMode ? "t/ha" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.unit || "";
+  const heatTitle = isLimeMode ? "Calcário" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label;
+  const heatSubtitle = isLimeMode ? `t/ha · V% desejada ${desiredV}` : `${soilDepthLabel(soilDepth)}${heatUnit ? ` - ${heatUnit}` : ""}`;
+  const legendDigits = isLimeMode ? 2 : 1;
+  // Legenda e quadro de informações por cima do mapa, no canto inferior
+  // esquerdo, como nos mapas de fertilidade do Geodata.
+  const legendEl = heatOverlay && (
+    <div style={{ position: "absolute", left: 10, bottom: 10, right: 10, zIndex: 1000, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", pointerEvents: "none" }}>
+      <SoilMapCard title={heatTitle} subtitle={heatSubtitle} open={legendOpen} onToggle={() => setLegendOpen((v) => !v)}>
+        {heatOverlay.classColors.map((c, i) => {
+          const areaHa = heatOverlay.totalCount > 0 ? (heatOverlay.classCounts[i] / heatOverlay.totalCount) * fieldAreaHaValue : 0;
+          const pct = heatOverlay.totalCount > 0 ? (heatOverlay.classCounts[i] / heatOverlay.totalCount) * 100 : 0;
+          return (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3, whiteSpace: "nowrap" }}>
+              <span style={{ width: 12, height: 12, borderRadius: 2, background: `rgb(${c[0]},${c[1]},${c[2]})`, border: "1px solid rgba(0,0,0,0.12)", flexShrink: 0 }} />
+              <span>
+                ( {fmtNum(heatOverlay.breaks[i], legendDigits)} - {fmtNum(heatOverlay.breaks[i + 1], legendDigits)} ) - ({fmtNum(areaHa)} ha - {fmtNum(pct)}%)
+              </span>
+            </div>
+          );
+        })}
+      </SoilMapCard>
+      <SoilMapCard title="Informações" open={infoOpen} onToggle={() => setInfoOpen((v) => !v)}>
+        <SoilInfoItem label="Área selecionada" value={`${fmtNum(fieldAreaHaValue)} ha`} />
+        {isLimeMode && <SoilInfoItem label="Quantidade" value={`${fmtNum(heatOverlay.avgV * fieldAreaHaValue)} t`} />}
+        <SoilInfoItem label="Média dos dados" value={`${fmtNum(heatOverlay.avgV)} ${heatUnit}`} />
+        <SoilInfoItem label="Mínima" value={`${fmtNum(heatOverlay.minV)} ${heatUnit}`} />
+        <SoilInfoItem label="Máxima" value={`${fmtNum(heatOverlay.maxV)} ${heatUnit}`} />
+      </SoilMapCard>
+    </div>
+  );
+  // Botões de profundidade em cima do mapa (só quando é nutriente; calcário e
+  // NPK não têm camada).
+  const depthPillsEl = step === "visualizacao" && (
+    <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 1000, textAlign: "center" }}>
+      <div style={{ display: "flex", gap: 6 }}>
+        {SOIL_DEPTHS.map((d) => {
+          const active = soilDepth === d.key;
+          const disabled = d.key === "20-40" && !hasDeepData;
+          return (
+            <button
+              key={d.key}
+              onClick={() => !disabled && setSoilDepth(d.key)}
+              disabled={disabled}
+              title={disabled ? "Essa análise não tem dados de 20-40cm" : undefined}
+              style={{
+                padding: "7px 14px", borderRadius: 4, border: "none", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap",
+                background: active ? "#4E8B6A" : "#fff", color: active ? "#fff" : "#222",
+                opacity: disabled ? 0.55 : 1, cursor: disabled ? "not-allowed" : "pointer",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+              }}
+            >
+              {soilDepthLabel(d.key)}
+            </button>
+          );
+        })}
       </div>
+      <div style={{ fontSize: 8.5, fontWeight: 700, color: "#fff", marginTop: 4, letterSpacing: ".05em", textShadow: "0 0 3px rgba(0,0,0,0.8)" }}>PROFUNDIDADES</div>
     </div>
   );
 
@@ -4264,37 +4556,6 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </>
   );
 
-  // Só mostra o seletor de profundidade quando o talhão realmente tem dado de
-  // 20-40cm importado — pra não mudar nada da tela pra quem só coleta 0-20cm.
-  const hasDeepData = form.points.some((p) =>
-    SOIL_NUTRIENTS.some((n) => {
-      const v = p[soilDepthKey(n.key, "20-40")];
-      return v !== undefined && v !== null && v !== "";
-    })
-  );
-  const visualizacaoControlsEl = (
-    <div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Nutriente:</span>
-        <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
-        </select>
-        {hasDeepData && (
-          <>
-            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Profundidade:</span>
-            <select style={{ ...inputStyle, width: 110 }} value={soilDepth} onChange={(e) => setSoilDepth(e.target.value)}>
-              {SOIL_DEPTHS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
-            </select>
-          </>
-        )}
-        {form.points.length >= 3 && (
-          <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
-        )}
-        {exportError && <span style={{ fontSize: 9.5, color: "var(--red)" }}>{exportError}</span>}
-      </div>
-    </div>
-  );
-
   const npkDoseN = npkDoseKgPerHa(npkYieldGoal, npkExportN);
   const npkDoseP = npkDoseKgPerHa(npkYieldGoal, npkExportP);
   const npkDoseK = npkDoseKgPerHa(npkYieldGoal, npkExportK);
@@ -4302,67 +4563,102 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const npkAvgK = avgNutrient(form.points, "k");
   const npkPdfData = { crop: npkCrop, yieldGoal: Number(npkYieldGoal) || 0, exportN: Number(npkExportN) || 0, exportP: Number(npkExportP) || 0, exportK: Number(npkExportK) || 0 };
 
+  const panelSectionTitle = { fontSize: 9.5, fontWeight: 700, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: ".03em", margin: "4px 0 8px" };
+  const checkRow = { display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-soft)", cursor: "pointer", marginBottom: 6 };
+
+  const vetoresEl = (
+    <div style={{ marginBottom: 14 }}>
+      <div style={panelSectionTitle}>Vetores</div>
+      <label style={checkRow}><input type="checkbox" checked={showContour} onChange={(e) => setShowContour(e.target.checked)} /> Contorno do talhão</label>
+      <label style={checkRow}><input type="checkbox" checked={showPoints} onChange={(e) => setShowPoints(e.target.checked)} /> Pontos de solo</label>
+      <label style={{ ...checkRow, opacity: showPoints ? 1 : 0.5 }}>
+        <input type="checkbox" checked={showValues} disabled={!showPoints} onChange={(e) => setShowValues(e.target.checked)} /> Valores nos pontos
+      </label>
+    </div>
+  );
+
+  const panelActionsEl = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {opacitySliderEl && (
+        <div style={{ marginBottom: 6 }}>
+          <div style={panelSectionTitle}>Opacidade do mapa</div>
+          {opacitySliderEl}
+        </div>
+      )}
+      {form.points.length > 0 && (
+        <PrimaryBtn onClick={() => setReportOpen(true)} style={{ justifyContent: "center", textTransform: "uppercase", letterSpacing: ".03em" }}>
+          <FileText size={14} /> Relatório de análise
+        </PrimaryBtn>
+      )}
+      {!isNpkMode && form.points.length >= 3 && (
+        <GhostBtn onClick={handleExportShp} disabled={exporting} style={{ justifyContent: "center" }}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
+      )}
+      {exportError && <span style={{ fontSize: 9.5, color: "var(--red)" }}>{exportError}</span>}
+      {!fullscreen && <GhostBtn onClick={() => setFullscreen(true)} style={{ justifyContent: "center" }}>Tela cheia</GhostBtn>}
+    </div>
+  );
+
+  // Painel lateral à direita do mapa (como o painel "Mapas" do Geodata): escolhe
+  // a camada, liga/desliga vetores e abre o relatório.
+  const visualizacaoControlsEl = (
+    <div>
+      <Field label="Análise química do solo">
+        <select style={inputStyle} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+          {SOIL_NUTRIENTS.map((n) => <option key={n.key} value={n.key}>{n.label}</option>)}
+        </select>
+      </Field>
+      {vetoresEl}
+      {panelActionsEl}
+    </div>
+  );
+
   const insumosControlsEl = (
     <div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Insumo:</span>
-        <select style={{ ...inputStyle, width: 220 }} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          <option value="nc_calcario">Necessidade de Calcário (t/ha)</option>
+      <Field label="Prescrição">
+        <select style={inputStyle} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+          <option value="nc_calcario">Calcário (t/ha)</option>
           <option value="npk">Adubação NPK (kg/ha)</option>
         </select>
-        {isLimeMode && (
-          <>
-            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Saturação de bases (V%) desejada:</span>
-            <input
-              type="number" min="0" max="100" step="1" style={{ ...inputStyle, width: 70 }}
-              value={desiredV} onChange={(e) => setDesiredV(e.target.value)}
-            />
-          </>
-        )}
-        {!isNpkMode && form.points.length >= 3 && (
-          <GhostBtn onClick={handleExportShp} disabled={exporting}>{exporting ? "Gerando…" : "Exportar SHP"}</GhostBtn>
-        )}
-        {exportError && <span style={{ fontSize: 9.5, color: "var(--red)" }}>{exportError}</span>}
-      </div>
+      </Field>
+      {isLimeMode && (
+        <Field label="V% desejada">
+          <input type="number" min="0" max="100" step="1" style={inputStyle} value={desiredV} onChange={(e) => setDesiredV(e.target.value)} />
+        </Field>
+      )}
       {isNpkMode && (
-        <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-alt)" }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Cultura:</span>
-            <select style={{ ...inputStyle, width: 160 }} value={npkCrop} onChange={(e) => handleNpkCropChange(e.target.value)}>
+        <div style={{ marginBottom: 14, padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-alt)" }}>
+          <Field label="Cultura">
+            <select style={inputStyle} value={npkCrop} onChange={(e) => handleNpkCropChange(e.target.value)}>
               {NPK_CROPS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
-            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Produtividade esperada (t/ha):</span>
-            <input
-              type="number" min="0" step="0.1" style={{ ...inputStyle, width: 80 }}
-              value={npkYieldGoal} onChange={(e) => setNpkYieldGoal(e.target.value)}
-            />
-          </div>
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10 }}>
-            {[
-              { label: "N", exp: npkExportN, setExp: setNpkExportN, dose: npkDoseN },
-              { label: "P₂O₅", exp: npkExportP, setExp: setNpkExportP, dose: npkDoseP },
-              { label: "K₂O", exp: npkExportK, setExp: setNpkExportK, dose: npkDoseK },
-            ].map((n) => (
-              <div key={n.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>{n.label} — exportação (kg/ton)</span>
-                <input
-                  type="number" min="0" step="0.5" style={{ ...inputStyle, width: 90 }}
-                  value={n.exp} onChange={(e) => n.setExp(e.target.value)}
-                />
-                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>
-                  {n.dose !== null ? `${n.dose.toFixed(1)} kg/ha` : "—"}
-                </span>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>
-            Fósforo médio no talhão: {npkAvgP !== null ? `${npkAvgP.toFixed(1)} mg/dm³` : "—"} · Potássio médio no talhão: {npkAvgK !== null ? `${npkAvgK.toFixed(1)} mg/dm³` : "—"}
+          </Field>
+          <Field label="Produtividade esperada (t/ha)">
+            <input type="number" min="0" step="0.1" style={inputStyle} value={npkYieldGoal} onChange={(e) => setNpkYieldGoal(e.target.value)} />
+          </Field>
+          <div style={panelSectionTitle}>Exportação (kg/ton) → dose</div>
+          {[
+            { label: "N", exp: npkExportN, setExp: setNpkExportN, dose: npkDoseN },
+            { label: "P₂O₅", exp: npkExportP, setExp: setNpkExportP, dose: npkDoseP },
+            { label: "K₂O", exp: npkExportK, setExp: setNpkExportK, dose: npkDoseK },
+          ].map((n) => (
+            <div key={n.label} style={{ display: "grid", gridTemplateColumns: "44px 80px 1fr", gap: 8, alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)" }}>{n.label}</span>
+              <input type="number" min="0" step="0.5" style={inputStyle} value={n.exp} onChange={(e) => n.setExp(e.target.value)} />
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ink)", textAlign: "right" }}>
+                {n.dose !== null ? `${n.dose.toFixed(1)} kg/ha` : "—"}
+              </span>
+            </div>
+          ))}
+          <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginTop: 4 }}>
+            P médio: {npkAvgP !== null ? `${npkAvgP.toFixed(1)} mg/dm³` : "—"} · K médio: {npkAvgK !== null ? `${npkAvgK.toFixed(1)} mg/dm³` : "—"}
           </div>
           <div style={{ fontSize: 8.5, color: "var(--ink-faint)", marginTop: 6 }}>
             Método de reposição/exportação (dose = exportação por tonelada x produtividade esperada). Coeficientes de referência — ajuste conforme a calibração da sua região.
           </div>
         </div>
       )}
+      {vetoresEl}
+      {panelActionsEl}
     </div>
   );
 
@@ -4391,33 +4687,43 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </div>
   );
 
+  const reportEl = reportOpen && (
+    <SoilAnalysisReport points={form.points} hasDeepData={hasDeepData} onClose={() => setReportOpen(false)} />
+  );
+
   if (fullscreen && bounds) {
     return (
       <div style={{ position: "fixed", inset: 0, zIndex: 300, background: "var(--bg)", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--border)", flexShrink: 0, gap: 8, flexWrap: "wrap" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>{form.label || fmtDate(form.date)}</div>
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-            {opacitySliderEl}
+            {step === "coleta" && opacitySliderEl}
             {!readOnly && <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>}
             <GhostBtn onClick={() => setFullscreen(false)}><X size={14} /> Sair da tela cheia</GhostBtn>
           </div>
         </div>
         <div style={{ padding: "10px 16px 0" }}>{tabsEl}</div>
-        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}{legendEl}{statsEl}</div>
-        <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid var(--border)" }}>
-          {step === "coleta" ? (
-            <>
+        {step === "coleta" ? (
+          <>
+            <div style={{ flex: 1, minHeight: 0, position: "relative" }}>{mapEl}</div>
+            <div style={{ padding: 14, overflowY: "auto", maxHeight: "42vh", flexShrink: 0, borderTop: "1px solid var(--border)" }}>
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: detailsOpen ? 12 : 0 }}>
                 <GhostBtn onClick={() => setDetailsOpen((v) => !v)}>
                   {detailsOpen ? "Ocultar controles" : "Mais controles"}
                 </GhostBtn>
               </div>
               {detailsOpen && coletaControlsEl}
-            </>
-          ) : (
-            stepControlsEl
-          )}
-        </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexWrap: "wrap" }}>
+            <div style={{ flex: "999 1 480px", minHeight: "55vh", position: "relative" }}>{mapEl}{depthPillsEl}{legendEl}</div>
+            <div style={{ flex: "1 1 260px", padding: 14, overflowY: "auto", borderLeft: "1px solid var(--border)", background: "var(--card)", maxHeight: "100%" }}>
+              {stepControlsEl}
+            </div>
+          </div>
+        )}
+        {reportEl}
       </div>
     );
   }
@@ -4552,21 +4858,29 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             </>
           )}
 
-          {step !== "coleta" && (
-            <div style={{ marginBottom: 12 }}>{stepControlsEl}</div>
+          {step === "coleta" ? (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
+                <div>{opacitySliderEl}</div>
+                <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
+              </div>
+              <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", marginBottom: 14, position: "relative" }}>
+                {mapEl}
+              </div>
+              {coletaControlsEl}
+            </>
+          ) : (
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch", marginBottom: 14 }}>
+              <div style={{ flex: "999 1 480px", minWidth: 0, height: "min(74vh, 700px)", minHeight: 420, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", position: "relative" }}>
+                {mapEl}
+                {depthPillsEl}
+                {legendEl}
+              </div>
+              <div style={{ flex: "1 1 260px", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, padding: 14 }}>
+                {stepControlsEl}
+              </div>
+            </div>
           )}
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 10 }}>
-            <div>{opacitySliderEl}</div>
-            <GhostBtn onClick={() => setFullscreen(true)}>Tela cheia</GhostBtn>
-          </div>
-          <div style={{ height: "min(68vh, 620px)", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)", marginBottom: 14, position: "relative" }}>
-            {mapEl}
-            {legendEl}
-            {statsEl}
-          </div>
-
-          {step === "coleta" && coletaControlsEl}
         </>
       )}
     </>
@@ -4608,11 +4922,14 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
           </div>
         </div>
         {bodyEl}
+        {reportEl}
       </div>
     );
   }
 
   return (
+    <>
+    {reportEl}
     <Modal title={readOnly ? "Análise de solo" : data?.id ? "Editar análise de solo" : "Nova análise de solo"} onClose={onClose} maxWidth="min(1400px, 95vw)">
       {bodyEl}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -4625,6 +4942,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
         )}
       </div>
     </Modal>
+    </>
   );
 }
 
@@ -6894,7 +7212,7 @@ function matchBankTransactions(transactions, finances, bills, categoryMemory) {
   return [...credits, ...debits].sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || ""));
 }
 
-function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month }) {
+function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month, _semMesAnterior = false }) {
   const monthFinances = finances.filter((f) => f.referenceMonth === month);
   const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
   const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
@@ -6952,20 +7270,33 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
     return { gestor: t, areaHa, base, projectShare, bonusTotal, ajudaCustoTotal, total: base + projectShare + bonusTotal + ajudaCustoTotal };
   });
 
+  // Pró-labore da competência = o que o gestor gerou NESTE mês (aba Pró-labore). Mas ele só é PAGO
+  // no mês seguinte (vence dia 10). Por isso, no caixa (saídas previstas/realizadas, fluxo de caixa),
+  // o pró-labore que sai em um mês é o da competência ANTERIOR: se já foi gerado em Despesas, vale
+  // o valor da despesa; se não, a previsão calculada do mês anterior.
   const totalProLabore = proLaboreRows.reduce((s, r) => s + r.total, 0);
-  // As despesas de pró-labore geradas (proLaboreMonth) são o pagamento, no mês
-  // seguinte, do pró-labore de uma competência — que já entra aqui via
-  // totalProLabore. Por isso ficam de fora dos totais de saída, senão contava
-  // duas vezes. (A aba Despesas continua listando todas, é o caixa.)
+  const proLaboreBillsDoMes = monthBills.filter((b) => b.proLaboreMonth);
+  let totalProLaboreCaixa = proLaboreBillsDoMes.reduce((s, b) => s + Number(b.amount), 0);
+  const totalProLaboreCaixaPago = proLaboreBillsDoMes.filter((b) => b.status === "pago").reduce((s, b) => s + Number(b.amount), 0);
+  if (!_semMesAnterior) {
+    const mesAnterior = addMonthsToReferenceMonth(month, -1);
+    const anterior = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: mesAnterior, _semMesAnterior: true });
+    const jaGerados = new Set((bills || []).filter((b) => b.proLaboreMonth === mesAnterior).map((b) => b.proLaboreGestorId));
+    totalProLaboreCaixa += anterior.proLaboreRows.filter((r) => r.total > 0 && !jaGerados.has(r.gestor.id)).reduce((s, r) => s + r.total, 0);
+  }
+  // As despesas de pró-labore geradas (proLaboreMonth) já entram acima; ficam de fora de
+  // "despesas do mês" pra não contar duas vezes. (A aba Despesas continua listando todas.)
   const operBills = monthBills.filter((b) => !b.proLaboreMonth);
   const totalDespesasOperPagas = operBills.filter((b) => b.status === "pago").reduce((s, b) => s + Number(b.amount), 0);
   const totalDespesasOperPendentes = operBills.filter((b) => b.status === "pendente").reduce((s, b) => s + Number(b.amount), 0);
   const totalDespesasDoMes = totalDespesasOperPagas + totalDespesasOperPendentes;
-  const totalSaidasPrevistas = totalProLabore + totalDespesasDoMes;
+  const totalSaidasPrevistas = totalProLaboreCaixa + totalDespesasDoMes;
+  const totalSaidasRealizadas = totalDespesasOperPagas + totalProLaboreCaixaPago;
   const totalEntradasPrevistas = totalRecebido + totalPendente;
 
   return {
     monthFinances, totalRecebido, totalPendente, totalEntradasPrevistas, proLaboreRows, totalProLabore,
+    totalProLaboreCaixa, totalProLaboreCaixaPago, totalSaidasRealizadas,
     monthBills, totalDespesasPagas, totalDespesasPendentes, totalDespesasOperPagas, totalDespesasOperPendentes, totalDespesasDoMes, totalSaidasPrevistas,
   };
 }
@@ -7646,9 +7977,9 @@ function FinanceiroView({
             <StatCard label="Entradas previstas no mês" value={fmtCurrency(summary.totalEntradasPrevistas)} accent="var(--green)" />
             <StatCard label="Entradas recebidas no mês" value={fmtCurrency(totalRecebido)} accent="var(--green)" />
             <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="var(--gold)"
-              sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
-            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(summary.totalDespesasOperPagas + summary.totalProLabore)} accent="var(--red)"
-              sub={`Despesas pagas ${fmtCurrency(summary.totalDespesasOperPagas)} + pró-labore ${fmtCurrency(summary.totalProLabore)}`} />
+              sub={`Pró-labore do mês anterior ${fmtCurrency(summary.totalProLaboreCaixa)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
+            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(summary.totalSaidasRealizadas)} accent="var(--red)"
+              sub={`Despesas pagas ${fmtCurrency(summary.totalDespesasOperPagas)} + pró-labore pago ${fmtCurrency(summary.totalProLaboreCaixaPago)}`} />
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
