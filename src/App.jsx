@@ -352,13 +352,38 @@ function LoginScreen() {
   );
 }
 
+// Estado de navegação que sobrevive ao F5: guarda na sessionStorage da aba
+// (some quando fecha a aba), então recarregar a página volta pra mesma tela.
+const NAV_STORAGE_PREFIX = "semear_nav_";
+function usePersistedState(key, initial) {
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem(NAV_STORAGE_PREFIX + key);
+      if (raw !== null) return JSON.parse(raw);
+    } catch {}
+    return typeof initial === "function" ? initial() : initial;
+  });
+  useEffect(() => {
+    try {
+      if (value === null || value === undefined) sessionStorage.removeItem(NAV_STORAGE_PREFIX + key);
+      else sessionStorage.setItem(NAV_STORAGE_PREFIX + key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+  return [value, setValue];
+}
+function clearPersistedNav() {
+  try {
+    Object.keys(sessionStorage).filter((k) => k.startsWith(NAV_STORAGE_PREFIX)).forEach((k) => sessionStorage.removeItem(k));
+  } catch {}
+}
+
 export default function AgroTrackApp() {
   const [session, setSession] = useState(undefined); // undefined = checking, null = logged out
   const [profile, setProfile] = useState(undefined); // undefined = checking, null = no profile row
   const [loading, setLoading] = useState(true);
   const [portalData, setPortalData] = useState(null);
   const [portalError, setPortalError] = useState("");
-  const [view, setView] = useState("dashboard");
+  const [view, setView] = usePersistedState("view", "dashboard");
   const [clients, setClients] = useState([]);
   const [properties, setProperties] = useState([]);
   const [fields, setFields] = useState([]);
@@ -389,18 +414,18 @@ export default function AgroTrackApp() {
   const [bills, setBills] = useState([]);
   const [categoryMemory, setCategoryMemory] = useState({});
   const [soilAnalyses, setSoilAnalyses] = useState([]);
-  const [soilAnalysisEditor, setSoilAnalysisEditor] = useState(null);
+  const [soilAnalysisEditor, setSoilAnalysisEditor] = usePersistedState("soilAnalysisEditor", null);
   const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
-  const [selectedClientId, setSelectedClientId] = useState(null);
-  const [selectedPropertyId, setSelectedPropertyId] = useState(null);
-  const [propertyBackTo, setPropertyBackTo] = useState("propriedades");
-  const [selectedFieldId, setSelectedFieldId] = useState(null);
-  const [selectedHarvestId, setSelectedHarvestId] = useState(null);
+  const [selectedClientId, setSelectedClientId] = usePersistedState("selectedClientId", null);
+  const [selectedPropertyId, setSelectedPropertyId] = usePersistedState("selectedPropertyId", null);
+  const [propertyBackTo, setPropertyBackTo] = usePersistedState("propertyBackTo", "propriedades");
+  const [selectedFieldId, setSelectedFieldId] = usePersistedState("selectedFieldId", null);
+  const [selectedHarvestId, setSelectedHarvestId] = usePersistedState("selectedHarvestId", null);
   const [search, setSearch] = useState("");
   const [propSearch, setPropSearch] = useState("");
   const [cultureFilter, setCultureFilter] = useState("Todas");
-  const [propriedadesTab, setPropriedadesTab] = useState("fazendas");
+  const [propriedadesTab, setPropriedadesTab] = usePersistedState("propriedadesTab", "fazendas");
   const [teamError, setTeamError] = useState("");
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem("semear_theme") || "dark"; } catch { return "dark"; }
@@ -512,8 +537,17 @@ export default function AgroTrackApp() {
       setEstoqueItens(ei || []);
       setEstoqueCategorias(ecat || []);
       setFornecedores(fo || []);
+      // Tela restaurada do F5 apontando pra algo que foi apagado (em outro
+      // aparelho, por exemplo) — volta pro nível de cima em vez de quebrar.
+      const has = (list, id) => !id || (list || []).some((x) => x.id === id);
+      if (!has(c, selectedClientId)) setSelectedClientId(null);
+      if (!has(p, selectedPropertyId)) setSelectedPropertyId(null);
+      if (!has(f, selectedFieldId)) setSelectedFieldId(null);
+      if (!has(h, selectedHarvestId)) setSelectedHarvestId(null);
+      if (soilAnalysisEditor && (!has(f, soilAnalysisEditor.fieldId) || (soilAnalysisEditor.analysisId && !has(sa, soilAnalysisEditor.analysisId)))) setSoilAnalysisEditor(null);
       setLoading(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, profile]);
 
   async function persistClients(data) { setClients(data); await safeSet("clients", data); }
@@ -1617,7 +1651,7 @@ export default function AgroTrackApp() {
         )}
         <div className="sidebar-footer-text" style={{ padding: "14px 8px 0", fontSize: 9.5, color: "var(--ink-faint)", borderTop: "1px solid var(--green-deep)" }}>
           <div style={{ marginBottom: 6, color: "var(--ink-dim)" }}>{profile?.name || session.user.email}</div>
-          <button onClick={() => signOut()} style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 9.5, padding: 0 }}>
+          <button onClick={() => { clearPersistedNav(); signOut(); }} style={{ background: "none", border: "none", color: "var(--gold)", cursor: "pointer", fontSize: 9.5, padding: 0 }}>
             Sair
           </button>
         </div>
@@ -1625,7 +1659,7 @@ export default function AgroTrackApp() {
 
       {/* Main content */}
       <div className="at-main-content" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minWidth: 0 }}>
-        {soilAnalysisEditor ? (
+        {soilAnalysisEditor && fieldsWithMeta.some((f) => f.id === soilAnalysisEditor.fieldId) ? (
           <SoilAnalysisPage
             field={fieldsWithMeta.find((f) => f.id === soilAnalysisEditor.fieldId)}
             data={soilAnalyses.find((s) => s.id === soilAnalysisEditor.analysisId) || null}
@@ -4472,7 +4506,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     label: "", points: [],
     ...(data || {}),
   });
-  const [step, setStep] = useState(initialStep || (readOnly ? "visualizacao" : "coleta"));
+  const [step, setStep] = usePersistedState(`soilStep_${data?.id || "nova"}`, () => initialStep || (readOnly ? "visualizacao" : "coleta"));
   const [selectedPointId, setSelectedPointId] = useState(form.points[0]?.id || null);
   // Abre no primeiro nutriente que tem resultado (laudos variam: uns trazem
   // P Mehlich, outros P Resina…), senão o mapa começaria vazio.
@@ -4556,13 +4590,18 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
   function switchStep(next) {
     setStep(next);
-    if (next === "insumos" && !isRxMode && !isNpkMode) {
-      // Abre na primeira prescrição que dá pra calcular com os dados da análise.
+  }
+  // Mantém a camada coerente com a aba (inclusive quando a aba volta do F5):
+  // insumos abre na primeira prescrição que dá pra calcular com os dados da
+  // análise; visualização volta pra um nutriente.
+  useEffect(() => {
+    if (step === "insumos" && !isRxMode && !isNpkMode) {
       const first = SOIL_PRESCRIPTIONS.find((r) => r.needs.every((k) => form.points.some((p) => rxNum(p, k) !== null)));
       setNutrient(first?.key || "rx_v");
     }
-    if (next === "visualizacao" && (isRxMode || isNpkMode)) setNutrient(firstNutrientWithData(form.points));
-  }
+    if (step === "visualizacao" && (isRxMode || isNpkMode)) setNutrient(firstNutrientWithData(form.points));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   useEffect(() => {
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
@@ -6987,7 +7026,7 @@ function ConfiguracoesView({
   onAddFornecedor, onEditFornecedor, onDeleteFornecedor,
   onAddTeam, onEditTeam, onDeleteTeam, onPromoteTeam, onDemoteTeam
 }) {
-  const [tab, setTab] = useState("variedades");
+  const [tab, setTab] = usePersistedState("configTab", "variedades");
   const TABS = [
     { id: "equipe", label: "Equipe", icon: UserCog },
     { id: "atividade", label: "Atividade", icon: History },
@@ -8338,7 +8377,7 @@ function FinanceiroView({
   onChangeRate, onChangeProjectRate, onGenerateProLaboreBills,
   categoryMemory, expenseCategories, onAddExpenseCategory, onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
-  const [tab, setTab] = useState("painel");
+  const [tab, setTab] = usePersistedState("financeTab", "painel");
   const [reconSession, setReconSession] = useState(() => loadReconSession());
   const onReconcile = () => setTab("conciliacao");
   const [gerandoBoletoId, setGerandoBoletoId] = useState(null);
