@@ -8066,6 +8066,39 @@ function FinanceModal({ data, clients, team, serviceTypes, onSave, onClose }) {
 
 const RECON_STORAGE_KEY = "semear_recon_session";
 
+function reconTokens(text) {
+  return new Set(normalizeDescription(text).split(" ").filter((w) => w.length >= 3 && !["pix", "ted", "doc", "pag", "pagto", "pagamento", "transferencia", "enviada", "recebida", "cobranca", "referente", "ltda", "matriz"].includes(w)));
+}
+function reconNameSimilarity(a, b) {
+  const ta = reconTokens(a); const tb = reconTokens(b);
+  if (!ta.size || !tb.size) return 0;
+  let common = 0;
+  ta.forEach((w) => { if (tb.has(w)) common++; });
+  return common / Math.min(ta.size, tb.size);
+}
+function reconDaysBetween(a, b) {
+  return Math.abs(Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000));
+}
+// Pontua o quanto um lançamento já cadastrado (honorário/despesa) parece ser o
+// mesmo movimento do extrato: valor parecido, data próxima e nome/descrição.
+function reconScore(tx, entry, entryText) {
+  const amount = Math.abs(Number(tx.amount));
+  const entryAmount = Math.abs(Number(entry.amount));
+  if (!amount || !entryAmount) return 0;
+  const diff = Math.abs(amount - entryAmount) / Math.max(amount, entryAmount);
+  const sim = reconNameSimilarity(tx.description, entryText);
+  let score = 0;
+  if (diff < 0.0001) score += 3;
+  else if (diff <= 0.02) score += 2;
+  else if (diff <= 0.1) score += 1;
+  else if (!(sim >= 0.5 && diff <= 0.35)) return 0;
+  const days = reconDaysBetween(tx.date, entry.date || `${entry.referenceMonth}-15`);
+  if (days > 45 && sim === 0) return 0;
+  if (days <= 5) score += 2; else if (days <= 20) score += 1; else if (days <= 45) score += 0.5;
+  if (sim >= 0.5) score += 2.5; else if (sim > 0) score += 1;
+  return score;
+}
+
 function loadReconSession() {
   try {
     const raw = JSON.parse(localStorage.getItem(RECON_STORAGE_KEY) || "null");
@@ -8131,15 +8164,35 @@ function ReconciliationView({
     const ignored = new Set(session?.ignored || []);
     const open = keyed.filter((t) => !doneKeys.has(t.key) && !ignored.has(t.key));
     const matches = new Map(matchBankTransactions(open, finances, bills, categoryMemory).map((m) => [m.transaction.key, m]));
+    const exactIds = new Set([...matches.values()].map((m) => m.match?.id).filter(Boolean));
+    const clientName = (id) => clients.find((c) => c.id === id)?.name || "";
+    // Candidatos "parecidos": qualquer lançamento ainda sem vínculo com o banco
+    // (pendente OU já pago na mão), pra o extrato só comprovar o que já foi lançado.
+    const freeFinances = finances.filter((f) => !f.bankTxKey && !exactIds.has(f.id));
+    const freeBills = bills.filter((b) => !b.bankTxKey && !exactIds.has(b.id));
+    function suggestionsFor(t) {
+      const pool = t.type === "credit"
+        ? freeFinances.map((f) => ({ kind: "finance", entry: f, text: `${clientName(f.clientId)} ${FINANCE_TYPE_LABELS[f.type] || f.type || ""}` }))
+        : freeBills.map((b) => ({ kind: "bill", entry: b, text: `${b.description || ""} ${b.category || ""}` }));
+      return pool
+        .map((c) => ({ ...c, score: reconScore(t, c.entry, c.text) }))
+        .filter((c) => c.score >= 3)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3);
+    }
     return keyed
       .map((t, idx) => {
         if (doneKeys.has(t.key)) return { transaction: t, idx, state: "conciliado" };
         if (ignored.has(t.key)) return { transaction: t, idx, state: "ignorado" };
         const m = matches.get(t.key);
-        return { transaction: t, idx, state: "aberto", kind: t.type === "credit" ? "credit" : "debit", match: m?.match || null, suggestedCategory: m?.suggestedCategory || "" };
+        const match = m?.match || null;
+        return {
+          transaction: t, idx, state: "aberto", kind: t.type === "credit" ? "credit" : "debit", match,
+          suggestedCategory: m?.suggestedCategory || "", similar: match ? [] : suggestionsFor(t),
+        };
       })
       .sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || "") || a.idx - b.idx);
-  }, [keyed, finances, bills, categoryMemory, session]);
+  }, [keyed, finances, bills, clients, categoryMemory, session]);
 
   const counts = {
     abertos: rows.filter((r) => r.state === "aberto").length,
@@ -8283,6 +8336,33 @@ function ReconciliationView({
                       ) : (
                         <GhostBtn onClick={() => onCreateBillFromTransaction(t, draftCategory, t.key)}>Lançar despesa</GhostBtn>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {r.state === "aberto" && r.similar.length > 0 && (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px dashed var(--border-soft)" }}>
+                    <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 6 }}>
+                      Parecido com algo que você já lançou — o extrato só comprova?
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {r.similar.map((c) => {
+                        const e = c.entry;
+                        const label = c.kind === "finance"
+                          ? `${clients.find((cl) => cl.id === e.clientId)?.name || "—"} · ${FINANCE_TYPE_LABELS[e.type] || e.type || "Honorário"}`
+                          : `${e.description || "—"}${e.category ? ` · ${e.category}` : ""}`;
+                        return (
+                          <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: "var(--bg-inset)", borderRadius: 8, padding: "6px 10px" }}>
+                            <span style={{ fontSize: 10, color: "var(--ink-soft)" }}>
+                              {label} · <strong>{fmtCurrency(e.amount)}</strong> · {fmtDate(e.date || `${e.referenceMonth}-01`)} ·{" "}
+                              <span style={{ color: e.status === "pago" ? "var(--green)" : "var(--gold)" }}>{e.status === "pago" ? "Pago" : "Pendente"}</span>
+                            </span>
+                            <GhostBtn onClick={() => (c.kind === "finance" ? onConfirmMatch(e, t, t.key) : onConfirmBillMatch(e, t, draftCategory, t.key))}>
+                              É este
+                            </GhostBtn>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
