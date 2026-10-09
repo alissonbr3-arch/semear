@@ -3543,6 +3543,136 @@ function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, 
   doc.setTextColor(0);
 }
 
+// Mesmas cores da barra do Relatório de Análise da tela (SoilGauge).
+const SOIL_GAUGE_STOPS = [[0, [229, 57, 53]], [0.22, [243, 156, 18]], [0.42, [244, 208, 63]], [0.72, [139, 195, 74]], [1, [46, 125, 50]]];
+function soilGaugeColorAt(t) {
+  for (let i = 0; i < SOIL_GAUGE_STOPS.length - 1; i++) {
+    const [t0, c0] = SOIL_GAUGE_STOPS[i], [t1, c1] = SOIL_GAUGE_STOPS[i + 1];
+    if (t >= t0 && t <= t1) {
+      const f = (t - t0) / (t1 - t0);
+      return c0.map((c, k) => Math.round(c + f * (c1[k] - c)));
+    }
+  }
+  return SOIL_GAUGE_STOPS[SOIL_GAUGE_STOPS.length - 1][1];
+}
+
+// Relatório de Análise no PDF: um bloco por elemento, com a barra colorida
+// (média das amostras marcada), mínimo/médio/máximo e a interpretação —
+// 20-40cm entra como segunda linha quando a análise tem essa camada.
+function addSoilReportSection(doc, points, startY, marginX, pageWidth) {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const right = pageWidth - marginX;
+  let y = startY;
+  const items = SOIL_NUTRIENTS
+    .filter((n) => SOIL_REFERENCE[n.key])
+    .map((n) => ({ n, lines: SOIL_DEPTHS.map((d) => ({ d: d.key, stats: soilStats(points, soilDepthKey(n.key, d.key)) })).filter((l) => l.stats) }))
+    .filter((it) => it.lines.length > 0);
+  if (items.length === 0) return y;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(20);
+  doc.text("Relatório de Análise", marginX, y);
+  y += 4;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(120);
+  doc.text("Média das amostras na faixa de interpretação de referência para o Cerrado (vermelho = baixo, verde = adequado).", marginX, y + 2);
+  y += 7;
+
+  const lineH = 13;
+  const barX = 80, barW = 60, barH = 2.6;
+  items.forEach(({ n, lines }) => {
+    const blockH = lines.length * lineH + 2;
+    if (y + blockH > pageHeight - 18) { doc.addPage(); y = 18; }
+    doc.setDrawColor(225);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(marginX, y, right - marginX, blockH, 1.5, 1.5, "S");
+    doc.line(marginX + 40, y, marginX + 40, y + blockH);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(20);
+    const nameLines = doc.splitTextToSize(n.label, 36);
+    doc.text(nameLines, marginX + 2.5, y + 6);
+    if (n.unit) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(120);
+      doc.text(n.unit, marginX + 2.5, y + 6 + nameLines.length * 4);
+    }
+    const ref = SOIL_REFERENCE[n.key];
+    const inverted = SOIL_REFERENCE_INVERTED.has(n.key);
+    lines.forEach((l, i) => {
+      const ly = y + 1 + i * lineH;
+      if (i > 0) { doc.setDrawColor(235); doc.line(marginX + 40, ly, right, ly); }
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(6.5);
+      doc.setTextColor(130);
+      doc.text("Profundidade", marginX + 43, ly + 4.5);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(20);
+      doc.text(soilDepthLabel(l.d), marginX + 43, ly + 8.5);
+
+      // Barra em degradê (fatias finas), marcas nos limites e o valor médio.
+      const by = ly + 5.5;
+      const slices = 60;
+      for (let k = 0; k < slices; k++) {
+        const t = (k + 0.5) / slices;
+        const [r, g, b] = soilGaugeColorAt(inverted ? 1 - t : t);
+        doc.setFillColor(r, g, b);
+        doc.rect(barX + (k * barW) / slices, by, barW / slices + 0.05, barH, "F");
+      }
+      doc.setDrawColor(80);
+      doc.setLineWidth(0.2);
+      [0.25, 0.75].forEach((t) => doc.line(barX + barW * t, by, barX + barW * t, by + barH));
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.8);
+      doc.setTextColor(130);
+      [0, 0.25, 0.75, 1].forEach((t, k) => {
+        doc.text(String(ref[k]).replace(".", ","), barX + barW * t, by + barH + 3, { align: t === 0 ? "left" : t === 1 ? "right" : "center" });
+      });
+      const mx = barX + (barW * soilGaugePos(l.stats.avg, ref)) / 100;
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(110);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(mx - 1, by - 1, 2, barH + 2, 0.4, 0.4, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(20);
+      doc.text(fmtNum(l.stats.avg), mx, by - 1.8, { align: "center" });
+
+      // Amostras: média / mínimo / máximo.
+      [["Média", l.stats.avg], ["Mínimo", l.stats.min], ["Máximo", l.stats.max]].forEach(([lbl, v], k) => {
+        const sx = 146 + k * 13;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(6);
+        doc.setTextColor(130);
+        doc.text(lbl, sx, ly + 4.5);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(20);
+        doc.text(fmtNum(v), sx, ly + 8.5);
+      });
+
+      // Interpretação (mesmas cores da etiqueta da tela).
+      const level = soilLevel(l.stats.avg, ref);
+      const kind = level === "Média" ? "good" : inverted ? (level === "Baixa" ? "good" : "bad") : level === "Baixa" ? "bad" : "warn";
+      const color = kind === "good" ? [46, 125, 50] : kind === "bad" ? [211, 47, 47] : [183, 121, 31];
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(...color);
+      doc.setDrawColor(...color);
+      doc.roundedRect(right - 14, ly + 3.3, 12, 4.6, 0.8, 0.8, "S");
+      doc.text(level, right - 8, ly + 6.6, { align: "center" });
+    });
+    y += blockH + 3;
+  });
+  doc.setTextColor(0);
+  doc.setDrawColor(0);
+  return y;
+}
+
 function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -3564,6 +3694,8 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
   doc.text(`Talhão: ${field.name} (${fieldAreaHa(field).toLocaleString("pt-BR")} ha)`, 14, y); y += 5;
   doc.text(`Data da coleta: ${fmtDate(form.date)}${form.label ? " · " + form.label : ""} · ${form.points.length} ponto(s)`, 14, y);
   y += 9;
+
+  addSoilReportSection(doc, form.points, y + 3, marginX, pageWidth);
 
   // Mapa do talhão (contorno + área), igual à primeira seção de um "livro" de
   // mapas — só entra quando o talhão tem um polígono desenhado (modo KML).
