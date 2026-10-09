@@ -2631,6 +2631,7 @@ const SOIL_NUTRIENTS = [
   { key: "fe", label: "Ferro (Fe)", unit: "mg/dm³" },
   { key: "mn", label: "Manganês (Mn)", unit: "mg/dm³" },
   { key: "zn", label: "Zinco (Zn)", unit: "mg/dm³" },
+  { key: "argila", label: "Argila", unit: "g/kg" },
 ];
 
 // Faixas de interpretação usadas no Relatório de Análise (barra colorida por
@@ -2665,6 +2666,248 @@ const SOIL_PALETTE = [[215, 25, 28], [253, 174, 97], [255, 255, 191], [166, 217,
 const LIME_PALETTE = [[239, 243, 255], [181, 202, 230], [123, 162, 205], [65, 121, 180], [8, 81, 156]];
 function soilPaletteFor(nutrientKey) {
   return SOIL_REFERENCE_INVERTED.has(nutrientKey) ? [...SOIL_PALETTE].reverse() : SOIL_PALETTE;
+}
+
+// Faixas fixas de interpretação usadas nos mapas (as mesmas classes
+// "personalizadas" do grupo "Fertilidade de Solo - Zanella" no Geodata) — com
+// faixa fixa o verde de um talhão é o mesmo verde de outro, dá pra comparar.
+// Os números são os limites entre as faixas; nutriente sem entrada aqui usa
+// faixas de igual amplitude entre o mínimo e o máximo da própria análise.
+const RDYLGN_5 = SOIL_PALETTE.slice(0, 5);
+const SOIL_FIXED_CLASSES = {
+  p: { breaks: [4, 6, 8, 10, 12] },
+  p_mel: { breaks: [4, 6, 8, 10, 12] },
+  p_res: { breaks: [15, 28, 36], palette: [[239, 22, 3], [255, 185, 0], [50, 179, 35], [16, 18, 146]], names: ["Baixo", "Médio", "Adequado", "Muito alto"] },
+  k: { breaks: [30, 50, 70, 90], palette: RDYLGN_5 },
+  ca: { breaks: [1.6, 2, 2.4, 2.8, 3.2] },
+  mg: { breaks: [0.6, 0.8, 1.2, 1.6, 2] },
+  s: { breaks: [4, 6, 8, 10, 14] },
+  b: { breaks: [0.2, 0.3, 0.4, 0.5, 0.6] },
+  cu: { breaks: [0.4, 0.6, 0.8, 1.2], palette: RDYLGN_5 },
+  mn: { breaks: [2, 3, 4, 5], palette: RDYLGN_5 },
+  zn: { breaks: [0.8, 1.2, 1.6, 2], palette: RDYLGN_5 },
+  al: { breaks: [0.2, 0.4, 0.6, 0.8, 1], palette: [...SOIL_PALETTE].reverse() },
+};
+
+// Paletas dos mapas de prescrição, uma cor por tipo de insumo (como no
+// "Grupo de Parâmetros de Aplicação ZANELLA" do Geodata).
+const RX_PALETTES = {
+  blues: LIME_PALETTE,
+  oranges: [[254, 237, 222], [253, 190, 133], [253, 141, 60], [230, 85, 13], [166, 54, 3]],
+  purples: [[242, 240, 247], [203, 201, 226], [158, 154, 200], [117, 107, 177], [84, 39, 143]],
+  greens: [[237, 248, 233], [186, 228, 179], [116, 196, 118], [49, 163, 84], [0, 109, 44]],
+  greys: [[247, 247, 247], [204, 204, 204], [150, 150, 150], [99, 99, 99], [37, 37, 37]],
+  ylorbr: [[255, 255, 212], [254, 217, 142], [254, 153, 41], [217, 95, 14], [153, 52, 4]],
+};
+
+// Biblioteca de produtos (garantias em %). Mesmos produtos cadastrados nas
+// bibliotecas da Zanella no Geodata; o usuário pode editar/adicionar na tela.
+const DEFAULT_SOIL_PRODUCTS = [
+  { id: "calc_calcitico", name: "Calcário Calcítico", cao: 50, mgo: 1, prnt: 80 },
+  { id: "calc_dolomitico", name: "Calcário Dolomítico", cao: 28, mgo: 18, prnt: 80 },
+  { id: "calc_4_1", name: "Calcário 4:1", cao: 39, mgo: 11, prnt: 80 },
+  { id: "map", name: "MAP", n: 12, p2o5: 52 },
+  { id: "kcl", name: "Cloreto de Potássio (KCl)", k2o: 60 },
+  { id: "ulexita", name: "Boro Ulexita", b: 10 },
+  { id: "enxofre", name: "Enxofre Elementar", s: 90 },
+  { id: "gesso", name: "Gesso Agrícola", s: 15, cao: 26 },
+];
+const SOIL_PRODUCT_FIELDS = [
+  { key: "cao", label: "CaO" }, { key: "mgo", label: "MgO" }, { key: "prnt", label: "PRNT" },
+  { key: "n", label: "N" }, { key: "p2o5", label: "P₂O₅" }, { key: "k2o", label: "K₂O" },
+  { key: "s", label: "S" }, { key: "b", label: "B" },
+];
+
+function rxNum(p, key) {
+  const v = p[key];
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+const rxPct = (v) => (Number(v) || 0) / 100;
+
+// Nível crítico de P Mehlich por faixa de argila (Souza et al., Embrapa CT-33).
+function souzaCriticalP(argila) {
+  const table = [[150, 20], [200, 18], [250, 17], [300, 15], [350, 14], [400, 13], [450, 11], [500, 10], [550, 8], [600, 7], [650, 5]];
+  for (const [lim, nc] of table) if (argila <= lim) return nc;
+  return 4;
+}
+
+// Prescrições de correção/adubação — as equações do grupo "Zanella
+// Consultoria 2024" e "Gessagem" do Geodata. Cada uma devolve a dose do
+// PRODUTO em kg/ha por ponto (null quando falta dado no ponto); doses
+// negativas viram zero. Constantes: 0,00179 = cmolc de Ca → t de CaO/ha por
+// 0,1 (1/0,00179 ≈ 559 kg CaO por cmolc); 0,00247 = idem pra MgO (≈ 405 kg);
+// 391 = cmolc de K → mg/dm³; 2 = mg/dm³ → kg/ha (0-20cm); 2,29 = P → P₂O₅;
+// 1,2 = K → K₂O.
+const SOIL_PRESCRIPTIONS = [
+  {
+    key: "rx_dolomitico", label: "Calcário Dolomítico (Mg a 20% da CTC)", group: "Correção de solo", palette: "blues",
+    productField: "mgo", defaultProduct: "calc_dolomitico", needs: ["ctc", "mg"],
+    formula: "((CTC × 0,2 − Mg) / 0,00247) / MgO",
+    compute: (p, prm, prod) => {
+      const ctc = rxNum(p, "ctc"), mg = rxNum(p, "mg");
+      if (ctc === null || mg === null || !rxPct(prod.mgo)) return null;
+      return ((ctc * 0.2 - mg) / 0.00247) / rxPct(prod.mgo);
+    },
+  },
+  {
+    key: "rx_calcitico", label: "Calcário Calcítico (Ca a 60% da CTC, descontando o dolomítico)", group: "Correção de solo", palette: "blues",
+    productField: "cao", defaultProduct: "calc_calcitico", needs: ["ctc", "ca", "mg"],
+    formula: "((CTC × 0,6 − Ca) / 0,00179 − dose dolomítico × CaO do dolomítico) / CaO",
+    compute: (p, prm, prod, products) => {
+      const ctc = rxNum(p, "ctc"), ca = rxNum(p, "ca"), mg = rxNum(p, "mg");
+      if (ctc === null || ca === null || mg === null || !rxPct(prod.cao)) return null;
+      const dolo = products.find((x) => x.id === prm.dolomiticoProduct) || products.find((x) => x.id === "calc_dolomitico") || { cao: 28, mgo: 18 };
+      const doloDose = rxPct(dolo.mgo) ? Math.max(0, ((ctc * 0.2 - mg) / 0.00247) / rxPct(dolo.mgo)) : 0;
+      return ((ctc * 0.6 - ca) / 0.00179 - doloDose * rxPct(dolo.cao)) / rxPct(prod.cao);
+    },
+  },
+  {
+    key: "rx_sat_ca", label: "Calagem por saturação de Ca", group: "Correção de solo", palette: "blues",
+    productField: "cao", defaultProduct: "calc_calcitico", needs: ["ctc", "ca"], params: ["satCa"],
+    formula: "(Ca% desejada × CTC − Ca) / (0,0178 × CaO) × 100 / PRNT",
+    compute: (p, prm, prod) => {
+      const ctc = rxNum(p, "ctc"), ca = rxNum(p, "ca");
+      if (ctc === null || ca === null || !Number(prod.cao) || !Number(prod.prnt)) return null;
+      return ((rxPct(prm.satCa) * ctc - ca) / (0.0178 * Number(prod.cao))) * (100 / Number(prod.prnt)) * 1000;
+    },
+  },
+  {
+    key: "rx_sat_mg", label: "Calagem por saturação de Mg", group: "Correção de solo", palette: "blues",
+    productField: "mgo", defaultProduct: "calc_dolomitico", needs: ["ctc", "mg"], params: ["satMg"],
+    formula: "(Mg% desejada × CTC − Mg) / (0,0248 × MgO) × 100 / PRNT",
+    compute: (p, prm, prod) => {
+      const ctc = rxNum(p, "ctc"), mg = rxNum(p, "mg");
+      if (ctc === null || mg === null || !Number(prod.mgo) || !Number(prod.prnt)) return null;
+      return ((rxPct(prm.satMg) * ctc - mg) / (0.0248 * Number(prod.mgo))) * (100 / Number(prod.prnt)) * 1000;
+    },
+  },
+  {
+    key: "rx_v", label: "Calagem por saturação de bases (V%)", group: "Correção de solo", palette: "blues",
+    productField: "prnt", defaultProduct: "calc_dolomitico", needs: ["ctc", "v"], params: ["desiredV"],
+    formula: "CTC × (V% desejada − V% atual) / PRNT",
+    compute: (p, prm, prod) => {
+      const ctc = rxNum(p, "ctc"), v = rxNum(p, "v");
+      if (ctc === null || v === null || !Number(prod.prnt)) return null;
+      return (ctc * (Number(prm.desiredV) - v)) / Number(prod.prnt) * 1000;
+    },
+  },
+  {
+    key: "rx_gesso_argila", label: "Gesso pela argila", group: "Correção de solo", palette: "greens",
+    productField: null, defaultProduct: "gesso", needs: ["argila"],
+    formula: "Argila (g/kg) × 5",
+    compute: (p) => {
+      const arg = rxNum(p, "argila");
+      return arg === null ? null : arg * 5;
+    },
+  },
+  {
+    key: "rx_gesso_caires", label: "Gessagem (Caires & Guimarães, 20-40cm)", group: "Correção de solo", palette: "greens",
+    productField: null, defaultProduct: "gesso", needs: ["ctc_20_40", "ca_20_40"],
+    formula: "(0,6 × CTC₂₀₋₄₀ − Ca₂₀₋₄₀) × 6,4 t/ha",
+    compute: (p) => {
+      const ctc = rxNum(p, "ctc_20_40"), ca = rxNum(p, "ca_20_40");
+      return ctc === null || ca === null ? null : (0.6 * ctc - ca) * 6.4 * 1000;
+    },
+  },
+  {
+    key: "rx_p_zanella", label: "Fósforo (Zanella Consultoria) — pela argila", group: "Adubação", palette: "oranges",
+    productField: "p2o5", defaultProduct: "map", needs: ["argila", "p_mel"],
+    formula: "argila<200: 100−6P · <400: 125−8P · <600: 150−14P · <800: 240−70P (kg P₂O₅) / P₂O₅",
+    compute: (p, prm, prod) => {
+      const arg = rxNum(p, "argila"), pm = rxNum(p, "p_mel") ?? rxNum(p, "p");
+      if (arg === null || pm === null || !rxPct(prod.p2o5)) return null;
+      let p2o5;
+      if (arg < 200) p2o5 = 100 - pm * 6;
+      else if (arg < 400) p2o5 = 125 - pm * 8;
+      else if (arg < 600) p2o5 = 150 - pm * 14;
+      else if (arg < 800) p2o5 = 240 - pm * 70;
+      else p2o5 = 0;
+      return p2o5 / rxPct(prod.p2o5);
+    },
+  },
+  {
+    key: "rx_p_souza", label: "Fósforo Mehlich (Souza et al.) + exportação", group: "Adubação", palette: "oranges",
+    productField: "p2o5", defaultProduct: "map", needs: ["argila", "p_mel"], params: ["yieldSc"],
+    formula: "((NC pela argila × 1,4 − P) × 2,29 × 2) + produtividade × 0,6/0,5 (kg P₂O₅) / P₂O₅",
+    compute: (p, prm, prod) => {
+      const arg = rxNum(p, "argila"), pm = rxNum(p, "p_mel") ?? rxNum(p, "p");
+      if (arg === null || pm === null || !rxPct(prod.p2o5)) return null;
+      const p2o5 = (souzaCriticalP(arg) * 1.4 - pm) * (2.29 * 2) + Number(prm.yieldSc) * (0.6 / 0.5);
+      return p2o5 / rxPct(prod.p2o5);
+    },
+  },
+  {
+    key: "rx_p_resina", label: "Fósforo Resina — correção", group: "Adubação", palette: "oranges",
+    productField: "p2o5", defaultProduct: "map", needs: ["p_res"], params: ["includeExport", "yieldSc"],
+    formula: "((21 − P resina) × 4,6) / 2 [+ produtividade × 1,2] (kg P₂O₅) / P₂O₅",
+    compute: (p, prm, prod) => {
+      const pr = rxNum(p, "p_res");
+      if (pr === null || !rxPct(prod.p2o5)) return null;
+      const p2o5 = ((21 - pr) * 4.6) / 2 + (prm.includeExport ? Number(prm.yieldSc) * 1.2 : 0);
+      return p2o5 / rxPct(prod.p2o5);
+    },
+  },
+  {
+    key: "rx_k", label: "Potássio — correção", group: "Adubação", palette: "purples",
+    productField: "k2o", defaultProduct: "kcl", needs: ["k"],
+    formula: "((70 − K) × 5) (kg K₂O) / K₂O",
+    compute: (p, prm, prod) => {
+      const k = rxNum(p, "k");
+      if (k === null || !rxPct(prod.k2o)) return null;
+      return ((70 - k) * 5) / rxPct(prod.k2o);
+    },
+  },
+  {
+    key: "rx_k_sat", label: "KCl — saturação de K + exportação", group: "Adubação", palette: "purples",
+    productField: "k2o", defaultProduct: "kcl", needs: ["ctc", "k"], params: ["satK", "yieldSc"],
+    formula: "((K% desejada × CTC × 391) − K) × 1,2 × 2 + produtividade × 1,2/0,9 (kg K₂O) / K₂O",
+    compute: (p, prm, prod) => {
+      const ctc = rxNum(p, "ctc"), k = rxNum(p, "k");
+      if (ctc === null || k === null || !rxPct(prod.k2o)) return null;
+      const k2o = (rxPct(prm.satK) * ctc * 391 - k) * (1.2 * 2) + Number(prm.yieldSc) * (1.2 / 0.9);
+      return k2o / rxPct(prod.k2o);
+    },
+  },
+  {
+    key: "rx_s", label: "Enxofre — correção", group: "Adubação", palette: "ylorbr",
+    productField: "s", defaultProduct: "enxofre", needs: ["s"],
+    formula: "(90 − S × 6) (kg S) / S",
+    compute: (p, prm, prod) => {
+      const sv = rxNum(p, "s");
+      if (sv === null || !rxPct(prod.s)) return null;
+      return (90 - sv * 6) / rxPct(prod.s);
+    },
+  },
+  {
+    key: "rx_b", label: "Boro — correção", group: "Adubação", palette: "greys",
+    productField: "b", defaultProduct: "ulexita", needs: ["b"],
+    formula: "(2 − 3 × B) (kg B) / B",
+    compute: (p, prm, prod) => {
+      const bv = rxNum(p, "b");
+      if (bv === null || !rxPct(prod.b)) return null;
+      return (2 - 3 * bv) / rxPct(prod.b);
+    },
+  },
+];
+const RX_PARAM_DEFS = {
+  satCa: { label: "Saturação de Ca desejada (%)", def: 60 },
+  satMg: { label: "Saturação de Mg desejada (%)", def: 20 },
+  satK: { label: "Saturação de K desejada (%)", def: 3 },
+  desiredV: { label: "V% desejada", def: 70 },
+  yieldSc: { label: "Produtividade esperada (sc/ha)", def: 60 },
+  includeExport: { label: "Somar exportação da cultura", def: false, bool: true },
+};
+
+// Dose de um ponto: fórmula → zero se negativa → arredondamento (como o
+// "Arredondar valores" do Geodata).
+function rxPointDose(rx, point, params, product, products, rounding) {
+  const raw = rx.compute(point, params, product || {}, products);
+  if (raw === null || !Number.isFinite(raw)) return null;
+  const v = Math.max(0, raw);
+  const r = Number(rounding) || 0;
+  return r > 0 ? Math.round(v / r) * r : v;
 }
 
 function fmtNum(v, digits = 2) {
@@ -2707,6 +2950,7 @@ const SOIL_COLUMN_ALIASES = {
   fe: ["fe", "ferro"],
   mn: ["mn", "manganes", "manganês"],
   zn: ["zn", "zinco"],
+  argila: ["argila", "clay", "argilagkg", "argilag/kg"],
 };
 
 function normalizeSpreadsheetHeader(h) {
@@ -2799,8 +3043,9 @@ function idwInterpolate(lat, lng, points, valueKey, power = 2) {
 // interpoladas em alta resolução pra ficar com contorno suave, e com
 // área/porcentagem por faixa pra dar dimensão real de quanto do talhão cai em
 // cada nível. O número de faixas é o tamanho da paleta.
-function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette = SOIL_PALETTE) {
+function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette = SOIL_PALETTE, fixed = null, digits = 1) {
   if (!polygon || polygon.length < 3) return null;
+  if (fixed) palette = fixed.palette || SOIL_PALETTE.slice(0, fixed.breaks.length + 1);
   const numClasses = palette.length;
   // Só os pontos com valor entram (campo vazio não pode virar zero).
   const validPoints = points.filter((p) => p[valueKey] !== "" && p[valueKey] !== null && p[valueKey] !== undefined && isValidNumber(Number(p[valueKey])));
@@ -2811,10 +3056,23 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette =
   const breaks = [];
   for (let i = 0; i <= numClasses; i++) breaks.push(minV + (range * i) / numClasses);
   function classify(val) {
+    if (fixed) {
+      let c = 0;
+      while (c < fixed.breaks.length && val >= fixed.breaks[c]) c++;
+      return c;
+    }
     if (maxV <= minV) return 0;
     const idx = Math.floor(((val - minV) / range) * numClasses);
     return Math.max(0, Math.min(numClasses - 1, idx));
   }
+  // Rótulo de cada faixa pra legenda (tela e PDF).
+  const f = (v) => fmtNum(v, digits);
+  const classLabels = palette.map((_, i) => {
+    if (!fixed) return `${f(breaks[i])} - ${f(breaks[i + 1])}`;
+    const lo = i === 0 ? 0 : fixed.breaks[i - 1];
+    const label = i === numClasses - 1 ? `${f(lo)} >=` : `${f(lo)} - ${f(fixed.breaks[i])}`;
+    return fixed.names ? `${label} · ${fixed.names[i]}` : label;
+  });
   const classColors = palette;
 
   const lats = polygon.map((p) => p[0]);
@@ -2853,7 +3111,7 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette =
   return {
     dataUrl: canvas.toDataURL(), bounds: [[minLat, minLng], [maxLat, maxLng]], minV, maxV,
     avgV: totalCount > 0 ? sumVal / totalCount : (minV + maxV) / 2,
-    breaks, classColors, classCounts, totalCount, numClasses,
+    breaks, classColors, classCounts, totalCount, numClasses, classLabels,
   };
 }
 
@@ -3464,7 +3722,7 @@ function drawFieldOutlinePdf(doc, polygonLatLng, x, y, maxW, maxH, opts = {}) {
 // Uma página completa de mapa classificado por nutriente — mesma lógica de
 // classificação em faixas já usada na tela (buildHeatOverlay), só que
 // renderizada em resolução maior pro PDF, com legenda e caixa de resumo.
-function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, pageWidth, marginX }) {
+function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, pageWidth, marginX, palette, digits = 1 }) {
   doc.addPage();
   let y = 18;
   doc.setFont("helvetica", "bold");
@@ -3472,7 +3730,7 @@ function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, 
   doc.text(title, marginX, y);
   y += 8;
 
-  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260, soilPaletteFor(nutrientDef.key));
+  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260, palette || soilPaletteFor(nutrientDef.key), palette ? null : SOIL_FIXED_CLASSES[nutrientDef.key] || null, digits);
   const contentWidth = pageWidth - marginX * 2;
   if (!overlay) {
     doc.setFont("helvetica", "normal");
@@ -3514,7 +3772,7 @@ function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.3);
     doc.setTextColor(20);
-    doc.text(`${overlay.breaks[i].toFixed(1)} - ${overlay.breaks[i + 1].toFixed(1)}`, cx + 6, y);
+    doc.text(overlay.classLabels[i].split(" · ")[0], cx + 6, y);
     const areaHaClass = overlay.totalCount > 0 ? (overlay.classCounts[i] / overlay.totalCount) * areaHa : 0;
     const pct = overlay.totalCount > 0 ? (overlay.classCounts[i] / overlay.totalCount) * 100 : 0;
     doc.setFontSize(6.8);
@@ -3673,7 +3931,7 @@ function addSoilReportSection(doc, points, startY, marginX, pageWidth) {
   return y;
 }
 
-function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
+function downloadSoilAnalysisPdf(field, form, desiredV, npk, rxCtx) {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
@@ -3778,6 +4036,50 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk) {
         title: `${n.label} — ${field.name}`, areaHa, pageWidth, marginX,
       });
     });
+  }
+
+  // Prescrições (equações da Zanella) calculáveis com os dados da análise:
+  // média/mín/máx da dose por ponto e o total pro talhão, mais o mapa da
+  // prescrição que estava aberta na tela.
+  if (rxCtx) {
+    const rows = [];
+    SOIL_PRESCRIPTIONS.forEach((rx) => {
+      const product = rxCtx.productFor(rx);
+      const doses = form.points.map((p) => rxPointDose(rx, p, rxCtx.params, product, rxCtx.products, rxCtx.rounding)).filter((v) => v !== null);
+      if (doses.length === 0) return;
+      const avg = doses.reduce((a, b) => a + b, 0) / doses.length;
+      rows.push([rx.label, product.name || "—", fmtNum(avg, 0), fmtNum(Math.min(...doses), 0), fmtNum(Math.max(...doses), 0), fmtNum((avg * areaHa) / 1000, 1)]);
+    });
+    if (rows.length > 0) {
+      doc.addPage();
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("Prescrições de correção e adubação", 14, 20);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(110);
+      const p = rxCtx.params;
+      doc.text(`Parâmetros: Ca ${p.satCa}% · Mg ${p.satMg}% · K ${p.satK}% da CTC · V% ${p.desiredV} · produtividade ${p.yieldSc} sc/ha${rxCtx.rounding ? ` · doses arredondadas a cada ${rxCtx.rounding} kg` : ""}`, 14, 26);
+      doc.setTextColor(0);
+      autoTable(doc, {
+        startY: 30,
+        head: [["Prescrição", "Produto", "Média (kg/ha)", "Mín.", "Máx.", "Total (t)"]],
+        body: rows,
+        styles: { fontSize: 7.5 },
+        headStyles: { fillColor: [30, 74, 32] },
+        columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } },
+      });
+    }
+    if (rxCtx.currentRx && polygon.length >= 3) {
+      const rx = rxCtx.currentRx;
+      const product = rxCtx.productFor(rx);
+      const withRx = form.points.map((p) => ({ ...p, __rx: rxPointDose(rx, p, rxCtx.params, product, rxCtx.products, rxCtx.rounding) }));
+      addNutrientMapPage(doc, {
+        polygon, points: withRx, nutrientDef: { key: "__rx", label: product.name || rx.label, unit: "kg/ha" },
+        title: `Prescrição: ${product.name || rx.label} — ${field.name}`, areaHa, pageWidth, marginX,
+        palette: RX_PALETTES[rx.palette], digits: 0,
+      });
+    }
   }
 
   doc.addPage();
@@ -4030,6 +4332,58 @@ function SoilReportLine({ caption, stats, refRange, inverted }) {
   );
 }
 
+// Biblioteca de produtos (garantias em %) usada nas prescrições.
+function SoilProductsModal({ products, onSave, onClose }) {
+  const [list, setList] = useState(() => products.map((x) => ({ ...x })));
+  const cell = { ...inputStyle, padding: "6px 7px", fontSize: 10.5 };
+  const update = (i, patch) => setList((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, width: "min(980px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--border-soft)" }}>
+          <h3 style={{ margin: 0, fontFamily: "'Manrope', sans-serif", fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>Biblioteca de Produtos</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--ink-faint)", padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflow: "auto", padding: "12px 18px" }}>
+          <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 10 }}>Garantias em % (PRNT em %). Valem pra todas as análises de solo.</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", fontSize: 9.5, color: "var(--ink-dim)", padding: "4px 4px 8px" }}>Produto</th>
+                {SOIL_PRODUCT_FIELDS.map((f) => <th key={f.key} style={{ fontSize: 9.5, color: "var(--ink-dim)", padding: "4px 4px 8px", width: 62 }}>{f.label}</th>)}
+                <th style={{ width: 36 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((x, i) => (
+                <tr key={x.id}>
+                  <td style={{ padding: 3 }}><input style={cell} value={x.name} onChange={(e) => update(i, { name: e.target.value })} /></td>
+                  {SOIL_PRODUCT_FIELDS.map((f) => (
+                    <td key={f.key} style={{ padding: 3 }}>
+                      <input type="number" min="0" step="0.1" style={{ ...cell, textAlign: "right" }} value={x[f.key] ?? ""} onChange={(e) => update(i, { [f.key]: e.target.value === "" ? undefined : Number(e.target.value) })} />
+                    </td>
+                  ))}
+                  <td style={{ padding: 3, textAlign: "center" }}>
+                    <button onClick={() => setList((l) => l.filter((_, j) => j !== i))} style={iconBtnStyle} title="Remover"><Trash2 size={13} /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <GhostBtn onClick={() => setList((l) => [...l, { id: uid(), name: "Novo produto" }])} style={{ marginTop: 10 }}><Plus size={13} /> Adicionar produto</GhostBtn>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "12px 18px", borderTop: "1px solid var(--border-soft)", flexWrap: "wrap" }}>
+          <GhostBtn onClick={() => setList(DEFAULT_SOIL_PRODUCTS.map((x) => ({ ...x })))}>Restaurar padrão</GhostBtn>
+          <div style={{ display: "flex", gap: 8 }}>
+            <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+            <PrimaryBtn onClick={() => onSave(list.filter((x) => x.name && x.name.trim()))}>Salvar</PrimaryBtn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Relatório de Análise: um cartão por elemento com a média das amostras numa
 // barra colorida (vermelho = deficiente → verde = adequado), mínimo/máximo e
 // a interpretação. "Perfil de solo" compara 0-20 com 20-40cm no mesmo cartão.
@@ -4130,8 +4484,29 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const [desiredV, setDesiredV] = useState(70);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
-  const isLimeMode = nutrient === "nc_calcario";
   const isNpkMode = nutrient === "npk";
+  const currentRx = SOIL_PRESCRIPTIONS.find((r) => r.key === nutrient) || null;
+  const isRxMode = !!currentRx;
+  // Prescrições (equações da Zanella): parâmetros, produto escolhido por
+  // prescrição, arredondamento da dose e a biblioteca de produtos (salva no
+  // Supabase em "soilProducts", com os produtos padrão como ponto de partida).
+  const [rxParams, setRxParams] = useState(() => Object.fromEntries(Object.entries(RX_PARAM_DEFS).map(([k, d]) => [k, d.def])));
+  const [rxProductByKey, setRxProductByKey] = useState({});
+  const [rxRounding, setRxRounding] = useState(0);
+  const [soilProducts, setSoilProducts] = useState(DEFAULT_SOIL_PRODUCTS);
+  const [productsOpen, setProductsOpen] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    safeGet("soilProducts").then((v) => { if (alive && Array.isArray(v) && v.length) setSoilProducts(v); });
+    return () => { alive = false; };
+  }, []);
+  function saveSoilProducts(list) {
+    setSoilProducts(list);
+    safeSet("soilProducts", list);
+  }
+  const rxProductFor = (rx) => soilProducts.find((x) => x.id === (rxProductByKey[rx.key] || rx.defaultProduct)) || soilProducts.find((x) => x.id === rx.defaultProduct) || {};
+  const rxEffectiveParams = { ...rxParams, desiredV: Number(desiredV), dolomiticoProduct: rxProductByKey.rx_dolomitico || "calc_dolomitico" };
+  const rxDose = (rx, p) => rxPointDose(rx, p, rxEffectiveParams, rxProductFor(rx), soilProducts, rxRounding);
   const [npkCrop, setNpkCrop] = useState("soja");
   const [npkYieldGoal, setNpkYieldGoal] = useState(3.5);
   const [npkExportN, setNpkExportN] = useState(NPK_CROPS[0].n);
@@ -4181,8 +4556,12 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
 
   function switchStep(next) {
     setStep(next);
-    if (next === "insumos" && !isLimeMode && !isNpkMode) setNutrient("nc_calcario");
-    if (next === "visualizacao" && (isLimeMode || isNpkMode)) setNutrient(firstNutrientWithData(form.points));
+    if (next === "insumos" && !isRxMode && !isNpkMode) {
+      // Abre na primeira prescrição que dá pra calcular com os dados da análise.
+      const first = SOIL_PRESCRIPTIONS.find((r) => r.needs.every((k) => form.points.some((p) => rxNum(p, k) !== null)));
+      setNutrient(first?.key || "rx_v");
+    }
+    if (next === "visualizacao" && (isRxMode || isNpkMode)) setNutrient(firstNutrientWithData(form.points));
   }
 
   useEffect(() => {
@@ -4382,25 +4761,27 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const showHeatMap = step !== "coleta";
   // Só faz sentido escolher profundidade quando é um nutriente de verdade (não
   // no modo calcário nem NPK, que não têm camada).
-  const effectiveNutrientKey = !isLimeMode && !isNpkMode ? soilDepthKey(nutrient, soilDepth) : nutrient;
-  const pointValue = (p) => (isLimeMode ? limeNeedTonPerHa(p, Number(desiredV)) : p[effectiveNutrientKey] !== undefined && p[effectiveNutrientKey] !== "" ? Number(p[effectiveNutrientKey]) : null);
+  const effectiveNutrientKey = !isRxMode && !isNpkMode ? soilDepthKey(nutrient, soilDepth) : nutrient;
+  const pointValue = (p) => (isRxMode ? rxDose(currentRx, p) : p[effectiveNutrientKey] !== undefined && p[effectiveNutrientKey] !== "" ? Number(p[effectiveNutrientKey]) : null);
+  const rxKeyForMemo = isRxMode ? JSON.stringify([rxEffectiveParams, rxProductFor(currentRx), rxRounding]) : "";
   const heatOverlay = useMemo(() => {
     if (!showHeatMap) return null;
-    if (isLimeMode) {
-      const withLime = form.points.map((p) => ({ ...p, __lime: limeNeedTonPerHa(p, Number(desiredV)) }));
-      return buildHeatOverlay(polygon, withLime, "__lime", undefined, LIME_PALETTE);
+    if (isRxMode) {
+      const withRx = form.points.map((p) => ({ ...p, __rx: rxDose(currentRx, p) }));
+      return buildHeatOverlay(polygon, withRx, "__rx", undefined, RX_PALETTES[currentRx.palette], null, 0);
     }
-    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey, undefined, soilPaletteFor(nutrient));
-  }, [polygon, form.points, effectiveNutrientKey, nutrient, isLimeMode, desiredV, showHeatMap]);
+    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey, undefined, soilPaletteFor(nutrient), SOIL_FIXED_CLASSES[nutrient] || null, 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polygon, form.points, effectiveNutrientKey, nutrient, isRxMode, rxKeyForMemo, showHeatMap]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
   async function handleExportShp() {
     setExportError("");
     setExporting(true);
     try {
-      const depthSuffix = !isLimeMode && !isNpkMode && soilDepth === "20-40" ? "_2040" : "";
-      const fieldName = isLimeMode ? "RATE" : (nutrient.toUpperCase() + depthSuffix);
-      const prefix = isLimeMode ? "calcario" : (nutrient + depthSuffix);
+      const depthSuffix = !isRxMode && !isNpkMode && soilDepth === "20-40" ? "_2040" : "";
+      const fieldName = isRxMode ? "RATE" : (nutrient.toUpperCase() + depthSuffix);
+      const prefix = isRxMode ? nutrient.replace(/^rx_/, "prescricao_") : (nutrient + depthSuffix);
       await downloadPrescriptionShapefile(field, form.points, fieldName, pointValue, prefix);
     } catch (e) {
       setExportError(e.message || "Não consegui gerar o arquivo SHP.");
@@ -4525,10 +4906,9 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     })
   );
 
-  const heatUnit = isLimeMode ? "t/ha" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.unit || "";
-  const heatTitle = isLimeMode ? "Calcário" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label;
-  const heatSubtitle = isLimeMode ? `t/ha · V% desejada ${desiredV}` : `${soilDepthLabel(soilDepth)}${heatUnit ? ` - ${heatUnit}` : ""}`;
-  const legendDigits = isLimeMode ? 2 : 1;
+  const heatUnit = isRxMode ? "kg/ha" : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.unit || "";
+  const heatTitle = isRxMode ? (rxProductFor(currentRx).name || currentRx.label) : SOIL_NUTRIENTS.find((n) => n.key === nutrient)?.label;
+  const heatSubtitle = isRxMode ? `Kg/ha · ${currentRx.label}` : `${soilDepthLabel(soilDepth)}${heatUnit ? ` - ${heatUnit}` : ""}`;
   // Legenda e quadro de informações por cima do mapa, no canto inferior
   // esquerdo, como nos mapas de fertilidade do Geodata.
   const legendEl = heatOverlay && (
@@ -4541,7 +4921,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3, whiteSpace: "nowrap" }}>
               <span style={{ width: 12, height: 12, borderRadius: 2, background: `rgb(${c[0]},${c[1]},${c[2]})`, border: "1px solid rgba(0,0,0,0.12)", flexShrink: 0 }} />
               <span>
-                ( {fmtNum(heatOverlay.breaks[i], legendDigits)} - {fmtNum(heatOverlay.breaks[i + 1], legendDigits)} ) - ({fmtNum(areaHa)} ha - {fmtNum(pct)}%)
+                ( {heatOverlay.classLabels[i]} ) - ({fmtNum(areaHa)} ha - {fmtNum(pct)}%)
               </span>
             </div>
           );
@@ -4549,10 +4929,10 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       </SoilMapCard>
       <SoilMapCard title="Informações" open={infoOpen} onToggle={() => setInfoOpen((v) => !v)}>
         <SoilInfoItem label="Área selecionada" value={`${fmtNum(fieldAreaHaValue)} ha`} />
-        {isLimeMode && <SoilInfoItem label="Quantidade" value={`${fmtNum(heatOverlay.avgV * fieldAreaHaValue)} t`} />}
-        <SoilInfoItem label="Média dos dados" value={`${fmtNum(heatOverlay.avgV)} ${heatUnit}`} />
-        <SoilInfoItem label="Mínima" value={`${fmtNum(heatOverlay.minV)} ${heatUnit}`} />
-        <SoilInfoItem label="Máxima" value={`${fmtNum(heatOverlay.maxV)} ${heatUnit}`} />
+        {isRxMode && <SoilInfoItem label="Quantidade" value={`${fmtNum(heatOverlay.avgV * fieldAreaHaValue, 0)} kg (${fmtNum((heatOverlay.avgV * fieldAreaHaValue) / 1000, 1)} t)`} />}
+        <SoilInfoItem label="Média dos dados" value={`${fmtNum(heatOverlay.avgV, isRxMode ? 0 : 2)} ${heatUnit}`} />
+        <SoilInfoItem label="Mínima" value={`${fmtNum(heatOverlay.minV, isRxMode ? 0 : 2)} ${heatUnit}`} />
+        <SoilInfoItem label="Máxima" value={`${fmtNum(heatOverlay.maxV, isRxMode ? 0 : 2)} ${heatUnit}`} />
       </SoilMapCard>
     </div>
   );
@@ -4693,6 +5073,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const npkDoseK = npkDoseKgPerHa(npkYieldGoal, npkExportK);
   const npkAvgP = avgNutrient(form.points, "p_mel") ?? avgNutrient(form.points, "p_res") ?? avgNutrient(form.points, "p");
   const npkAvgK = avgNutrient(form.points, "k");
+  const rxPdfCtx = { params: rxEffectiveParams, products: soilProducts, rounding: rxRounding, productFor: rxProductFor, currentRx: isRxMode ? currentRx : null };
   const npkPdfData = { crop: npkCrop, yieldGoal: Number(npkYieldGoal) || 0, exportN: Number(npkExportN) || 0, exportP: Number(npkExportP) || 0, exportK: Number(npkExportK) || 0 };
 
   const panelSectionTitle = { fontSize: 9.5, fontWeight: 700, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: ".03em", margin: "4px 0 8px" };
@@ -4744,19 +5125,84 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </div>
   );
 
+  const rxMissing = isRxMode
+    ? currentRx.needs.filter((k) => !form.points.some((p) => rxNum(p, k) !== null))
+    : [];
+  const rxNeedLabel = (k) => {
+    const base = k.replace(/_20_40$/, "");
+    const n = SOIL_NUTRIENTS.find((x) => x.key === base);
+    return `${n ? n.label : k}${k.endsWith("_20_40") ? " (20-40cm)" : ""}`;
+  };
+  const rxProductOptions = isRxMode
+    ? soilProducts.filter((x) => !currentRx.productField || Number(x[currentRx.productField]) > 0)
+    : [];
+  const rxPanelEl = isRxMode && (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 9, color: "var(--ink-faint)", fontFamily: "'IBM Plex Mono', monospace", background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 6, padding: "7px 9px", marginBottom: 12, lineHeight: 1.5 }}>
+        {currentRx.formula}
+      </div>
+      {rxMissing.length > 0 && (
+        <div style={{ fontSize: 9.5, color: "var(--gold)", background: "var(--gold-bg)", borderRadius: 6, padding: "7px 9px", marginBottom: 12 }}>
+          Falta {rxMissing.map(rxNeedLabel).join(", ")} nos resultados dessa análise pra calcular essa prescrição.
+        </div>
+      )}
+      <Field label="Produto">
+        <div style={{ display: "flex", gap: 6 }}>
+          <select
+            style={inputStyle}
+            value={rxProductByKey[currentRx.key] || currentRx.defaultProduct}
+            onChange={(e) => setRxProductByKey((m) => ({ ...m, [currentRx.key]: e.target.value }))}
+          >
+            {rxProductOptions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+          {!readOnly && <GhostBtn onClick={() => setProductsOpen(true)} style={{ padding: "6px 10px", flexShrink: 0 }} title="Editar produtos"><Pencil size={13} /></GhostBtn>}
+        </div>
+      </Field>
+      {currentRx.key === "rx_calcitico" && (
+        <div style={{ fontSize: 9, color: "var(--ink-faint)", marginTop: -8, marginBottom: 12 }}>
+          Desconta o CaO do {(soilProducts.find((x) => x.id === rxEffectiveParams.dolomiticoProduct) || {}).name || "dolomítico"} escolhido na prescrição de Calcário Dolomítico.
+        </div>
+      )}
+      {(currentRx.params || []).map((k) => {
+        const d = RX_PARAM_DEFS[k];
+        if (k === "yieldSc" && currentRx.key === "rx_p_resina" && !rxParams.includeExport) return null;
+        if (d.bool) {
+          return (
+            <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 12, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!rxParams[k]} onChange={(e) => setRxParams((p) => ({ ...p, [k]: e.target.checked }))} /> {d.label}
+            </label>
+          );
+        }
+        const value = k === "desiredV" ? desiredV : rxParams[k];
+        const set = (v) => (k === "desiredV" ? setDesiredV(v) : setRxParams((p) => ({ ...p, [k]: v })));
+        return (
+          <Field key={k} label={d.label}>
+            <input type="number" min="0" step="1" style={inputStyle} value={value} onChange={(e) => set(e.target.value)} />
+          </Field>
+        );
+      })}
+      <Field label="Arredondar dose (kg)">
+        <select style={inputStyle} value={rxRounding} onChange={(e) => setRxRounding(Number(e.target.value))}>
+          <option value={0}>Sem arredondar</option>
+          {[5, 10, 20, 50, 100, 250, 500].map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </Field>
+    </div>
+  );
+
   const insumosControlsEl = (
     <div>
       <Field label="Prescrição">
         <select style={inputStyle} value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          <option value="nc_calcario">Calcário (t/ha)</option>
-          <option value="npk">Adubação NPK (kg/ha)</option>
+          {["Correção de solo", "Adubação"].map((g) => (
+            <optgroup key={g} label={g}>
+              {SOIL_PRESCRIPTIONS.filter((r) => r.group === g).map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+              {g === "Adubação" && <option value="npk">Adubação NPK por exportação</option>}
+            </optgroup>
+          ))}
         </select>
       </Field>
-      {isLimeMode && (
-        <Field label="V% desejada">
-          <input type="number" min="0" max="100" step="1" style={inputStyle} value={desiredV} onChange={(e) => setDesiredV(e.target.value)} />
-        </Field>
-      )}
+      {isRxMode && rxPanelEl}
       {isNpkMode && (
         <div style={{ marginBottom: 14, padding: 12, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card-alt)" }}>
           <Field label="Cultura">
@@ -4819,8 +5265,11 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </div>
   );
 
-  const reportEl = reportOpen && (
-    <SoilAnalysisReport points={form.points} hasDeepData={hasDeepData} onClose={() => setReportOpen(false)} />
+  const reportEl = (
+    <>
+      {reportOpen && <SoilAnalysisReport points={form.points} hasDeepData={hasDeepData} onClose={() => setReportOpen(false)} />}
+      {productsOpen && <SoilProductsModal products={soilProducts} onSave={(list) => { saveSoilProducts(list); setProductsOpen(false); }} onClose={() => setProductsOpen(false)} />}
+    </>
   );
 
   if (fullscreen && bounds) {
@@ -5046,7 +5495,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
               {form.points.length > 0 && (
-                <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70, npkPdfData)}>Baixar PDF</GhostBtn>
+                <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70, npkPdfData, rxPdfCtx)}>Baixar PDF</GhostBtn>
               )}
               <GhostBtn onClick={onBack}>Cancelar</GhostBtn>
               <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave}>Salvar</PrimaryBtn>
@@ -5066,7 +5515,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       {bodyEl}
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         {form.points.length > 0 && (
-          <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70, npkPdfData)}>Baixar PDF</GhostBtn>
+          <GhostBtn onClick={() => downloadSoilAnalysisPdf(field, form, Number(desiredV) || 70, npkPdfData, rxPdfCtx)}>Baixar PDF</GhostBtn>
         )}
         <GhostBtn onClick={onClose}>{readOnly ? "Fechar" : "Cancelar"}</GhostBtn>
         {!readOnly && (
