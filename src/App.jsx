@@ -1012,6 +1012,16 @@ export default function AgroTrackApp() {
     persistAjudaCusto(ajudaCusto.filter((a) => a.id !== id));
   }
 
+  // Cria uma categoria de despesa rápido (usado na conciliação). Devolve o nome.
+  function addExpenseCategoryQuick(name) {
+    const clean = (name || "").trim();
+    if (!clean) return "";
+    const existing = expenseCategories.find((c) => c.name.toLowerCase() === clean.toLowerCase());
+    if (existing) return existing.name;
+    persistExpenseCategories([...expenseCategories, { id: uid(), name: clean }]);
+    return clean;
+  }
+
   function saveExpenseCategory(form) {
     if (form.id) {
       persistExpenseCategories(expenseCategories.map((c) => (c.id === form.id ? form : c)));
@@ -1754,6 +1764,7 @@ export default function AgroTrackApp() {
             onChangeProjectRate={updateProjectShareRate}
             categoryMemory={categoryMemory}
             expenseCategories={expenseCategories}
+            onAddExpenseCategory={addExpenseCategoryQuick}
             onConfirmMatch={markFinancePaid}
             onConfirmBillMatch={markBillPaid}
             onCreateFromTransaction={(t, bankTxKey) => setModal({ type: "finance", data: { amount: t.amount, date: t.date, referenceMonth: t.date.slice(0, 7), status: "pago", bankTxKey } })}
@@ -7285,7 +7296,7 @@ function FinanceiroView({
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
   onChangeRate, onChangeProjectRate, onGenerateProLaboreBills,
-  categoryMemory, expenseCategories, onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
+  categoryMemory, expenseCategories, onAddExpenseCategory, onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
   const [tab, setTab] = useState("painel");
   const [reconSession, setReconSession] = useState(() => loadReconSession());
@@ -7560,7 +7571,7 @@ function FinanceiroView({
 
       {tab === "conciliacao" && (
         <ReconciliationView
-          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory} expenseCategories={expenseCategories}
+          finances={finances} bills={bills} clients={clients} categoryMemory={categoryMemory} expenseCategories={expenseCategories} onAddExpenseCategory={onAddExpenseCategory}
           session={reconSession} onSessionChange={setReconSession}
           onConfirmMatch={onConfirmMatch} onConfirmBillMatch={onConfirmBillMatch}
           onCreateFromTransaction={onCreateFromTransaction} onCreateBillFromTransaction={onCreateBillFromTransaction}
@@ -8130,7 +8141,7 @@ function loadReconSession() {
 // editar, navegar e voltar sem precisar enviar o arquivo de novo. O que já foi
 // conciliado/lançado é reconhecido pela marca bankTxKey gravada no lançamento.
 function ReconciliationView({
-  finances, bills, clients, categoryMemory, expenseCategories, session, onSessionChange,
+  finances, bills, clients, categoryMemory, expenseCategories, onAddExpenseCategory, session, onSessionChange,
   onConfirmMatch, onConfirmBillMatch, onCreateFromTransaction, onCreateBillFromTransaction,
 }) {
   const [error, setError] = useState("");
@@ -8220,7 +8231,8 @@ function ReconciliationView({
   };
   const visibleRows = rows.filter((r) => filter === "todos" || (filter === "abertos" ? r.state === "aberto" : r.state === filter));
   // Categorias cadastradas em Configurações > Categorias de Despesa vêm primeiro.
-  const categoryOptions = Array.from(new Set([...(expenseCategories || []).map((c) => c.name), ...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})].filter(Boolean)));
+  const categoryOptions = Array.from(new Set([...(expenseCategories || []).map((c) => c.name), ...BILL_CATEGORY_SUGGESTIONS, ...Object.values(categoryMemory || {})].filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 
   function toggleIgnore(key) {
     const ignored = new Set(session.ignored || []);
@@ -8341,9 +8353,19 @@ function ReconciliationView({
                       <select
                         style={{ ...inputStyle, width: 200, fontSize: 10 }}
                         value={draftCategory}
-                        onChange={(e) => setCategoryDrafts((d) => ({ ...d, [t.key]: e.target.value }))}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "__nova__") {
+                            const nome = window.prompt("Nome da nova categoria de despesa:");
+                            const criada = nome ? onAddExpenseCategory(nome) : "";
+                            if (criada) setCategoryDrafts((d) => ({ ...d, [t.key]: criada }));
+                            return;
+                          }
+                          setCategoryDrafts((d) => ({ ...d, [t.key]: v }));
+                        }}
                       >
                         <option value="">Categoria…</option>
+                        <option value="__nova__">＋ Adicionar nova categoria…</option>
                         {(draftCategory && !categoryOptions.includes(draftCategory) ? [draftCategory, ...categoryOptions] : categoryOptions).map((c) => <option key={c} value={c}>{c}</option>)}
                       </select>
                       <GhostBtn onClick={() => toggleIgnore(t.key)}>Ignorar</GhostBtn>
