@@ -6802,13 +6802,20 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
   });
 
   const totalProLabore = proLaboreRows.reduce((s, r) => s + r.total, 0);
-  const totalDespesasDoMes = totalDespesasPagas + totalDespesasPendentes;
+  // As despesas de pró-labore geradas (proLaboreMonth) são o pagamento, no mês
+  // seguinte, do pró-labore de uma competência — que já entra aqui via
+  // totalProLabore. Por isso ficam de fora dos totais de saída, senão contava
+  // duas vezes. (A aba Despesas continua listando todas, é o caixa.)
+  const operBills = monthBills.filter((b) => !b.proLaboreMonth);
+  const totalDespesasOperPagas = operBills.filter((b) => b.status === "pago").reduce((s, b) => s + Number(b.amount), 0);
+  const totalDespesasOperPendentes = operBills.filter((b) => b.status === "pendente").reduce((s, b) => s + Number(b.amount), 0);
+  const totalDespesasDoMes = totalDespesasOperPagas + totalDespesasOperPendentes;
   const totalSaidasPrevistas = totalProLabore + totalDespesasDoMes;
   const totalEntradasPrevistas = totalRecebido + totalPendente;
 
   return {
     monthFinances, totalRecebido, totalPendente, totalEntradasPrevistas, proLaboreRows, totalProLabore,
-    monthBills, totalDespesasPagas, totalDespesasPendentes, totalDespesasDoMes, totalSaidasPrevistas,
+    monthBills, totalDespesasPagas, totalDespesasPendentes, totalDespesasOperPagas, totalDespesasOperPendentes, totalDespesasDoMes, totalSaidasPrevistas,
   };
 }
 
@@ -7485,8 +7492,8 @@ function FinanceiroView({
             <StatCard label="Entradas recebidas no mês" value={fmtCurrency(totalRecebido)} accent="var(--green)" />
             <StatCard label="Saídas previstas no mês" value={fmtCurrency(summary.totalSaidasPrevistas)} accent="var(--gold)"
               sub={`Pró-labore ${fmtCurrency(summary.totalProLabore)} + despesas ${fmtCurrency(summary.totalDespesasDoMes)}`} />
-            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(totalDespesasPagas + summary.totalProLabore)} accent="var(--red)"
-              sub={`Despesas pagas ${fmtCurrency(totalDespesasPagas)} + pró-labore ${fmtCurrency(summary.totalProLabore)}`} />
+            <StatCard label="Saídas realizadas no mês" value={fmtCurrency(summary.totalDespesasOperPagas + summary.totalProLabore)} accent="var(--red)"
+              sub={`Despesas pagas ${fmtCurrency(summary.totalDespesasOperPagas)} + pró-labore ${fmtCurrency(summary.totalProLabore)}`} />
           </div>
 
           <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
