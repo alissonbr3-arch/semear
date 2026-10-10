@@ -7,9 +7,11 @@
 //   visita  { visitId }    → resumo da visita técnica pro cliente
 //   agenda  { taskId }     → confirmação de visita agendada pro cliente
 //   teste                  → mensagem de teste só pro número de teste da Semear
+//   gestores_teste         → prévia da cobrança semanal dos gestores, só pro número de teste
 // Qualquer usuário da equipe (role diferente de "cliente") pode enviar.
 import { createClient } from "@supabase/supabase-js";
 import { TEST_PHONE, formatarTelefone, enviarTexto, msgBoleto, msgNota, msgVisita, msgAgenda } from "../lib/whatsapp.js";
+import { enviarCobrancaGestores } from "../lib/cobrancaGestores.js";
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -51,6 +53,12 @@ export const handler = async (event) => {
     const r = await enviarTexto(TEST_PHONE, "✅ Teste do Semear: o WhatsApp está conectado e funcionando.\n\nSemear Consultoria Agropecuária");
     if (!r.ok) return json({ error: r.error }, 500);
     return json({ ok: true, para: TEST_PHONE });
+  }
+
+  if (kind === "gestores_teste") {
+    const r = await enviarCobrancaGestores(adminClient, getBlob, "teste");
+    if (r.enviados === 0 && r.falhas.length) return json({ error: r.falhas.join("\n") }, 500);
+    return json({ ok: true, ...r });
   }
 
   const clients = await getBlob(adminClient, "clients", []);

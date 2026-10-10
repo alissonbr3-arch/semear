@@ -665,6 +665,17 @@ export default function AgroTrackApp() {
     const r = await enviarWhatsapp({ kind: "teste" });
     alert(r.error ? r.error : "Mensagem de teste enviada ✅");
   }
+  async function handleTesteWhatsappGestores() {
+    if (!confirm("Enviar agora a prévia da cobrança semanal dos gestores pro número de teste (67 99969-3705)?")) return;
+    const r = await enviarWhatsapp({ kind: "gestores_teste" });
+    if (r.error) { alert(r.error); return; }
+    const d = r.data || {};
+    alert(d.gestores ? `Prévia enviada ✅ (${d.enviados} de ${d.gestores} gestor(es))${d.falhas?.length ? `\n\nFalhas:\n${d.falhas.join("\n")}` : ""}` : "Nenhum gestor tem projeto em aberto no momento.");
+  }
+  function updateWhatsappGestores(modo) {
+    logActivity(makeLogEntry("update", "settings", "WhatsApp", `Cobrança semanal dos gestores: ${modo}`));
+    persistSettings({ ...settings, whatsappGestores: modo });
+  }
   function updateWhatsappCobranca(modo) {
     logActivity(makeLogEntry("update", "settings", "WhatsApp", `Cobrança automática: ${modo}`));
     persistSettings({ ...settings, whatsappCobranca: modo });
@@ -1793,6 +1804,8 @@ export default function AgroTrackApp() {
             onDelete={deleteTask}
             onToggleDone={toggleTaskDone}
             onEnviarWhatsapp={handleEnviarWhatsapp}
+            currentUserId={profile?.id}
+            currentUserName={profile?.name}
           />
         )}
 
@@ -1834,6 +1847,9 @@ export default function AgroTrackApp() {
             onEdit={(s) => setModal({ type: "service", data: s })}
             onDelete={deleteService}
             hasClients={clients.length > 0}
+            whatsappGestores={settings.whatsappGestores}
+            onChangeWhatsappGestores={updateWhatsappGestores}
+            onTesteWhatsappGestores={handleTesteWhatsappGestores}
           />
         )}
 
@@ -6278,7 +6294,69 @@ function TaskTypeBadge({ type }) {
   );
 }
 
-function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp }) {
+// Link de calendário (.ics) da pessoa logada pra assinar no Google Agenda.
+// O token fica em agrotrack_data "agendaIcsTokens" = { [userId]: token };
+// a função agenda-ics devolve os itens da Agenda em que a pessoa é responsável.
+function novoTokenAgenda() {
+  const b = new Uint8Array(20);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+function GoogleAgendaModal({ userId, userName, onClose }) {
+  const [token, setToken] = useState(null);
+  const [erro, setErro] = useState("");
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const tokens = (await safeGet("agendaIcsTokens")) || {};
+      if (tokens[userId]) { setToken(tokens[userId]); return; }
+      const t = novoTokenAgenda();
+      const ok = await safeSet("agendaIcsTokens", { ...tokens, [userId]: t });
+      if (ok) setToken(t); else setErro("Não consegui criar o link. Tente de novo.");
+    })();
+  }, [userId]);
+  async function trocarLink() {
+    if (!confirm("Gerar um link novo? O link antigo para de funcionar e você vai precisar adicionar a agenda de novo no Google.")) return;
+    const tokens = (await safeGet("agendaIcsTokens")) || {};
+    const t = novoTokenAgenda();
+    if (await safeSet("agendaIcsTokens", { ...tokens, [userId]: t })) setToken(t);
+  }
+  const url = token ? `${window.location.origin}/agenda/${token}.ics` : "";
+  const googleUrl = token ? `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(url.replace(/^https?:/, "webcal:"))}` : "";
+  return (
+    <Modal title="Sincronizar com o Google Agenda" onClose={onClose} maxWidth={520}>
+      <div style={{ fontSize: 10.5, color: "var(--ink-soft)", lineHeight: 1.6, marginBottom: 14 }}>
+        Os itens da Agenda em que <strong>{userName || "você"}</strong> é responsável aparecem no seu Google Agenda, numa agenda separada chamada "Semear — {userName || "você"}".
+        O Google atualiza essa agenda sozinho de tempos em tempos (pode levar algumas horas pra uma mudança aparecer).
+      </div>
+      {erro && <div style={{ fontSize: 10, color: "var(--red)", marginBottom: 10 }}>{erro}</div>}
+      {!token && !erro && <div style={{ fontSize: 10.5, color: "var(--ink-faint)" }}>Gerando seu link…</div>}
+      {token && (
+        <>
+          <a href={googleUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+            <PrimaryBtn style={{ width: "100%", justifyContent: "center", marginBottom: 14 }}><Calendar size={15} /> Adicionar ao Google Agenda</PrimaryBtn>
+          </a>
+          <Field label="Ou copie o link e cole no Google Agenda (Outras agendas → + → Do URL)">
+            <div style={{ display: "flex", gap: 6 }}>
+              <input readOnly style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5 }} value={url} onFocus={(e) => e.target.select()} />
+              <GhostBtn onClick={() => { navigator.clipboard?.writeText(url); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }} style={{ flexShrink: 0 }}>{copiado ? "Copiado" : "Copiar"}</GhostBtn>
+            </div>
+          </Field>
+          <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 14 }}>
+            Esse link é pessoal: quem tiver ele vê a sua agenda. Se ele vazar, gere um novo.
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <GhostBtn onClick={trocarLink}>Gerar link novo</GhostBtn>
+            <GhostBtn onClick={onClose}>Fechar</GhostBtn>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
+  const [googleOpen, setGoogleOpen] = useState(false);
   const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
   const [assigneeFilter, setAssigneeFilter] = useState("Todos");
 
@@ -6306,6 +6384,10 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
           <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Visitas e tarefas da semana · {rangeLabel}</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {currentUserId && (
+            <GhostBtn onClick={() => setGoogleOpen(true)} title="Ver seus itens da Agenda no Google Agenda"><Calendar size={14} /> Google Agenda</GhostBtn>
+          )}
+          {googleOpen && <GoogleAgendaModal userId={currentUserId} userName={currentUserName} onClose={() => setGoogleOpen(false)} />}
           <select style={{ ...inputStyle, width: 170 }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
             <option value="Todos">Toda a equipe</option>
             {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -7979,7 +8061,7 @@ function serviceCobrancaSummary(type) {
   return "—";
 }
 
-function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, onDelete, hasClients }) {
+function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, onDelete, hasClients, whatsappGestores, onChangeWhatsappGestores, onTesteWhatsappGestores }) {
   const rows = useMemo(() => {
     return [...services]
       .map((s) => ({
@@ -8001,6 +8083,23 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
       {!hasClients && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", background: "var(--gold-bg)", color: "var(--gold)", padding: "10px 14px", borderRadius: 8, fontSize: 10.5, marginBottom: 16 }}>
           <AlertTriangle size={15} /> Cadastre um cliente antes de adicionar um serviço.
+        </div>
+      )}
+      {onChangeWhatsappGestores && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, fontSize: 10.5, color: "var(--ink-dim)" }}>
+          <MessageCircle size={14} />
+          <span>Cobrança semanal dos gestores (WhatsApp):</span>
+          <select
+            style={{ ...inputStyle, width: "auto", padding: "5px 10px", fontSize: 10.5 }}
+            value={whatsappGestores || "off"}
+            onChange={(e) => onChangeWhatsappGestores(e.target.value)}
+          >
+            <option value="off">Desligada</option>
+            <option value="teste">Modo teste (só pro meu número)</option>
+            <option value="ativa">Ativa (envia pros gestores)</option>
+          </select>
+          <GhostBtn onClick={onTesteWhatsappGestores} style={{ fontSize: 10, padding: "5px 10px" }}>Enviar prévia agora</GhostBtn>
+          <span style={{ color: "var(--ink-faint)", fontSize: 9.5 }}>Toda segunda às 7h: cada gestor recebe a lista dos serviços avulsos dele (projetos, análises, limites) em negociação ou em andamento.</span>
         </div>
       )}
       {rows.length === 0 ? (

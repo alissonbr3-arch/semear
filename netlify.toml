@@ -5,6 +5,13 @@
 [functions]
   directory = "netlify/functions"
 
+# Agenda de cada gestor pro Google Agenda (assinatura por URL).
+[[redirects]]
+  from = "/agenda/:token"
+  to = "/.netlify/functions/agenda-ics?t=:token"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
