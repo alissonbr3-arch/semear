@@ -8,7 +8,7 @@
 # Agenda de cada gestor pro Google Agenda (assinatura por URL).
 [[redirects]]
   from = "/agenda/:token"
-  to = "/.netlify/functions/agenda-ics?t=:token"
+  to = "/.netlify/functions/agenda-ics"
   status = 200
   force = true
 

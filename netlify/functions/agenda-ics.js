@@ -39,7 +39,10 @@ function nextDay(iso) {
 
 export const handler = async (event) => {
   if (!supabaseUrl || !serviceRoleKey) return { statusCode: 500, body: "Configuração incompleta." };
-  const token = String(event.queryStringParameters?.t || "").replace(/\.ics$/i, "").trim();
+  // Vem como ?t=<token> (chamada direta) ou no caminho /agenda/<token>.ics
+  // (o redirect do netlify.toml não repassa o token como parâmetro).
+  const doCaminho = String(event.rawUrl || event.path || "").split("?")[0].split("/").pop();
+  const token = String(event.queryStringParameters?.t || doCaminho || "").replace(/\.ics$/i, "").trim();
   if (!/^[a-f0-9]{32,}$/.test(token)) return { statusCode: 404, body: "Agenda não encontrada." };
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey);
