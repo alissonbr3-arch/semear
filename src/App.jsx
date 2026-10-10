@@ -6554,39 +6554,6 @@ function layoutSobrepostos(itens) {
   return out;
 }
 
-function MiniCalendario({ ancora, hojeIso, diasVisiveis, onEscolher }) {
-  const [mes, setMes] = useState(() => new Date(ancora.getFullYear(), ancora.getMonth(), 1));
-  useEffect(() => { setMes(new Date(ancora.getFullYear(), ancora.getMonth(), 1)); }, [ancora]);
-  const inicio = inicioSemanaDomingo(mes);
-  const dias = Array.from({ length: 42 }, (_, i) => addDays(inicio, i));
-  const visiveis = new Set(diasVisiveis);
-  return (
-    <div style={{ fontSize: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontWeight: 700, color: "var(--ink)", fontSize: 10.5 }}>{MESES_PT[mes.getMonth()][0].toUpperCase() + MESES_PT[mes.getMonth()].slice(1)} de {mes.getFullYear()}</span>
-        <span style={{ display: "flex", gap: 2 }}>
-          <button onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))} style={{ ...iconBtnStyle, border: "none", padding: 3 }}><ChevronLeft size={13} /></button>
-          <button onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1))} style={{ ...iconBtnStyle, border: "none", padding: 3 }}><ChevronRight size={13} /></button>
-        </span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1, textAlign: "center" }}>
-        {["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => <div key={i} style={{ color: "var(--ink-faint)", fontSize: 9, padding: "2px 0" }}>{d}</div>)}
-        {dias.map((d) => {
-          const iso = toISODateLocal(d);
-          const hoje = iso === hojeIso;
-          return (
-            <button key={iso} onClick={() => onEscolher(d)} style={{
-              border: "none", cursor: "pointer", borderRadius: 12, padding: "3px 0", fontSize: 9.5,
-              background: hoje ? "var(--green-solid)" : visiveis.has(iso) ? "var(--green-soft-bg)" : "transparent",
-              color: hoje ? "var(--cream)" : d.getMonth() === mes.getMonth() ? "var(--ink-soft)" : "var(--ink-faint)", fontWeight: hoje ? 700 : 400,
-            }}>{d.getDate()}</button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
   const largura = useLarguraJanela();
   const celular = largura < 760;
@@ -6706,11 +6673,15 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
     );
   };
 
+  // Liga/desliga cada agenda (visitas, tarefas, Google) — chips no topo.
   const camada = (k, label) => (
-    <label key={k} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: "var(--ink-soft)", cursor: "pointer", padding: "3px 0" }}>
-      <input type="checkbox" checked={!!mostrar[k]} onChange={(e) => setMostrar({ ...mostrar, [k]: e.target.checked })} style={{ accentColor: AGENDA_CORES[k].bg }} />
-      <span style={{ width: 9, height: 9, borderRadius: 2, background: AGENDA_CORES[k].bg }} />{label}
-    </label>
+    <button key={k} onClick={() => setMostrar({ ...mostrar, [k]: !mostrar[k] })} title={mostrar[k] ? `Esconder ${label}` : `Mostrar ${label}`} style={{
+      display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 14, cursor: "pointer", fontSize: 10.5,
+      border: "1px solid var(--border-input)", background: "transparent", color: mostrar[k] ? "var(--ink-soft)" : "var(--ink-faint)",
+      textDecoration: mostrar[k] ? "none" : "line-through",
+    }}>
+      <span style={{ width: 9, height: 9, borderRadius: 2, background: mostrar[k] ? AGENDA_CORES[k].bg : "var(--border)" }} />{label}
+    </button>
   );
 
   return (
@@ -6725,6 +6696,13 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
           <span style={{ fontSize: 9.5, color: google.erro ? "var(--red)" : "var(--ink-faint)" }}>
             {google.erro || (google.carregando ? "carregando o Google…" : "")}
           </span>
+        )}
+        {!celular && (
+          <div style={{ display: "flex", gap: 6 }}>
+            {camada("visita", "Visitas")}
+            {camada("tarefa", "Tarefas")}
+            {google.conectado && camada("google", "Google")}
+          </div>
         )}
         <select style={{ ...inputStyle, width: 160, padding: "6px 10px" }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
           <option value="Todos">Toda a equipe</option>
@@ -6743,16 +6721,6 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
       {googleOpen && <GoogleAgendaModal userId={currentUserId} userName={currentUserName} onClose={() => setGoogleOpen(false)} onGoogleChanged={() => setGoogleVersao((v) => v + 1)} />}
 
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-        {largura >= 1100 && (
-          <div style={{ width: 190, flexShrink: 0 }}>
-            <MiniCalendario ancora={ancora} hojeIso={hojeIso} diasVisiveis={diasIso} onEscolher={(d) => setAncora(d)} />
-            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-dim)", margin: "18px 0 6px" }}>Minhas agendas</div>
-            {camada("visita", "Visitas")}
-            {camada("tarefa", "Tarefas")}
-            {camada("google", google.conectado ? "Google Agenda" : "Google Agenda (conectar)")}
-          </div>
-        )}
-
         <div style={{ flex: 1, minWidth: 0, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           {/* Cabeçalho dos dias */}
           <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${dias.length}, 1fr)`, borderBottom: "1px solid var(--border)" }}>
