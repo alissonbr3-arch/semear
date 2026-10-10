@@ -15,6 +15,7 @@ import { Delaunay } from "d3-delaunay";
 import { intersection, union } from "martinez-polygon-clipping";
 import shpwrite from "@mapbox/shp-write";
 import { safeGet, safeSet } from "./lib/storage.js";
+import { gerarZonasManejo, pontoNaZona } from "./lib/zonasManejo.js";
 import {
   STATUS_ABERTO, PARADO_PADRAO, VISITA_INTERVALO_PADRAO, novasEtapas, ehAvulso, emAberto, etapaAtual, diasParado,
   ultimaVisitaPorCliente, semaforoVisita, addDiasIso,
@@ -1721,6 +1722,7 @@ export default function AgroTrackApp() {
             field={fieldsWithMeta.find((f) => f.id === soilAnalysisEditor.fieldId)}
             data={soilAnalyses.find((s) => s.id === soilAnalysisEditor.analysisId) || null}
             initialStep={soilAnalysisEditor.initialStep}
+            outrasAnalises={soilAnalyses.filter((s) => s.fieldId === soilAnalysisEditor.fieldId)}
             onSave={(form) => { saveSoilAnalysis(form); setSoilAnalysisEditor(null); }}
             onBack={() => setSoilAnalysisEditor(null)}
           />
@@ -3156,7 +3158,9 @@ function idwInterpolate(lat, lng, points, valueKey, power = 2) {
 // interpoladas em alta resolução pra ficar com contorno suave, e com
 // área/porcentagem por faixa pra dar dimensão real de quanto do talhão cai em
 // cada nível. O número de faixas é o tamanho da paleta.
-function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette = SOIL_PALETTE, fixed = null, digits = 1) {
+// Com "zonas" (amostragem por zona de manejo, 1 amostra composta por zona) cada
+// zona é pintada inteira com o valor do seu ponto (zoneId), sem interpolar.
+function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette = SOIL_PALETTE, fixed = null, digits = 1, zonas = null) {
   if (!polygon || polygon.length < 3) return null;
   if (fixed) palette = fixed.palette || SOIL_PALETTE.slice(0, fixed.breaks.length + 1);
   const numClasses = palette.length;
@@ -3188,6 +3192,23 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette =
   });
   const classColors = palette;
 
+  // Valor de cada zona = valor do ponto da amostra composta dela.
+  const zonaInfo = zonas && zonas.length ? zonas.map((z) => {
+    const pt = validPoints.find((p) => p.zoneId === z.id);
+    const ring = (z.poligonos || []).flatMap((pl) => pl[0] || []);
+    return {
+      poligonos: z.poligonos, val: pt ? Number(pt[valueKey]) : null,
+      bbox: ring.length ? [Math.min(...ring.map((c) => c[1])), Math.max(...ring.map((c) => c[1])), Math.min(...ring.map((c) => c[0])), Math.max(...ring.map((c) => c[0]))] : null,
+    };
+  }) : null;
+  const valorDaZona = (lat, lng) => {
+    for (const z of zonaInfo) {
+      if (!z.bbox || lat < z.bbox[0] || lat > z.bbox[1] || lng < z.bbox[2] || lng > z.bbox[3]) continue;
+      if (pontoNaZona(lat, lng, z.poligonos)) return z.val;
+    }
+    return null;
+  };
+
   const lats = polygon.map((p) => p[0]);
   const lngs = polygon.map((p) => p[1]);
   const minLat = Math.min(...lats), maxLat = Math.max(...lats);
@@ -3207,7 +3228,7 @@ function buildHeatOverlay(polygon, points, valueKey, resolution = 180, palette =
       const lng = minLng + (x / (w - 1)) * (maxLng - minLng);
       const idx = (y * w + x) * 4;
       if (!pointInPolygon(lat, lng, polygon)) continue;
-      const val = idwInterpolate(lat, lng, validPoints, valueKey);
+      const val = zonaInfo ? valorDaZona(lat, lng) : idwInterpolate(lat, lng, validPoints, valueKey);
       if (val === null) continue;
       const cls = classify(val);
       const [r, g, b] = classColors[cls];
@@ -3330,7 +3351,7 @@ function buildVoronoiPrescriptionGeoJSON(fieldPolygonLatLng, points, valueFieldN
 
 async function downloadShapefileZip(geojson, fileNamePrefix, field) {
   if (geojson.features.length === 0) throw new Error("Nada pra exportar nesse mapa.");
-  const blob = await shpwrite.zip(geojson, { outputType: "blob", compression: "DEFLATE", types: { polygon: "zonas" } });
+  const blob = await shpwrite.zip(geojson, { outputType: "blob", compression: "DEFLATE", types: { polygon: "zonas", point: "pontos" } });
   const safeName = `${fileNamePrefix}_${field.name}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -3342,10 +3363,22 @@ async function downloadShapefileZip(geojson, fileNamePrefix, field) {
   URL.revokeObjectURL(url);
 }
 
-async function downloadPrescriptionShapefile(field, points, valueFieldName, getValue, fileNamePrefix) {
+async function downloadPrescriptionShapefile(field, points, valueFieldName, getValue, fileNamePrefix, zonas = null) {
   const polygon = field.fieldMap?.mode === "kml" ? field.fieldMap.points : [];
   if (polygon.length < 3) throw new Error("Esse talhão não tem área definida por KML.");
-  const geojson = buildVoronoiPrescriptionGeoJSON(polygon, points, valueFieldName, getValue);
+  // Amostragem por zona: a prescrição sai com o polígono de cada zona e a dose dela.
+  const geojson = zonas && zonas.length ? {
+    type: "FeatureCollection",
+    features: zonas.flatMap((z) => {
+      const pt = points.find((p) => p.zoneId === z.id);
+      const v = pt ? getValue(pt) : null;
+      if (v === null || v === undefined || Number.isNaN(v)) return [];
+      return (z.poligonos || []).map((rings) => ({
+        type: "Feature", properties: { [valueFieldName]: Number(Number(v).toFixed(2)), ZONA: z.label },
+        geometry: { type: "Polygon", coordinates: rings },
+      }));
+    }),
+  } : buildVoronoiPrescriptionGeoJSON(polygon, points, valueFieldName, getValue);
   await downloadShapefileZip(geojson, fileNamePrefix, field);
 }
 
@@ -3453,97 +3486,141 @@ function simplifyPolygonRings(polyRings, epsilon) {
   });
 }
 
-// Classifica o talhão em zonas de manejo a partir do NDVI: amostra uma grade
-// fina de células sobre a imagem, agrupa cada célula numa classe por
-// quantil, recorta pelo limite real do talhão e funde (union) as células
-// vizinhas da mesma classe num polígono só por zona — depois suaviza o
-// contorno resultante (menos "escada de quadradinhos", menos vértices).
-function classifyNdviZones(fieldPolygonLatLng, bounds, grid, numClasses) {
-  const [[minLat, minLng], [maxLat, maxLng]] = bounds;
-  const { width, height, values } = grid;
-  const cellsPerSide = 24;
-  const cellW = (maxLng - minLng) / cellsPerSide;
-  const cellH = (maxLat - minLat) / cellsPerSide;
-  const fieldMultiPoly = [[toGeoJsonRing(fieldPolygonLatLng)]];
-
-  function sampleAt(lat, lng) {
-    const px = Math.floor(((lng - minLng) / (maxLng - minLng)) * width);
-    const py = Math.floor(((maxLat - lat) / (maxLat - minLat)) * height);
-    if (px < 0 || px >= width || py < 0 || py >= height) return null;
-    return values[py * width + px];
-  }
-
-  const cellData = [];
-  for (let r = 0; r < cellsPerSide; r++) {
-    for (let c = 0; c < cellsPerSide; c++) {
-      const cellMinLng = minLng + c * cellW, cellMaxLng = cellMinLng + cellW;
-      const cellMinLat = minLat + r * cellH, cellMaxLat = cellMinLat + cellH;
-      const val = sampleAt((cellMinLat + cellMaxLat) / 2, (cellMinLng + cellMaxLng) / 2);
-      if (val === null) continue;
-      cellData.push({ cellMinLng, cellMaxLng, cellMinLat, cellMaxLat, val });
-    }
-  }
-  if (cellData.length === 0) return { zones: [], breaks: [] };
-
-  const sortedVals = cellData.map((c) => c.val).sort((a, b) => a - b);
-  const breaks = [];
-  for (let i = 1; i < numClasses; i++) {
-    const idx = Math.min(Math.floor((i / numClasses) * sortedVals.length), sortedVals.length - 1);
-    breaks.push(sortedVals[idx]);
-  }
-  const classify = (val) => {
-    for (let i = 0; i < breaks.length; i++) { if (val <= breaks[i]) return i; }
-    return breaks.length;
-  };
-
-  const byClass = {};
-  cellData.forEach((cell) => {
-    const cls = classify(cell.val);
-    const ring = [
-      [cell.cellMinLng, cell.cellMinLat], [cell.cellMaxLng, cell.cellMinLat],
-      [cell.cellMaxLng, cell.cellMaxLat], [cell.cellMinLng, cell.cellMaxLat], [cell.cellMinLng, cell.cellMinLat],
-    ];
-    let clipped;
-    try { clipped = intersection([[ring]], fieldMultiPoly); } catch (e) { clipped = null; }
-    if (!clipped || clipped.length === 0) return;
-    if (!byClass[cls]) byClass[cls] = { polys: [], values: [] };
-    clipped.forEach((polyRings) => byClass[cls].polys.push(polyRings));
-    byClass[cls].values.push(cell.val);
-  });
-
-  const simplifyEpsilon = Math.min(cellW, cellH) * 0.6;
-  const zones = Object.entries(byClass).map(([clsStr, { polys, values: vals }]) => {
-    let unioned = polys;
-    try {
-      unioned = polys.reduce((acc, poly) => (acc ? union(acc, [poly]) : [poly]), null) || polys;
-    } catch (e) { /* mantém os polígonos não fundidos se a união falhar */ }
-    unioned = unioned.map((polyRings) => simplifyPolygonRings(polyRings, simplifyEpsilon));
-    const areaHa = unioned.reduce((sum, polyRings) => {
-      const outerRing = polyRings[0].map(([lng, lat]) => ({ lat, lng }));
-      return sum + geodesicAreaHa(outerRing);
-    }, 0);
-    return {
-      classIndex: Number(clsStr),
-      ndviMin: Math.min(...vals),
-      ndviMax: Math.max(...vals),
-      ndviAvg: vals.reduce((s, v) => s + v, 0) / vals.length,
-      areaHa,
-      polygons: unioned,
-    };
-  }).sort((a, b) => a.classIndex - b.classIndex);
-
-  return { zones, breaks };
+// Cor de cada classe de zona de manejo (classe 1 = menor valor da 1ª camada,
+// vermelho → verde, como no mapa de NDVI).
+function corClasseZona(classe, nClasses) {
+  const t = nClasses > 1 ? classe / (nClasses - 1) : 0.5;
+  const [r, g, b] = SOIL_PALETTE[Math.round(t * (SOIL_PALETTE.length - 1))];
+  return `rgb(${r},${g},${b})`;
 }
 
-function generatePointsForZone(zone, targetCount) {
-  if (targetCount <= 0 || zone.areaHa <= 0) return [];
-  const hectaresPerPoint = zone.areaHa / targetCount;
-  let points = [];
-  zone.polygons.forEach((polyRings) => {
-    const outerRing = polyRings[0].map(([lng, lat]) => [lat, lng]);
-    points = points.concat(generateSamplingGrid(outerRing, hectaresPerPoint));
-  });
-  return points;
+// Painel da coleta: monta as zonas de manejo cruzando NDVI (Sentinel-2) com
+// atributos de uma análise anterior do talhão, cada camada com um peso.
+function ZonasManejoPainel({ ndvi, cfg, setCfg, analisesBase, atributosBase, preview, zonasSalvas, erro, onGerar, onUsar, onDescartar, onRemover, onExportZonas, onExportPontos }) {
+  const lbl = { fontSize: 9.5, color: "var(--ink-dim)" };
+  const num = { ...inputStyle, width: 64, padding: "5px 7px" };
+  const peso = (valor, onChange) => (
+    <select style={{ ...inputStyle, width: 74, padding: "4px 6px", fontSize: 10 }} value={valor} onChange={(e) => onChange(Number(e.target.value))}>
+      <option value={0}>Não usar</option>
+      <option value={0.5}>Peso ½</option>
+      <option value={1}>Peso 1</option>
+      <option value={2}>Peso 2</option>
+      <option value={3}>Peso 3</option>
+    </select>
+  );
+  const nClasses = preview ? Math.max(...preview.zonas.map((z) => z.classe)) + 1 : 0;
+  return (
+    <div style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>Zonas de manejo (amostra composta por zona)</div>
+      <div style={{ ...lbl, marginBottom: 12, lineHeight: 1.5 }}>
+        Cruza o NDVI da lavoura com atributos de uma análise anterior (argila, CTC…). O talhão é dividido em zonas contínuas do tamanho escolhido; cada zona vira 1 amostra composta (Z01, Z02…) com as subamostras espalhadas dentro dela.
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12, marginBottom: 12 }}>
+        <div style={{ border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)" }}>NDVI (Sentinel-2)</span>
+            {ndvi.grid && peso(cfg.pesoNdvi, (v) => setCfg({ ...cfg, pesoNdvi: v }))}
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+            <input type="date" style={{ ...inputStyle, width: 132, padding: "5px 7px" }} value={ndvi.dateFrom} onChange={(e) => ndvi.setDateFrom(e.target.value)} />
+            <span style={lbl}>até</span>
+            <input type="date" style={{ ...inputStyle, width: 132, padding: "5px 7px" }} value={ndvi.dateTo} onChange={(e) => ndvi.setDateTo(e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <GhostBtn onClick={ndvi.onFetch} disabled={ndvi.loading} style={{ padding: "5px 10px", fontSize: 10 }}>{ndvi.loading ? "Buscando…" : ndvi.grid ? "Buscar de novo" : "Buscar NDVI"}</GhostBtn>
+            {ndvi.grid && (
+              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9.5, color: "var(--ink-soft)", cursor: "pointer" }}>
+                <input type="checkbox" checked={ndvi.showLayer} onChange={(e) => ndvi.setShowLayer(e.target.checked)} /> Mostrar no mapa
+              </label>
+            )}
+          </div>
+          {ndvi.error && <div style={{ fontSize: 9.5, color: "var(--red)", marginTop: 6 }}>{ndvi.error}</div>}
+          {ndvi.rangeUsed && <div style={{ fontSize: 9, color: "var(--ink-faint)", marginTop: 6 }}>Imagem de {fmtDate(ndvi.rangeUsed.from)} a {fmtDate(ndvi.rangeUsed.to)} — confira no mapa se a cultura já estava estabelecida e sem nuvem.</div>}
+        </div>
+
+        <div style={{ border: "1px solid var(--border-soft)", borderRadius: 8, padding: 10 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 8 }}>Atributos de uma análise anterior</div>
+          {analisesBase.length === 0 ? (
+            <div style={{ ...lbl, color: "var(--ink-faint)" }}>Nenhuma outra análise desse talhão com resultados ainda.</div>
+          ) : (
+            <>
+              <select style={{ ...inputStyle, padding: "5px 7px", fontSize: 10.5, marginBottom: 8 }} value={cfg.analiseBaseId} onChange={(e) => setCfg({ ...cfg, analiseBaseId: e.target.value })}>
+                {analisesBase.map((a) => <option key={a.id} value={a.id}>{fmtDate(a.date)}{a.label ? ` — ${a.label}` : ""} ({a.points.length} pontos)</option>)}
+              </select>
+              {atributosBase.length === 0 ? (
+                <div style={{ ...lbl, color: "var(--ink-faint)" }}>Essa análise não tem resultados de laboratório preenchidos.</div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "5px 8px", alignItems: "center", maxHeight: 150, overflowY: "auto" }}>
+                  {atributosBase.map((n) => (
+                    <React.Fragment key={n.key}>
+                      <span style={{ fontSize: 10, color: (cfg.pesos[n.key] || 0) > 0 ? "var(--ink-soft)" : "var(--ink-faint)" }}>{n.label}</span>
+                      {peso(cfg.pesos[n.key] || 0, (v) => setCfg({ ...cfg, pesos: { ...cfg.pesos, [n.key]: v } }))}
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, ...lbl }}>Classes
+          <select style={{ ...num, width: 58 }} value={cfg.classes} onChange={(e) => setCfg({ ...cfg, classes: Number(e.target.value) })}>
+            {[2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, ...lbl }}>Tamanho médio da zona
+          <input type="number" min="1" step="0.5" style={num} value={cfg.haPorZona} onChange={(e) => setCfg({ ...cfg, haPorZona: e.target.value })} /> ha
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, ...lbl }}>Subamostras por zona
+          <input type="number" min="1" max="20" step="1" style={num} value={cfg.subPorZona} onChange={(e) => setCfg({ ...cfg, subPorZona: e.target.value })} />
+        </label>
+        <PrimaryBtn onClick={onGerar} style={{ padding: "7px 14px" }}>{preview ? "Gerar de novo" : "Gerar zonas"}</PrimaryBtn>
+      </div>
+      {erro && <div style={{ fontSize: 9.5, color: "var(--red)", marginBottom: 10 }}>{erro}</div>}
+
+      {preview && (
+        <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: 10 }}>
+          <div style={{ fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 8 }}>
+            <strong>{preview.zonas.length} zonas</strong> · média de {fmtNum(preview.zonas.reduce((a, z) => a + z.areaHa, 0) / preview.zonas.length, 1)} ha · {preview.zonas.length * (Number(cfg.subPorZona) || 0)} subamostras (malha de {preview.celulaM} m)
+          </div>
+          <div style={{ overflowX: "auto", marginBottom: 10 }}>
+            <table style={{ fontSize: 10 }}>
+              <thead><tr><th>Classe</th><th>Zonas</th><th>Área</th>{preview.classes[0]?.medias.map((m) => <th key={m.label}>{m.label} (média)</th>)}</tr></thead>
+              <tbody>
+                {preview.classes.map((c) => (
+                  <tr key={c.classe}>
+                    <td><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: corClasseZona(c.classe, nClasses), marginRight: 6, verticalAlign: "middle" }} />Classe {c.classe + 1}</td>
+                    <td>{c.zonas}</td>
+                    <td>{fmtNum(c.areaHa, 1)} ha</td>
+                    {c.medias.map((m) => <td key={m.label}>{m.media === null ? "—" : fmtNum(m.media, m.label === "NDVI" ? 2 : 1)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <PrimaryBtn onClick={onUsar} style={{ padding: "7px 14px" }}>Usar estas zonas na coleta</PrimaryBtn>
+            <GhostBtn onClick={onDescartar} style={{ padding: "6px 12px" }}>Descartar</GhostBtn>
+            <GhostBtn onClick={onExportZonas} style={{ padding: "6px 12px" }}>Exportar zonas (SHP)</GhostBtn>
+            <GhostBtn onClick={onExportPontos} style={{ padding: "6px 12px" }}>Exportar subamostras (SHP)</GhostBtn>
+          </div>
+        </div>
+      )}
+      {!preview && zonasSalvas?.length > 0 && (
+        <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 10.5, color: "var(--ink-soft)", marginRight: "auto" }}>
+            Esta análise usa <strong>{zonasSalvas.length} zonas</strong> — o laudo vem por zona (Z01, Z02…) e o mapa pinta cada zona inteira.
+          </span>
+          <GhostBtn onClick={onExportZonas} style={{ padding: "6px 12px" }}>Exportar zonas (SHP)</GhostBtn>
+          <GhostBtn onClick={onExportPontos} style={{ padding: "6px 12px" }}>Exportar subamostras (SHP)</GhostBtn>
+          <GhostBtn onClick={onRemover} style={{ padding: "6px 12px" }}>Voltar pra pontos</GhostBtn>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Baixa uma foto (URL pública do Storage) e devolve como data URL + as
@@ -3835,7 +3912,7 @@ function drawFieldOutlinePdf(doc, polygonLatLng, x, y, maxW, maxH, opts = {}) {
 // Uma página completa de mapa classificado por nutriente — mesma lógica de
 // classificação em faixas já usada na tela (buildHeatOverlay), só que
 // renderizada em resolução maior pro PDF, com legenda e caixa de resumo.
-function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, pageWidth, marginX, palette, digits = 1 }) {
+function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, pageWidth, marginX, palette, digits = 1, zonas = null }) {
   doc.addPage();
   let y = 18;
   doc.setFont("helvetica", "bold");
@@ -3843,7 +3920,7 @@ function addNutrientMapPage(doc, { polygon, points, nutrientDef, title, areaHa, 
   doc.text(title, marginX, y);
   y += 8;
 
-  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260, palette || soilPaletteFor(nutrientDef.key), palette ? null : SOIL_FIXED_CLASSES[nutrientDef.key] || null, digits);
+  const overlay = buildHeatOverlay(polygon, points, nutrientDef.key, 260, palette || soilPaletteFor(nutrientDef.key), palette ? null : SOIL_FIXED_CLASSES[nutrientDef.key] || null, digits, zonas);
   const contentWidth = pageWidth - marginX * 2;
   if (!overlay) {
     doc.setFont("helvetica", "normal");
@@ -4146,7 +4223,7 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk, rxCtx) {
       if (!hasData) return;
       addNutrientMapPage(doc, {
         polygon, points: form.points, nutrientDef: n,
-        title: `${n.label} — ${field.name}`, areaHa, pageWidth, marginX,
+        title: `${n.label} — ${field.name}`, areaHa, pageWidth, marginX, zonas: form.zonas,
       });
     });
   }
@@ -4190,7 +4267,7 @@ function downloadSoilAnalysisPdf(field, form, desiredV, npk, rxCtx) {
       addNutrientMapPage(doc, {
         polygon, points: withRx, nutrientDef: { key: "__rx", label: product.name || rx.label, unit: "kg/ha" },
         title: `Prescrição: ${product.name || rx.label} — ${field.name}`, areaHa, pageWidth, marginX,
-        palette: RX_PALETTES[rx.palette], digits: 0,
+        palette: RX_PALETTES[rx.palette], digits: 0, zonas: form.zonas,
       });
     }
   }
@@ -4579,7 +4656,7 @@ function SoilAnalysisReport({ points, hasDeepData, onClose }) {
   );
 }
 
-function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, onClose }) {
+function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, onClose, outrasAnalises = [] }) {
   const [form, setForm] = useState({
     id: data?.id || uid(), fieldId: field.id, date: new Date().toISOString().slice(0, 10),
     label: "", points: [],
@@ -4644,9 +4721,20 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
   const [ndviGrid, setNdviGrid] = useState(null);
   const [ndviOverlay, setNdviOverlay] = useState(null);
   const [ndviDateRangeUsed, setNdviDateRangeUsed] = useState(null);
-  const [ndviZones, setNdviZones] = useState(null);
-  const [ndviHectaresPerZone, setNdviHectaresPerZone] = useState(15);
-  const [ndviPointsPerZone, setNdviPointsPerZone] = useState(2);
+  // Zonas de manejo: cruza NDVI com atributos de uma análise anterior do talhão.
+  const analisesBase = outrasAnalises
+    .filter((a) => a.id !== data?.id && (a.points || []).length >= 3)
+    .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  const temAttr = (a, k) => (a?.points || []).filter((p) => p[k] !== undefined && p[k] !== "" && p[k] !== null && !Number.isNaN(Number(p[k]))).length >= 3;
+  const [zonasCfg, setZonasCfg] = useState(() => {
+    const base = analisesBase.find((a) => temAttr(a, "argila") || temAttr(a, "ctc")) || analisesBase[0];
+    return {
+      classes: 4, haPorZona: 5, subPorZona: 6, pesoNdvi: 1, analiseBaseId: base?.id || "",
+      pesos: { argila: base && temAttr(base, "argila") ? 1 : 0, ctc: base && temAttr(base, "ctc") ? 1 : 0 },
+    };
+  });
+  const [zonasPreview, setZonasPreview] = useState(null);
+  const [zonasErro, setZonasErro] = useState("");
   const [ndviShowLayer, setNdviShowLayer] = useState(true);
   const [ndviDateTo, setNdviDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [ndviDateFrom, setNdviDateFrom] = useState(() => new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10));
@@ -4737,7 +4825,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       setGridError(`Isso geraria ${generated.length} pontos — tente um espaçamento maior (menos denso).`);
       return;
     }
-    setForm((f) => ({ ...f, points: generated }));
+    setForm((f) => ({ ...f, points: generated, zonas: null, amostragem: "pontos" }));
     setSelectedPointId(null);
   }
 
@@ -4816,53 +4904,87 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     }
   }
 
-  function ndviNumClassesFor(hectaresPerZone) {
-    if (!fieldAreaHaValue) return 4;
-    return Math.max(2, Math.min(8, Math.round(fieldAreaHaValue / (Number(hectaresPerZone) || 15)) || 2));
+  const analiseBase = analisesBase.find((a) => a.id === zonasCfg.analiseBaseId) || null;
+  const atributosBase = analiseBase ? SOIL_NUTRIENTS.filter((n) => temAttr(analiseBase, n.key)) : [];
+
+  function ndviValorEm(lat, lng) {
+    if (!ndviGrid) return null;
+    const [[gMinLat, gMinLng], [gMaxLat, gMaxLng]] = ndviGrid.bounds;
+    const { width, height, values } = ndviGrid.grid;
+    const px = Math.floor(((lng - gMinLng) / (gMaxLng - gMinLng)) * width);
+    const py = Math.floor(((gMaxLat - lat) / (gMaxLat - gMinLat)) * height);
+    if (px < 0 || px >= width || py < 0 || py >= height) return null;
+    return values[py * width + px];
   }
 
-  function handleClassifyNdvi() {
-    if (!ndviGrid) return;
-    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, ndviNumClassesFor(ndviHectaresPerZone)));
-  }
-
-  function handleReclassifyNdvi(newHectaresPerZone) {
-    setNdviHectaresPerZone(newHectaresPerZone);
-    if (!ndviGrid) return;
-    setNdviZones(classifyNdviZones(polygon, ndviGrid.bounds, ndviGrid.grid, ndviNumClassesFor(newHectaresPerZone)));
-  }
-
-  function handleGenerateGridFromNdvi() {
-    if (!ndviZones || ndviZones.zones.length === 0) return;
-    if (form.points.length > 0 && !confirm(`Isso substitui os ${form.points.length} ponto(s) já existentes (e qualquer resultado já preenchido). Continuar?`)) {
+  function handleGerarZonas() {
+    setZonasErro("");
+    const camadas = [];
+    if (ndviGrid && Number(zonasCfg.pesoNdvi) > 0) camadas.push({ key: "ndvi", label: "NDVI", peso: Number(zonasCfg.pesoNdvi), valorEm: ndviValorEm });
+    if (analiseBase) {
+      atributosBase.forEach((n) => {
+        const peso = Number(zonasCfg.pesos[n.key] || 0);
+        if (peso <= 0) return;
+        const pts = analiseBase.points.filter((p) => p[n.key] !== undefined && p[n.key] !== "" && p[n.key] !== null);
+        camadas.push({ key: n.key, label: n.label.replace(/\s*\([^)]*\)/, ""), peso, valorEm: (lat, lng) => idwInterpolate(lat, lng, pts, n.key) });
+      });
+    }
+    if (!camadas.length) {
+      setZonasErro("Escolha pelo menos uma camada: busque o NDVI ou marque um atributo da análise anterior.");
       return;
     }
-    let allPoints = [];
-    ndviZones.zones.forEach((zone) => {
-      allPoints = allPoints.concat(generatePointsForZone(zone, Number(ndviPointsPerZone) || 1));
-    });
-    const relabeled = allPoints.map((p, i) => ({ ...p, label: `P${i + 1}` }));
-    setForm((f) => ({ ...f, points: relabeled }));
+    try {
+      setZonasPreview(gerarZonasManejo({
+        poligono: polygon, camadas, classes: Number(zonasCfg.classes) || 4,
+        haPorZona: Number(zonasCfg.haPorZona) || 5, subPorZona: Number(zonasCfg.subPorZona) || 6,
+      }));
+    } catch (e) {
+      setZonasErro(e.message || "Não consegui gerar as zonas.");
+    }
+  }
+
+  function handleUsarZonas() {
+    if (!zonasPreview) return;
+    if (form.points.length > 0 && !confirm(`Isso substitui os ${form.points.length} ponto(s) atuais (e qualquer resultado já preenchido) por ${zonasPreview.zonas.length} zonas, com 1 amostra composta por zona. Continuar?`)) return;
+    const zonas = zonasPreview.zonas.map((z) => ({ id: uid(), label: z.label, classe: z.classe, areaHa: z.areaHa, poligonos: z.poligonos, medias: z.medias, centro: z.centro, subamostras: z.subamostras }));
+    const points = zonas.map((z) => ({ id: uid(), label: z.label, lat: z.centro.lat, lng: z.centro.lng, zoneId: z.id }));
+    setForm((f) => ({ ...f, zonas, points, amostragem: "zonas" }));
+    setZonasPreview(null);
     setSelectedPointId(null);
   }
 
-  async function handleExportNdviZones() {
-    setNdviError("");
-    if (!ndviZones || ndviZones.zones.length === 0) return;
+  function handleRemoverZonas() {
+    if (!confirm("Voltar pra amostragem por pontos? As zonas saem (os pontos das amostras compostas ficam no mapa).")) return;
+    setForm((f) => ({ ...f, zonas: null, amostragem: "pontos", points: f.points.map(({ zoneId, ...p }) => p) }));
+  }
+
+  const zonasAtuais = zonasPreview?.zonas || form.zonas || null;
+  async function handleExportZonas() {
+    setZonasErro("");
     try {
-      const features = [];
-      ndviZones.zones.forEach((zone) => {
-        zone.polygons.forEach((polyRings) => {
-          features.push({
-            type: "Feature",
-            properties: { ZONA: zone.classIndex + 1, NDVI_MED: Number(zone.ndviAvg.toFixed(3)) },
-            geometry: { type: "Polygon", coordinates: polyRings },
-          });
-        });
-      });
-      await downloadShapefileZip({ type: "FeatureCollection", features }, "zonas_ndvi", field);
+      const features = (zonasAtuais || []).flatMap((z) => (z.poligonos || []).map((rings) => ({
+        type: "Feature",
+        properties: {
+          ZONA: z.label, CLASSE: z.classe + 1, AREA_HA: Number(z.areaHa.toFixed(2)),
+          ...Object.fromEntries((z.medias || []).map((m) => [String(m.key || m.label).toUpperCase().slice(0, 10), Number(Number(m.media).toFixed(3))])),
+        },
+        geometry: { type: "Polygon", coordinates: rings },
+      })));
+      await downloadShapefileZip({ type: "FeatureCollection", features }, "zonas_manejo", field);
     } catch (e) {
-      setNdviError(e.message || "Não consegui exportar as zonas.");
+      setZonasErro(e.message || "Não consegui exportar as zonas.");
+    }
+  }
+  async function handleExportSubamostras() {
+    setZonasErro("");
+    try {
+      const features = (zonasAtuais || []).flatMap((z) => (z.subamostras || []).map((p, i) => ({
+        type: "Feature", properties: { ZONA: z.label, PONTO: `${z.label}-${i + 1}` },
+        geometry: { type: "Point", coordinates: [p.lng, p.lat] },
+      })));
+      await downloadShapefileZip({ type: "FeatureCollection", features }, "pontos_coleta", field);
+    } catch (e) {
+      setZonasErro(e.message || "Não consegui exportar os pontos.");
     }
   }
 
@@ -4886,11 +5008,11 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     if (!showHeatMap) return null;
     if (isRxMode) {
       const withRx = form.points.map((p) => ({ ...p, __rx: rxDose(currentRx, p) }));
-      return buildHeatOverlay(polygon, withRx, "__rx", undefined, RX_PALETTES[currentRx.palette], null, 0);
+      return buildHeatOverlay(polygon, withRx, "__rx", undefined, RX_PALETTES[currentRx.palette], null, 0, form.zonas);
     }
-    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey, undefined, soilPaletteFor(nutrient), SOIL_FIXED_CLASSES[nutrient] || null, 1);
+    return buildHeatOverlay(polygon, form.points, effectiveNutrientKey, undefined, soilPaletteFor(nutrient), SOIL_FIXED_CLASSES[nutrient] || null, 1, form.zonas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [polygon, form.points, effectiveNutrientKey, nutrient, isRxMode, rxKeyForMemo, showHeatMap]);
+  }, [polygon, form.points, form.zonas, effectiveNutrientKey, nutrient, isRxMode, rxKeyForMemo, showHeatMap]);
   const canSave = !readOnly && form.date && form.points.length >= 3;
 
   async function handleExportShp() {
@@ -4900,7 +5022,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       const depthSuffix = !isRxMode && !isNpkMode && soilDepth === "20-40" ? "_2040" : "";
       const fieldName = isRxMode ? "RATE" : (nutrient.toUpperCase() + depthSuffix);
       const prefix = isRxMode ? nutrient.replace(/^rx_/, "prescricao_") : (nutrient + depthSuffix);
-      await downloadPrescriptionShapefile(field, form.points, fieldName, pointValue, prefix);
+      await downloadPrescriptionShapefile(field, form.points, fieldName, pointValue, prefix, form.zonas);
     } catch (e) {
       setExportError(e.message || "Não consegui gerar o arquivo SHP.");
     } finally {
@@ -4933,36 +5055,30 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
       {(step === "coleta" || showContour) && (
         <Polygon positions={bounds} pathOptions={step === "coleta" ? { color: "#7BC142", weight: 1.5, fillOpacity: 0 } : { color: "#111", weight: 2, fillOpacity: 0 }} />
       )}
-      {step === "coleta" && ndviShowLayer && !ndviZones && ndviOverlay && (
+      {step === "coleta" && ndviShowLayer && ndviOverlay && !zonasPreview && (
         <ImageOverlay url={ndviOverlay.dataUrl} bounds={ndviOverlay.bounds} opacity={overlayOpacity} />
       )}
-      {step === "coleta" && ndviShowLayer && ndviZones && ndviZones.zones.map((zone) => {
-        const t = ndviZones.zones.length > 1 ? zone.classIndex / (ndviZones.zones.length - 1) : 0.5;
-        const [r, g, b] = ndviColor(t);
-        // Zonas de NDVI podem virar vários pedaços desconectados depois do union — rotula
-        // só o maior pedaço de cada zona, senão o rótulo "Zona N" se repete em cada
-        // fragmento pequeno e polui o mapa.
-        const largestIdx = zone.polygons.reduce((best, polyRings, i) => {
-          const ring = polyRings[0];
-          let area = 0;
-          for (let k = 0; k < ring.length - 1; k++) area += ring[k][0] * ring[k + 1][1] - ring[k + 1][0] * ring[k][1];
-          area = Math.abs(area) / 2;
-          return area > best.area ? { i, area } : best;
-        }, { i: 0, area: -1 }).i;
-        return (
-          <React.Fragment key={zone.classIndex}>
-            {zone.polygons.map((polyRings, i) => (
-              <Polygon
-                key={i}
-                positions={polyRings[0].map(([lng, lat]) => [lat, lng])}
-                pathOptions={{ color: `rgb(${r},${g},${b})`, weight: 1, fillColor: `rgb(${r},${g},${b})`, fillOpacity: overlayOpacity }}
-              >
-                {i === largestIdx && <Tooltip permanent direction="center" className="soil-value-label">Zona {zone.classIndex + 1}</Tooltip>}
-              </Polygon>
-            ))}
-          </React.Fragment>
-        );
+      {/* Zonas de manejo: na coleta, preenchidas pela classe (prévia) ou só o contorno
+          (já salvas); nas outras telas, só o contorno por cima do mapa de cores. */}
+      {(step === "coleta" ? zonasAtuais : showContour ? form.zonas : null)?.map((z) => {
+        const nClasses = Math.max(...(zonasAtuais || []).map((x) => x.classe)) + 1;
+        const cor = corClasseZona(z.classe, nClasses);
+        const preencher = step === "coleta" && !!zonasPreview;
+        return (z.poligonos || []).map((rings, i) => (
+          <Polygon
+            key={`${z.label}-${i}`}
+            positions={rings.map((ring) => ring.map(([lng, lat]) => [lat, lng]))}
+            pathOptions={{ color: step === "coleta" ? "#111" : "rgba(17,17,17,0.7)", weight: 1, fillColor: cor, fillOpacity: preencher ? overlayOpacity : 0 }}
+          >
+            {i === 0 && step === "coleta" && zonasPreview && <Tooltip permanent direction="center" className="soil-value-label">{z.label}</Tooltip>}
+          </Polygon>
+        ));
       })}
+      {step === "coleta" && (zonasAtuais || []).flatMap((z) => (z.subamostras || []).map((p, i) => (
+        <CircleMarker key={`${z.label}-s${i}`} center={[p.lat, p.lng]} radius={2.5} pathOptions={{ color: "#111", weight: 1, fillColor: "#fff", fillOpacity: 1 }}>
+          <Tooltip direction="top">{z.label}-{i + 1} (subamostra)</Tooltip>
+        </CircleMarker>
+      )))}
       {!readOnly && step === "coleta" && <MapClickCapture onClick={handleMapClick} />}
       {form.points.map((p) => {
         const val = pointValue(p);
@@ -5084,7 +5200,7 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
     </div>
   );
 
-  const hasColorOverlay = !!heatOverlay || (step === "coleta" && (!!ndviOverlay || !!ndviZones));
+  const hasColorOverlay = !!heatOverlay || (step === "coleta" && (!!ndviOverlay || !!zonasPreview));
   const opacitySliderEl = hasColorOverlay && (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <Volume2 size={14} color="var(--ink-dim)" />
@@ -5487,73 +5603,13 @@ function SoilAnalysisPage({ data, field, readOnly, initialStep, onSave, onBack, 
               {importSummary && <div style={{ fontSize: 9.5, color: "var(--green)", marginBottom: 10 }}>{importSummary}</div>}
               {importError && <div style={{ fontSize: 9.5, color: "var(--red)", marginBottom: 10 }}>{importError}</div>}
 
-              <div style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 10 }}>
-                  Zonas por NDVI (Sentinel-2, via Copernicus) — escolhe um período, busca uma prévia da imagem de satélite (pra conferir se a cultura já está estabelecida e se não tem nuvem cobrindo) e só depois classifica em zonas de vigor.
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                  <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>De:</span>
-                  <input type="date" style={{ ...inputStyle, width: 140 }} value={ndviDateFrom} onChange={(e) => setNdviDateFrom(e.target.value)} />
-                  <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>até:</span>
-                  <input type="date" style={{ ...inputStyle, width: 140 }} value={ndviDateTo} onChange={(e) => setNdviDateTo(e.target.value)} />
-                  <GhostBtn onClick={handleFetchNdviPreview} disabled={ndviLoading}>{ndviLoading ? "Buscando…" : "Buscar prévia NDVI"}</GhostBtn>
-                  {ndviGrid && (
-                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9.5, color: "var(--ink-soft)", cursor: "pointer" }}>
-                      <input type="checkbox" checked={ndviShowLayer} onChange={(e) => setNdviShowLayer(e.target.checked)} /> Mostrar no mapa
-                    </label>
-                  )}
-                </div>
-                {ndviError && <div style={{ fontSize: 9.5, color: "var(--red)", marginBottom: 10 }}>{ndviError}</div>}
-                {ndviDateRangeUsed && (
-                  <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 10 }}>
-                    Imagem buscada entre {fmtDate(ndviDateRangeUsed.from)} e {fmtDate(ndviDateRangeUsed.to)} (menos nuvem disponível no período) — confira no mapa se a lavoura já estava instalada e se não tem nuvem cobrindo antes de classificar.
-                  </div>
-                )}
-                {ndviGrid && !ndviZones && (
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Hectares por zona de manejo:</span>
-                    <input
-                      type="number" min="1" step="1" style={{ ...inputStyle, width: 70 }}
-                      value={ndviHectaresPerZone} onChange={(e) => setNdviHectaresPerZone(e.target.value)}
-                    />
-                    <PrimaryBtn onClick={handleClassifyNdvi}>Classificar em zonas</PrimaryBtn>
-                  </div>
-                )}
-                {ndviZones && (
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Hectares por zona de manejo:</span>
-                    <input
-                      type="number" min="1" step="1" style={{ ...inputStyle, width: 70 }}
-                      value={ndviHectaresPerZone} onChange={(e) => handleReclassifyNdvi(e.target.value)}
-                    />
-                    <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>Pontos/zona:</span>
-                    <input
-                      type="number" min="1" max="10" step="1" style={{ ...inputStyle, width: 60 }}
-                      value={ndviPointsPerZone} onChange={(e) => setNdviPointsPerZone(e.target.value)}
-                    />
-                  </div>
-                )}
-                {ndviZones && ndviZones.zones.length > 0 && (
-                  <>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      {ndviZones.zones.map((z) => {
-                        const t = ndviZones.zones.length > 1 ? z.classIndex / (ndviZones.zones.length - 1) : 0.5;
-                        const [r, g, b] = ndviColor(t);
-                        return (
-                          <div key={z.classIndex} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9, color: "var(--ink-dim)" }}>
-                            <span style={{ width: 9, height: 9, borderRadius: 2, background: `rgb(${r},${g},${b})`, display: "inline-block" }} />
-                            Zona {z.classIndex + 1} · NDVI {z.ndviAvg.toFixed(2)} · {z.areaHa.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} ha
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <GhostBtn onClick={handleGenerateGridFromNdvi}>Gerar grade pelas zonas NDVI</GhostBtn>
-                      <GhostBtn onClick={handleExportNdviZones}>Exportar zonas (SHP)</GhostBtn>
-                    </div>
-                  </>
-                )}
-              </div>
+              <ZonasManejoPainel
+                ndvi={{ dateFrom: ndviDateFrom, dateTo: ndviDateTo, setDateFrom: setNdviDateFrom, setDateTo: setNdviDateTo, loading: ndviLoading, error: ndviError, grid: ndviGrid, rangeUsed: ndviDateRangeUsed, showLayer: ndviShowLayer, setShowLayer: setNdviShowLayer, onFetch: handleFetchNdviPreview }}
+                cfg={zonasCfg} setCfg={setZonasCfg} analisesBase={analisesBase} atributosBase={atributosBase}
+                preview={zonasPreview} zonasSalvas={form.zonas} erro={zonasErro}
+                onGerar={handleGerarZonas} onUsar={handleUsarZonas} onDescartar={() => setZonasPreview(null)} onRemover={handleRemoverZonas}
+                onExportZonas={handleExportZonas} onExportPontos={handleExportSubamostras}
+              />
             </>
           )}
 
