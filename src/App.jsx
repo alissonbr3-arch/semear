@@ -6650,7 +6650,7 @@ function AplicacoesView({ harvests, dados, onSalvar }) {
                 <th style={th}></th><th style={th}>Cód.</th><th style={th}>Cliente</th><th style={th}>Fazenda</th><th style={th}>Talhão</th><th style={th}>Cultivar</th>
                 <th style={th}>Emergência</th><th style={th}>Colheita</th><th style={th}>Qtde</th><th style={th}>Interv.</th><th style={th}>Início</th>
                 {Array.from({ length: maxQtde }, (_, i) => <th key={i} style={th}>{i + 1}ª aplic.</th>)}
-                <th style={th} title="Dias entre a última aplicação e a colheita">Aberto</th><th style={th}></th>
+                <th style={th} title="Dias sem cobertura: da última aplicação + intervalo até a colheita">Aberto</th><th style={th}></th>
               </tr>
             </thead>
             <tbody>
@@ -6685,7 +6685,7 @@ function AplicacoesView({ harvests, dados, onSalvar }) {
                             ) : null}
                           </td>
                         ))}
-                        <td style={{ fontWeight: 700, color: abertoCor, textAlign: "center" }} title={l.aberto > 25 ? "Período em aberto longo antes da colheita" : l.aberto < 0 ? "Última aplicação depois da colheita" : ""}>{l.aberto ?? "—"}</td>
+                        <td style={{ fontWeight: 700, color: abertoCor, textAlign: "center" }} title={l.fimCobertura ? `Cobertura da última aplicação até ${fmtDate(l.fimCobertura)}${l.aberto > 25 ? " — período sem cobertura longo antes da colheita" : l.aberto < 0 ? " — a cobertura vai além da colheita" : ""}` : ""}>{l.aberto ?? "—"}</td>
                         <td>
                           {Object.keys(l.ajustes || {}).length > 0 && (
                             <button onClick={() => salvarProg(h.id, { ajustes: {} })} style={{ ...iconBtnStyle, padding: 4 }} title="Voltar as datas pro cálculo automático"><Repeat size={12} /></button>
@@ -6707,7 +6707,7 @@ function AplicacoesView({ harvests, dados, onSalvar }) {
         </div>
       )}
       <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 8 }}>
-        Datas em azul foram digitadas — as aplicações seguintes passam a contar a partir delas. "Aberto" = dias entre a última aplicação e a colheita (amarelo acima de 25 dias, vermelho se a última passa da colheita). Colheita em itálico = estimada pelo ciclo da cultivar.
+        Datas em azul foram digitadas — as aplicações seguintes passam a contar a partir delas. "Aberto" = dias sem cobertura de fungicida: da última aplicação + o intervalo (que ela ainda cobre) até a colheita (amarelo acima de 25 dias; vermelho se a cobertura passa da colheita). Colheita em itálico = estimada pelo ciclo da cultivar.
       </div>
     </div>
   );

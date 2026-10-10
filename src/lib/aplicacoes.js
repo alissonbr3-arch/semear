@@ -6,7 +6,7 @@
 //   1ª aplicação = emergência + "início" (dias)  — ou a data digitada
 //   próximas    = anterior + intervalo           — ou a data digitada (as seguintes
 //                 continuam contando a partir dela)
-//   em aberto   = dias entre a última aplicação e a colheita
+//   em aberto   = dias sem cobertura: da última aplicação + intervalo até a colheita
 // PDFs: um "cartão" por talhão (pro cliente saber quantas aplicações e quando)
 // e uma lista cronológica de todas as aplicações.
 import { jsPDF } from "jspdf";
@@ -41,13 +41,16 @@ export function calcularLinha(safra, prog, padrao = PADRAO_PROGRAMA) {
     const base = i === 1 ? (emergencia ? somaDias(emergencia, p.inicio) : null) : (datas[i - 2] ? somaDias(datas[i - 2], p.intervalo) : null);
     datas.push(ajustes[i] || base);
   }
+  // A última aplicação ainda "cobre" a lavoura pelo intervalo; em aberto (sem
+  // cobertura de fungicida) são os dias que sobram até a colheita.
   const ultima = datas[datas.length - 1] || null;
-  const aberto = ultima && colheita ? diasEntreIso(ultima, colheita) : null;
+  const fimCobertura = ultima ? somaDias(ultima, p.intervalo) : null;
+  const aberto = fimCobertura && colheita ? diasEntreIso(fimCobertura, colheita) : null;
   return {
     safraId: safra.id, codigo: p.codigo || null, cliente: safra.clientName, clientId: safra.clientId, fazenda: safra.propertyName,
     talhao: safra.fieldName, cultivar: safra.variety || "—", cultura: safra.culture, area: safra.fieldArea,
     emergencia, colheita, colheitaEstimada: !p.colheita && !safra.harvestDate && !!safra.estimatedHarvestDate,
-    qtde, intervalo: Number(p.intervalo) || 0, inicio: Number(p.inicio) || 0, datas, ajustes, aberto,
+    qtde, intervalo: Number(p.intervalo) || 0, inicio: Number(p.inicio) || 0, datas, ajustes, aberto, fimCobertura,
   };
 }
 
