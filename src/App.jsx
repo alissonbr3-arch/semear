@@ -24,7 +24,8 @@ import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
   listProfiles, createColaborador, updateColaborador, deleteColaborador,
   createClientAccess, updateClientAccess, deleteClientAccess, fetchClientPortalData,
-  setTeamRole, fetchNdvi, gerarBoletoHonorario, gerarNotaFiscalHonorario, enviarWhatsapp
+  setTeamRole, fetchNdvi, gerarBoletoHonorario, gerarNotaFiscalHonorario, enviarWhatsapp,
+  getGoogleAgendaUrl, saveGoogleAgendaUrl, fetchGoogleEventos
 } from "./lib/auth.js";
 import { supabase } from "./lib/supabaseClient.js";
 import { estados as ESTADOS, municipiosPorUf as MUNICIPIOS_POR_UF } from "./data/municipios.json";
@@ -6357,7 +6358,28 @@ function novoTokenAgenda() {
   crypto.getRandomValues(b);
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
-function GoogleAgendaModal({ userId, userName, onClose }) {
+function GoogleAgendaModal({ userId, userName, onClose, onGoogleChanged }) {
+  const [aba, setAba] = useState("puxar");
+  const [icsUrl, setIcsUrl] = useState("");
+  const [icsSalvo, setIcsSalvo] = useState(null);
+  const [icsMsg, setIcsMsg] = useState("");
+  const [salvandoIcs, setSalvandoIcs] = useState(false);
+  useEffect(() => { getGoogleAgendaUrl().then((u) => { setIcsSalvo(u); setIcsUrl(u || ""); }); }, []);
+  async function salvarIcs(valor) {
+    const url = String(valor || "").trim();
+    if (url && !/^https:\/\/calendar\.google\.com\/calendar\/ical\/.+\.ics$/i.test(url)) {
+      setIcsMsg("Esse não parece o endereço do Google Agenda. Ele começa com https://calendar.google.com/calendar/ical/ e termina em .ics.");
+      return;
+    }
+    setSalvandoIcs(true);
+    const r = await saveGoogleAgendaUrl(url || null);
+    setSalvandoIcs(false);
+    if (r.error) { setIcsMsg(r.error); return; }
+    setIcsSalvo(url || null);
+    if (!url) setIcsUrl("");
+    setIcsMsg(url ? "Conectado ✅ Os eventos do seu Google Agenda vão aparecer na Agenda do Semear." : "Desconectado.");
+    onGoogleChanged?.();
+  }
   const [token, setToken] = useState(null);
   const [erro, setErro] = useState("");
   const [copiado, setCopiado] = useState(false);
@@ -6378,8 +6400,47 @@ function GoogleAgendaModal({ userId, userName, onClose }) {
   }
   const url = token ? `${window.location.origin}/agenda/${token}.ics` : "";
   const googleUrl = token ? `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(url.replace(/^https?:/, "webcal:"))}` : "";
+  const abaBtn = (id, label) => (
+    <button onClick={() => setAba(id)} style={{
+      flex: 1, padding: "8px 10px", borderRadius: 8, fontSize: 10.5, fontWeight: 600, cursor: "pointer",
+      border: "1px solid " + (aba === id ? "var(--green-deep)" : "var(--border)"),
+      background: aba === id ? "var(--green-deep)" : "transparent", color: aba === id ? "var(--cream)" : "var(--ink-soft)",
+    }}>{label}</button>
+  );
   return (
-    <Modal title="Sincronizar com o Google Agenda" onClose={onClose} maxWidth={520}>
+    <Modal title="Sincronizar com o Google Agenda" onClose={onClose} maxWidth={540}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {abaBtn("puxar", "Google → Semear")}
+        {abaBtn("enviar", "Semear → Google")}
+      </div>
+      {aba === "puxar" ? (
+        <div>
+          <div style={{ fontSize: 10.5, color: "var(--ink-soft)", lineHeight: 1.6, marginBottom: 12 }}>
+            Mostra os compromissos do <strong>seu</strong> Google Agenda dentro da Agenda do Semear (só você vê os seus). Atualiza toda vez que a Agenda abre.
+          </div>
+          <ol style={{ fontSize: 10, color: "var(--ink-dim)", lineHeight: 1.7, paddingLeft: 18, margin: "0 0 12px" }}>
+            <li>No computador, abra o <a href="https://calendar.google.com/calendar/r/settings" target="_blank" rel="noreferrer" style={{ color: "var(--green)" }}>Google Agenda → Configurações</a>.</li>
+            <li>Na coluna da esquerda, em "Configurações das minhas agendas", clique na sua agenda.</li>
+            <li>Desça até <strong>"Endereço secreto no formato iCal"</strong>, clique em copiar.</li>
+            <li>Cole aqui embaixo e salve.</li>
+          </ol>
+          <Field label="Endereço secreto no formato iCal">
+            <input style={{ ...inputStyle, fontFamily: "'IBM Plex Mono', monospace", fontSize: 9.5 }} value={icsUrl} onChange={(e) => { setIcsUrl(e.target.value); setIcsMsg(""); }} placeholder="https://calendar.google.com/calendar/ical/.../private-.../basic.ics" />
+          </Field>
+          {icsMsg && <div style={{ fontSize: 10, color: icsMsg.includes("✅") ? "var(--green)" : icsMsg === "Desconectado." ? "var(--ink-dim)" : "var(--red)", marginTop: -6, marginBottom: 10 }}>{icsMsg}</div>}
+          <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginBottom: 14 }}>
+            Esse endereço dá acesso de leitura à sua agenda — fica guardado só pra você. Se um dia quiser cortar o acesso, use "Redefinir" nessa mesma tela do Google.
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            {icsSalvo ? <GhostBtn onClick={() => salvarIcs("")} disabled={salvandoIcs}>Desconectar</GhostBtn> : <span />}
+            <div style={{ display: "flex", gap: 8 }}>
+              <GhostBtn onClick={onClose}>Fechar</GhostBtn>
+              <PrimaryBtn onClick={() => salvarIcs(icsUrl)} disabled={salvandoIcs || !icsUrl.trim() || icsUrl.trim() === icsSalvo}>{salvandoIcs ? "Salvando…" : "Salvar"}</PrimaryBtn>
+            </div>
+          </div>
+        </div>
+      ) : (
+      <>
       <div style={{ fontSize: 10.5, color: "var(--ink-soft)", lineHeight: 1.6, marginBottom: 14 }}>
         Os itens da Agenda em que <strong>{userName || "você"}</strong> é responsável aparecem no seu Google Agenda, numa agenda separada chamada "Semear — {userName || "você"}".
         O Google atualiza essa agenda sozinho de tempos em tempos (pode levar algumas horas pra uma mudança aparecer).
@@ -6406,6 +6467,8 @@ function GoogleAgendaModal({ userId, userName, onClose }) {
           </div>
         </>
       )}
+      </>
+      )}
     </Modal>
   );
 }
@@ -6413,6 +6476,21 @@ function GoogleAgendaModal({ userId, userName, onClose }) {
 function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
   const [googleOpen, setGoogleOpen] = useState(false);
   const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
+  // Eventos do Google Agenda de quem está logado (só leitura).
+  const [google, setGoogle] = useState({ conectado: false, eventos: [], erro: "", carregando: false });
+  const [googleVersao, setGoogleVersao] = useState(0);
+  useEffect(() => {
+    if (!currentUserId) return;
+    let vivo = true;
+    const from = toISODateLocal(weekStart), to = toISODateLocal(addDays(weekStart, 7));
+    setGoogle((g) => ({ ...g, carregando: true }));
+    fetchGoogleEventos(from, to).then((r) => {
+      if (!vivo) return;
+      if (r.error) setGoogle({ conectado: false, eventos: [], erro: "", carregando: false });
+      else setGoogle({ conectado: !!r.data.conectado, eventos: r.data.eventos || [], erro: r.data.erro || "", carregando: false });
+    });
+    return () => { vivo = false; };
+  }, [weekStart, currentUserId, googleVersao]);
   const [assigneeFilter, setAssigneeFilter] = useState("Todos");
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -6428,6 +6506,22 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
   for (const iso in tasksByDay) {
     tasksByDay[iso].sort((a, b) => Number(a.done) - Number(b.done));
   }
+  const TZ_MS = "America/Campo_Grande";
+  const mostrarGoogle = assigneeFilter === "Todos" || assigneeFilter === currentUserId;
+  const googleByDay = {};
+  for (const d of days) googleByDay[toISODateLocal(d)] = [];
+  if (mostrarGoogle) {
+    for (const ev of google.eventos) {
+      if (ev.allDay) {
+        // Evento de vários dias aparece em cada dia (o fim é exclusivo).
+        for (const iso in googleByDay) if (iso >= ev.start && iso < (ev.end || ev.start) || iso === ev.start) googleByDay[iso].push(ev);
+      } else {
+        const iso = new Date(ev.start).toLocaleDateString("en-CA", { timeZone: TZ_MS });
+        if (googleByDay[iso]) googleByDay[iso].push(ev);
+      }
+    }
+  }
+  const horaMS = (iso) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TZ_MS });
 
   const rangeLabel = `${days[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
 
@@ -6436,13 +6530,20 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
         <div>
           <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Agenda</h2>
-          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Visitas e tarefas da semana · {rangeLabel}</p>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>
+            Visitas e tarefas da semana · {rangeLabel}
+            {google.conectado && (
+              <span style={{ color: google.erro ? "var(--red)" : "var(--blue)" }}>
+                {" · "}{google.erro ? google.erro : google.carregando ? "carregando o Google Agenda…" : `Google Agenda: ${google.eventos.length} evento(s)`}
+              </span>
+            )}
+          </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {currentUserId && (
             <GhostBtn onClick={() => setGoogleOpen(true)} title="Ver seus itens da Agenda no Google Agenda"><Calendar size={14} /> Google Agenda</GhostBtn>
           )}
-          {googleOpen && <GoogleAgendaModal userId={currentUserId} userName={currentUserName} onClose={() => setGoogleOpen(false)} />}
+          {googleOpen && <GoogleAgendaModal userId={currentUserId} userName={currentUserName} onClose={() => setGoogleOpen(false)} onGoogleChanged={() => setGoogleVersao((v) => v + 1)} />}
           <select style={{ ...inputStyle, width: 170 }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
             <option value="Todos">Toda a equipe</option>
             {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -6459,6 +6560,7 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
           const iso = toISODateLocal(d);
           const isToday = iso === todayIso;
           const dayTasks = tasksByDay[iso] || [];
+          const dayGoogle = googleByDay[iso] || [];
           return (
             <div key={iso} style={{
               background: "var(--card)", border: "1px solid " + (isToday ? "var(--green)" : "var(--border)"), borderRadius: 12, padding: 12,
@@ -6472,8 +6574,15 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
                 <button onClick={() => onAdd(iso)} style={iconBtnStyle}><Plus size={13} /></button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                {dayGoogle.map((ev) => (
+                  <div key={ev.id} title={ev.location || ev.title} style={{ background: "var(--blue-bg)", borderLeft: "3px solid var(--blue)", borderRadius: 6, padding: "5px 7px" }}>
+                    <div style={{ fontSize: 9, color: "var(--blue)", fontWeight: 700 }}>{ev.allDay ? "Dia inteiro" : `${horaMS(ev.start)}–${horaMS(ev.end)}`} · Google</div>
+                    <div style={{ fontSize: 10, color: "var(--ink-soft)", fontWeight: 600 }}>{ev.title}</div>
+                    {ev.location && <div style={{ fontSize: 9, color: "var(--ink-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.location}</div>}
+                  </div>
+                ))}
                 {dayTasks.length === 0 ? (
-                  <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>—</div>
+                  dayGoogle.length ? null : <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>—</div>
                 ) : (
                   dayTasks.map((t) => {
                     const assignee = team.find((tm) => tm.id === t.assigneeId);

@@ -149,3 +149,25 @@ export async function enviarWhatsapp({ kind, financeId, visitId, taskId, service
     body: JSON.stringify({ kind, financeId, visitId, taskId, serviceId }),
   });
 }
+
+// Google Agenda → Semear: endereço secreto iCal da pessoa logada (tabela
+// semear_google_agenda, cada um só vê o próprio) e os eventos de um período.
+export async function getGoogleAgendaUrl() {
+  const { data: s } = await supabase.auth.getSession();
+  const uid = s?.session?.user?.id;
+  if (!uid) return null;
+  const { data } = await supabase.from("semear_google_agenda").select("ics_url").eq("user_id", uid).maybeSingle();
+  return data?.ics_url || null;
+}
+export async function saveGoogleAgendaUrl(url) {
+  const { data: s } = await supabase.auth.getSession();
+  const uid = s?.session?.user?.id;
+  if (!uid) return { error: "Sessão inválida." };
+  const { error } = url
+    ? await supabase.from("semear_google_agenda").upsert({ user_id: uid, ics_url: url, updated_at: new Date().toISOString() })
+    : await supabase.from("semear_google_agenda").delete().eq("user_id", uid);
+  return error ? { error: error.message } : { ok: true };
+}
+export async function fetchGoogleEventos(from, to) {
+  return callNetlifyFunction(`google-agenda-eventos?from=${from}&to=${to}`, { method: "GET" });
+}
