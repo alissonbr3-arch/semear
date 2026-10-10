@@ -64,6 +64,39 @@ const COR = {
 // Cor de cada aplicação na linha do tempo (1ª verde, 2ª bege, 3ª azul…).
 const COR_APLIC = [[225, 238, 226], [251, 235, 199], [230, 233, 245], [246, 227, 224], [227, 241, 245], [238, 232, 245]];
 
+// Fontes do padrão Semear (Poppins nos títulos, Lora no texto), carregadas só
+// na hora de gerar o PDF. Sem elas (offline), cai pra Helvetica/Times.
+const FONTES = [
+  ["Poppins", "bold", "/fonts/Poppins-Bold.ttf"], ["Poppins", "normal", "/fonts/Poppins-Medium.ttf"],
+  ["Lora", "normal", "/fonts/Lora-Regular.ttf"], ["Lora", "italic", "/fonts/Lora-Italic.ttf"],
+];
+let fontesCache = null;
+async function carregarFontes() {
+  if (fontesCache) return fontesCache;
+  try {
+    const arquivos = await Promise.all(FONTES.map(async ([, , url]) => {
+      const buf = await fetch(url).then((r) => { if (!r.ok) throw new Error(url); return r.arrayBuffer(); });
+      let bin = "";
+      const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return btoa(bin);
+    }));
+    fontesCache = FONTES.map((f, i) => [...f, arquivos[i]]);
+  } catch { fontesCache = []; }
+  return fontesCache;
+}
+let F = { tit: "helvetica", txt: "times" };
+async function prepararFontes(doc) {
+  const fontes = await carregarFontes();
+  if (fontes.length !== FONTES.length) { F = { tit: "helvetica", txt: "times" }; return; }
+  fontes.forEach(([nome, estilo, url, b64]) => {
+    const arq = url.split("/").pop();
+    doc.addFileToVFS(arq, b64);
+    doc.addFont(arq, nome, estilo);
+  });
+  F = { tit: "Poppins", txt: "Lora" };
+}
+
 let logoCache = null;
 async function carregarLogo() {
   if (logoCache) return logoCache;
@@ -80,7 +113,7 @@ function cabecalhoSemear(doc, logo, docTitulo, safra) {
   doc.setFillColor(...COR.creme);
   doc.rect(0, 0, W, 24, "F");
   if (logo) doc.addImage(logo, "PNG", 14, 5, 38, 13.4);
-  doc.setFont("times", "italic");
+  doc.setFont(F.txt, "italic");
   doc.setTextColor(...COR.verde);
   doc.setFontSize(10.5);
   doc.text(docTitulo, W - 15, 11, { align: "right" });
@@ -97,7 +130,7 @@ function rodapeSemear(doc) {
   doc.setDrawColor(...COR.dourado);
   doc.setLineWidth(0.35);
   doc.line(15, H - 15, W - 15, H - 15);
-  doc.setFont("helvetica", "normal");
+  doc.setFont(F.tit, "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(...COR.verde);
   doc.text("Semear Consultoria Agropecuária  |  Uso interno", 15, H - 10.5);
@@ -105,11 +138,11 @@ function rodapeSemear(doc) {
   doc.setTextColor(0);
 }
 function tituloSemear(doc, titulo, subtitulo) {
-  doc.setFont("helvetica", "bold");
+  doc.setFont(F.tit, "bold");
   doc.setFontSize(21);
   doc.setTextColor(...COR.verde);
   doc.text(titulo, 15, 38);
-  doc.setFont("times", "italic");
+  doc.setFont(F.txt, "italic");
   doc.setFontSize(10.5);
   doc.setTextColor(...COR.cinza);
   doc.text(subtitulo, 15, 44.5, { maxWidth: 180 });
@@ -120,7 +153,7 @@ function secaoSemear(doc, y, texto) {
   const W = doc.internal.pageSize.getWidth();
   doc.setFillColor(...COR.verde);
   doc.rect(15, y, W - 30, 8.5, "F");
-  doc.setFont("helvetica", "bold");
+  doc.setFont(F.tit, "bold");
   doc.setFontSize(12);
   doc.setTextColor(255, 255, 255);
   doc.text(texto, 18.5, y + 5.9);
@@ -128,7 +161,7 @@ function secaoSemear(doc, y, texto) {
   return y + 10;
 }
 function notaSemear(doc, y, texto) {
-  doc.setFont("times", "italic");
+  doc.setFont(F.txt, "italic");
   doc.setFontSize(8.8);
   doc.setTextColor(...COR.cinza);
   const linhas = doc.splitTextToSize(texto, 180);
@@ -140,11 +173,14 @@ function notaSemear(doc, y, texto) {
 function celulaTalhao(doc, data, l, mostrarProdutor) {
   const { x, y, height } = data.cell;
   const sub = mostrarProdutor ? `${l.fazenda} · ${l.cliente}` : l.fazenda;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
+  doc.setFont(F.tit, "bold");
+  // Nome comprido diminui a fonte até caber na coluna.
+  let tam = 9;
+  doc.setFontSize(tam);
+  while (tam > 6.5 && doc.getTextWidth(String(l.talhao || "—")) > data.cell.width - 4) { tam -= 0.5; doc.setFontSize(tam); }
   doc.setTextColor(...COR.texto);
   doc.text(String(l.talhao || "—"), x + 2, y + height / 2 - 0.6);
-  doc.setFont("times", "italic");
+  doc.setFont(F.txt, "italic");
   doc.setFontSize(7.8);
   doc.setTextColor(...COR.cinza);
   doc.text(doc.splitTextToSize(String(sub || ""), data.cell.width - 4)[0] || "", x + 2, y + height / 2 + 3.4);
@@ -166,6 +202,7 @@ function subtituloPadrao(linhas, extra) {
 // PDF 1: programa por talhão — uma linha por talhão com todas as aplicações.
 export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
+  await prepararFontes(doc);
   const logo = await carregarLogo();
   const safra = nomeSafra(linhas);
   const variosClientes = new Set(linhas.map((l) => l.cliente)).size > 1;
@@ -175,17 +212,17 @@ export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
   y = secaoSemear(doc, y, "1 · Aplicações por Talhão");
   const head = [["Talhão", "Cultivar", "Emergência", "Colheita", ...Array.from({ length: maxQ }, (_, i) => `${i + 1}ª Aplic.`), "Em aberto"]];
   const body = linhas.map((l) => [
-    "", `${l.cultivar}\n${l.qtde} aplic. · a cada ${l.intervalo} dias`, dataBR(l.emergencia), `${dataBR(l.colheita)}${l.colheitaEstimada ? "*" : ""}`,
+    "", `${l.cultivar}\n${l.qtde}× · cada ${l.intervalo} dias`, dataBR(l.emergencia), `${dataBR(l.colheita)}${l.colheitaEstimada ? "*" : ""}`,
     ...Array.from({ length: maxQ }, (_, i) => (i < l.qtde && l.datas[i] ? dataBR(l.datas[i]).slice(0, 5) : "—")),
     l.aberto === null ? "—" : `${l.aberto} dias`,
   ]);
   autoTable(doc, {
     startY: y, head, body, theme: "grid",
     margin: { left: 15, right: 15, top: 30, bottom: 22 },
-    styles: { font: "times", fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2.2, bottom: 2.2, left: 2, right: 2 }, valign: "middle", halign: "center", minCellHeight: 11 },
-    headStyles: { font: "helvetica", fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 8.6, halign: "center" },
+    styles: { font: F.txt, fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2.2, bottom: 2.2, left: 2, right: 2 }, valign: "middle", halign: "center", minCellHeight: 11 },
+    headStyles: { font: F.tit, fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 8, halign: "center" },
     alternateRowStyles: { fillColor: COR.zebra },
-    columnStyles: { 0: { cellWidth: 34, halign: "left" }, 1: { cellWidth: 32, halign: "left", fontSize: 8.4 } },
+    columnStyles: { 0: { cellWidth: 34, halign: "left" }, 1: { cellWidth: 31, halign: "left", fontSize: 8 }, 2: { cellWidth: 22, fontSize: 8.6 }, 3: { cellWidth: 26, fontSize: 8.6 } },
     didParseCell: (d) => {
       if (d.section === "body" && d.column.index === head[0].length - 1) {
         const l = linhas[d.row.index];
@@ -207,6 +244,7 @@ export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
 // PDF 2: linha do tempo — todas as aplicações em ordem de data.
 export async function pdfCronologico(linhas, { titulo, nomeArquivo } = {}) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
+  await prepararFontes(doc);
   const logo = await carregarLogo();
   const safra = nomeSafra(linhas);
   const variosClientes = new Set(linhas.map((l) => l.cliente)).size > 1;
@@ -223,9 +261,9 @@ export async function pdfCronologico(linhas, { titulo, nomeArquivo } = {}) {
   autoTable(doc, {
     startY: y, head: [["Data", "Talhão", "Evento", "Cultivar / Observação"]], body, theme: "grid",
     margin: { left: 15, right: 15, top: 30, bottom: 22 },
-    styles: { font: "times", fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2, bottom: 2, left: 2.2, right: 2.2 }, valign: "middle", minCellHeight: 10.5 },
-    headStyles: { font: "helvetica", fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 9, halign: "center" },
-    columnStyles: { 0: { cellWidth: 18, halign: "center", font: "helvetica", fontStyle: "bold" }, 1: { cellWidth: 44 }, 2: { cellWidth: 38 } },
+    styles: { font: F.txt, fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2, bottom: 2, left: 2.2, right: 2.2 }, valign: "middle", minCellHeight: 10.5 },
+    headStyles: { font: F.tit, fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 9, halign: "center" },
+    columnStyles: { 0: { cellWidth: 18, halign: "center", font: F.tit, fontStyle: "bold" }, 1: { cellWidth: 44 }, 2: { cellWidth: 38 } },
     didParseCell: (d) => {
       if (d.section !== "body") return;
       d.cell.styles.fillColor = COR_APLIC[(itens[d.row.index].n - 1) % COR_APLIC.length];
@@ -243,7 +281,7 @@ export async function pdfCronologico(linhas, { titulo, nomeArquivo } = {}) {
     doc.setDrawColor(...COR.verde2);
     doc.setLineWidth(0.25);
     doc.rect(xl, yl - 3.3, 8, 4.2, "FD");
-    doc.setFont("times", "normal");
+    doc.setFont(F.txt, "normal");
     doc.setFontSize(8.8);
     doc.text(`${i + 1}ª aplicação`, xl + 10, yl);
     xl += 34;
