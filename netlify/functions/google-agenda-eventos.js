@@ -33,9 +33,15 @@ export function eventosNoPeriodo(data, from, to) {
     const dur = ev.end ? new Date(ev.end) - new Date(ev.start) : allDay ? 86400000 : 3600000;
     let inicios = [];
     if (ev.rrule) {
-      // O rrule devolve as ocorrências no horário "de parede" marcado como UTC;
-      // o deslocamento entre o início real e o dtstart do rrule corrige o fuso.
-      const desloc = new Date(ev.start).getTime() - ev.rrule.options.dtstart.getTime();
+      // Dependendo de como o fuso vem no arquivo, o rrule devolve as ocorrências
+      // já em UTC (Google) ou no horário "de parede" marcado como UTC. Compara a
+      // 1ª ocorrência com o início real do evento e corrige só o que faltar.
+      // Só a diferença de horário conta (a 1ª ocorrência pode cair em outro dia
+      // quando o início não bate com a regra); dia inteiro não tem fuso.
+      const primeira = allDay ? null : ev.rrule.all((_, i) => i < 1)[0];
+      let desloc = primeira ? (new Date(ev.start).getTime() - primeira.getTime()) % 86400000 : 0;
+      if (desloc > 43200000) desloc -= 86400000;
+      if (desloc <= -43200000) desloc += 86400000;
       const diaMS = (d) => new Date(new Date(d).getTime() - 4 * 3600000).toISOString().slice(0, 10);
       inicios = ev.rrule
         .between(new Date(ini.getTime() - 2 * 86400000 - desloc), new Date(fim.getTime() + 86400000 - desloc), true)

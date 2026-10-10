@@ -1582,6 +1582,9 @@ export default function AgroTrackApp() {
         .at-sidebar .nav-label { display: inline-block; max-width: 0; overflow: hidden; opacity: 0; white-space: nowrap; transition: max-width .18s ease, opacity .12s ease; }
         .at-sidebar:hover .nav-label { max-width: 160px; opacity: 1; }
         .at-sidebar .sidebar-footer-text { white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
+        /* Recolhido: ícone de 17px centrado no botão de 32px (alinha com o logo e o destaque). */
+        .at-sidebar .at-nav-btn { gap: 0; padding: 10px 7.5px; transition: padding .18s ease, gap .18s ease; }
+        .at-sidebar:hover .at-nav-btn { gap: 10px; padding: 10px 12px; }
         .at-sidebar:hover .sidebar-footer-text { opacity: 1; }
         .at-sidebar .logo-full { display: none; width: 100%; height: auto; }
         .at-sidebar .logo-mark { display: block; height: 24px; width: 24px; object-fit: contain; }
@@ -1605,6 +1608,7 @@ export default function AgroTrackApp() {
           .at-sidebar.open { transform: translateX(0); }
           .at-sidebar .nav-label { max-width: 160px !important; opacity: 1 !important; }
           .at-sidebar .sidebar-footer-text { opacity: 1 !important; }
+          .at-sidebar .at-nav-btn { gap: 10px !important; padding: 10px 12px !important; }
           .at-sidebar .logo-full { display: block !important; }
           .at-sidebar .logo-mark { display: none !important; }
         }
@@ -1641,20 +1645,21 @@ export default function AgroTrackApp() {
           const Icon = n.icon;
           const active = view === n.id;
           return (
-            <button key={n.id} onClick={() => goToView(n.id)} style={{
-              display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px",
+            <button key={n.id} className="at-nav-btn" onClick={() => goToView(n.id)} title={n.label} style={{
+              display: "flex", alignItems: "center", width: "100%",
               marginBottom: 4, borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
               background: active ? "var(--green-deep)" : "transparent", color: active ? "var(--cream)" : "var(--ink-dim)",
               fontSize: 11, fontWeight: active ? 600 : 500, flexShrink: 0
             }}>
-              <Icon size={17} style={{ flexShrink: 0 }} /> <span className="nav-label">{n.label}</span>
+              <Icon size={17} style={{ flexShrink: 0 }} /><span className="nav-label">{n.label}</span>
             </button>
           );
         })}
         <button
+          className="at-nav-btn"
           onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
           style={{
-            marginTop: "auto", display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px",
+            marginTop: "auto", display: "flex", alignItems: "center", width: "100%",
             borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
             background: "transparent", color: "var(--ink-dim)", fontSize: 11, fontWeight: 500, flexShrink: 0,
           }}
@@ -1664,9 +1669,10 @@ export default function AgroTrackApp() {
           <span className="nav-label">{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
         </button>
         <button
+          className="at-nav-btn"
           onClick={() => setShowNovidades(true)}
           style={{
-            display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", marginTop: 4,
+            display: "flex", alignItems: "center", width: "100%", marginTop: 4,
             borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
             background: "transparent", color: "var(--ink-dim)", fontSize: 11, fontWeight: 500, flexShrink: 0,
           }}
@@ -1678,9 +1684,10 @@ export default function AgroTrackApp() {
         {!isStandalone && (
           <>
             <button
+              className="at-nav-btn"
               onClick={handleInstallApp}
               style={{
-                display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 12px", marginTop: 4,
+                display: "flex", alignItems: "center", width: "100%", marginTop: 4,
                 borderRadius: 8, border: "none", cursor: "pointer", textAlign: "left",
                 background: "transparent", color: "var(--ink-dim)", fontSize: 11, fontWeight: 500, flexShrink: 0,
               }}
