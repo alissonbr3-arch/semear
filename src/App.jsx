@@ -4,7 +4,7 @@ import {
   Pencil, Search, Phone, MapPin, Calendar, Leaf, Wheat, ChevronRight, ChevronLeft,
   ArrowLeft, AlertTriangle, Settings, FlaskConical, Package, UserCog, Mail,
   Bug, Microscope, Flower2, History, Wallet, Receipt, Repeat, Volume2, FileText, Sparkles, Briefcase, TrendingUp, Download,
-  Sun, Moon, Warehouse, Tag, Truck, Menu, MessageCircle
+  Sun, Moon, Warehouse, Tag, Truck, Menu, MessageCircle, SprayCan
 } from "lucide-react";
 import { MapContainer, TileLayer, Polygon, Tooltip, LayersControl, CircleMarker, ImageOverlay, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -16,6 +16,7 @@ import { intersection, union } from "martinez-polygon-clipping";
 import shpwrite from "@mapbox/shp-write";
 import { safeGet, safeSet } from "./lib/storage.js";
 import { gerarZonasManejo, pontoNaZona } from "./lib/zonasManejo.js";
+import { PADRAO_PROGRAMA, calcularLinha, pdfPorTalhao, pdfCronologico } from "./lib/aplicacoes.js";
 import {
   STATUS_ABERTO, PARADO_PADRAO, VISITA_INTERVALO_PADRAO, novasEtapas, ehAvulso, emAberto, etapaAtual, diasParado,
   ultimaVisitaPorCliente, semaforoVisita, addDiasIso,
@@ -420,6 +421,7 @@ export default function AgroTrackApp() {
   const [bills, setBills] = useState([]);
   const [categoryMemory, setCategoryMemory] = useState({});
   const [soilAnalyses, setSoilAnalyses] = useState([]);
+  const [fungicidaProgramas, setFungicidaProgramas] = useState(null);
   const [soilAnalysisEditor, setSoilAnalysisEditor] = usePersistedState("soilAnalysisEditor", null);
   const [settings, setSettings] = useState({ commissionRatePerHaYear: 30, projectShareRate: 20 });
   const [modal, setModal] = useState(null);
@@ -503,14 +505,15 @@ export default function AgroTrackApp() {
     }
 
     (async () => {
-      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa, ei, ecat, fo, rcat] = await Promise.all([
+      const [c, p, f, h, v, vr, pe, fe, ps, ds, ws, ac, ec, sv, st2, allProfiles, ta, tk, dc, al, fn, bn, st, bl, cm, sa, ei, ecat, fo, rcat, fprog] = await Promise.all([
         safeGet("clients"), safeGet("properties"), safeGet("fields"), safeGet("harvests"), safeGet("visits"),
         safeGet("varieties"), safeGet("pesticides"), safeGet("fertilizers"),
         safeGet("pests"), safeGet("diseases"), safeGet("weeds"), safeGet("ajudaCusto"), safeGet("expenseCategories"),
         safeGet("services"), safeGet("serviceTypes"), listProfiles(),
         safeGet("teamAvatars"), safeGet("tasks"), safeGet("documents"), safeGet("activityLog"),
         safeGet("finances"), safeGet("bonuses"), safeGet("settings"), safeGet("bills"), safeGet("categoryMemory"),
-        safeGet("soilAnalyses"), safeGet("estoqueItens"), safeGet("estoqueCategorias"), safeGet("fornecedores"), safeGet("revenueCategories")
+        safeGet("soilAnalyses"), safeGet("estoqueItens"), safeGet("estoqueCategorias"), safeGet("fornecedores"), safeGet("revenueCategories"),
+        safeGet("fungicidaProgramas"),
       ]);
       setClients(c || []);
       setProperties(p || []);
@@ -543,6 +546,7 @@ export default function AgroTrackApp() {
       setEstoqueItens(ei || []);
       setEstoqueCategorias(ecat || []);
       setFornecedores(fo || []);
+      setFungicidaProgramas(fprog || null);
       // Tela restaurada do F5 apontando pra algo que foi apagado (em outro
       // aparelho, por exemplo) — volta pro nível de cima em vez de quebrar.
       const has = (list, id) => !id || (list || []).some((x) => x.id === id);
@@ -972,6 +976,7 @@ export default function AgroTrackApp() {
     }
   }
 
+  async function persistFungicidaProgramas(data) { setFungicidaProgramas(data); await safeSet("fungicidaProgramas", data); }
   async function persistSoilAnalyses(data) { setSoilAnalyses(data); await safeSet("soilAnalyses", data); }
   function saveSoilAnalysis(form) {
     const field = fields.find((f) => f.id === form.fieldId);
@@ -1496,6 +1501,7 @@ export default function AgroTrackApp() {
     { id: "gestores", label: isFinance ? "Gestores" : "Minha carteira", icon: UserCog },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "solo", label: "Análise de Solo", icon: FlaskConical },
+    { id: "aplicacoes", label: "Aplicações", icon: SprayCan },
     { id: "estoque", label: "Estoque", icon: Warehouse },
     ...(isFinance ? [{ id: "servicos", label: "Serviços", icon: Briefcase }] : []),
     { id: "configuracoes", label: "Configurações", icon: Settings },
@@ -1890,6 +1896,10 @@ export default function AgroTrackApp() {
           />
         )}
 
+
+        {view === "aplicacoes" && (
+          <AplicacoesView harvests={harvestsWithMeta} dados={fungicidaProgramas} onSalvar={persistFungicidaProgramas} />
+        )}
 
         {view === "estoque" && (
           <EstoqueView
@@ -6533,6 +6543,173 @@ function GoogleAgendaModal({ userId, userName, onClose, onGoogleChanged }) {
       </>
       )}
     </Modal>
+  );
+}
+
+// ---------- Aplicações de fungicida (cronograma por talhão) ----------
+// Lista as safras (talhão + cultivar + plantio) e monta o programa de cada uma:
+// quantidade de aplicações, início (dias após a emergência) e intervalo — ou as
+// datas digitadas. Gera o PDF por talhão (pro cliente) e o cronológico.
+function AplicacoesView({ harvests, dados, onSalvar }) {
+  const padrao = { ...PADRAO_PROGRAMA, ...(dados?.padrao || {}) };
+  const programas = dados?.programas || {};
+  const safras = useMemo(() => [...new Set(harvests.map((h) => h.name).filter(Boolean))].sort().reverse(), [harvests]);
+  const [safraSel, setSafraSel] = usePersistedState("aplicSafra", () => {
+    const y = currentSeasonStartYear();
+    return safras.includes(`${y}/${y + 1}`) ? `${y}/${y + 1}` : safras[0] || "";
+  });
+  const [culturaSel, setCulturaSel] = usePersistedState("aplicCultura", "Soja");
+  const [clienteSel, setClienteSel] = usePersistedState("aplicCliente", "");
+  const [fazendaSel, setFazendaSel] = usePersistedState("aplicFazenda", "");
+  const [soIncluidas, setSoIncluidas] = usePersistedState("aplicSoIncluidas", false);
+
+  const daSafra = harvests.filter((h) => (!safraSel || h.name === safraSel) && (!culturaSel || h.culture === culturaSel));
+  const clientes = [...new Map(daSafra.map((h) => [h.clientId, h.clientName])).entries()].filter(([id]) => id).sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const doCliente = daSafra.filter((h) => !clienteSel || h.clientId === clienteSel);
+  const fazendas = [...new Set(doCliente.map((h) => h.propertyName))].sort();
+  const linhasTodas = doCliente
+    .filter((h) => !fazendaSel || h.propertyName === fazendaSel)
+    .map((h) => ({ h, incluido: !!programas[h.id]?.incluido, l: calcularLinha(h, programas[h.id], padrao) }))
+    .sort((a, b) => (Number(b.incluido) - Number(a.incluido)) || (Number(a.l.codigo || 9999) - Number(b.l.codigo || 9999))
+      || String(a.l.cliente).localeCompare(String(b.l.cliente)) || String(a.l.fazenda).localeCompare(String(b.l.fazenda)) || String(a.l.talhao).localeCompare(String(b.l.talhao), "pt-BR", { numeric: true }));
+  const linhas = soIncluidas ? linhasTodas.filter((x) => x.incluido) : linhasTodas;
+  const incluidas = linhasTodas.filter((x) => x.incluido).map((x) => x.l);
+  const maxQtde = Math.max(padrao.qtde, ...linhasTodas.map((x) => (x.incluido ? x.l.qtde : 0)));
+
+  function salvarProg(id, patch) {
+    const atual = programas[id] || {};
+    onSalvar({ padrao, programas: { ...programas, [id]: { ...atual, ...patch } } });
+  }
+  function incluir(h, sim) {
+    if (!sim) { salvarProg(h.id, { incluido: false }); return; }
+    const atual = programas[h.id];
+    if (atual?.codigo) { salvarProg(h.id, { incluido: true }); return; }
+    const maxCod = Math.max(100, ...Object.values(programas).map((p) => Number(p.codigo) || 0));
+    salvarProg(h.id, { incluido: true, codigo: maxCod + 1, qtde: padrao.qtde, intervalo: padrao.intervalo, inicio: padrao.inicio });
+  }
+  function aplicarPadraoNasIncluidas() {
+    if (!confirm(`Aplicar ${padrao.qtde} aplicações, intervalo de ${padrao.intervalo} dias e início ${padrao.inicio} dias após a emergência em ${incluidas.length} talhão(ões) da lista? Datas digitadas à mão são mantidas.`)) return;
+    const novos = { ...programas };
+    linhasTodas.filter((x) => x.incluido).forEach(({ h }) => { novos[h.id] = { ...novos[h.id], qtde: padrao.qtde, intervalo: padrao.intervalo, inicio: padrao.inicio }; });
+    onSalvar({ padrao, programas: novos });
+  }
+  function ajustarData(h, l, i, valor) {
+    const ajustes = { ...(programas[h.id]?.ajustes || {}) };
+    if (valor) ajustes[i] = valor; else delete ajustes[i];
+    // Mudar a data de uma aplicação some com os ajustes das seguintes (elas
+    // passam a contar a partir da nova data).
+    Object.keys(ajustes).forEach((k) => { if (Number(k) > i) delete ajustes[k]; });
+    salvarProg(h.id, { ajustes });
+  }
+
+  const tituloPdf = clienteSel ? (clientes.find(([id]) => id === clienteSel)?.[1] || "") + (fazendaSel ? ` — ${fazendaSel}` : "") : `Safra ${safraSel}`;
+  const arq = (tipo) => `aplicacoes-${tipo}-${tituloPdf}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase() + ".pdf";
+  const nIn = { ...inputStyle, width: 52, padding: "4px 6px", fontSize: 10.5, textAlign: "center" };
+  const dIn = { ...inputStyle, width: 122, padding: "4px 6px", fontSize: 10.5 };
+  const th = { fontSize: 9, whiteSpace: "nowrap" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Aplicações de fungicida</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>Cronograma por talhão a partir da emergência, da cultivar e da colheita prevista.</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <GhostBtn disabled={!incluidas.length} onClick={() => pdfPorTalhao(incluidas, { titulo: tituloPdf, nomeArquivo: arq("talhao") })}><FileText size={14} /> PDF por talhão</GhostBtn>
+          <GhostBtn disabled={!incluidas.length} onClick={() => pdfCronologico(incluidas, { titulo: tituloPdf, nomeArquivo: arq("data") })}><Calendar size={14} /> PDF por data</GhostBtn>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 12 }}>
+        <div style={{ width: 130 }}><Field label="Safra"><select style={inputStyle} value={safraSel} onChange={(e) => setSafraSel(e.target.value)}>{safras.map((s) => <option key={s} value={s}>{s}</option>)}</select></Field></div>
+        <div style={{ width: 110 }}><Field label="Cultura"><select style={inputStyle} value={culturaSel} onChange={(e) => setCulturaSel(e.target.value)}><option value="">Todas</option>{[...new Set(harvests.map((h) => h.culture).filter(Boolean))].map((c) => <option key={c} value={c}>{c}</option>)}</select></Field></div>
+        <div style={{ width: 220 }}><Field label="Cliente"><select style={inputStyle} value={clienteSel} onChange={(e) => { setClienteSel(e.target.value); setFazendaSel(""); }}><option value="">Todos</option>{clientes.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select></Field></div>
+        <div style={{ width: 190 }}><Field label="Fazenda"><select style={inputStyle} value={fazendaSel} onChange={(e) => setFazendaSel(e.target.value)}><option value="">Todas</option>{fazendas.map((f) => <option key={f} value={f}>{f}</option>)}</select></Field></div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 20, cursor: "pointer" }}>
+          <input type="checkbox" checked={soIncluidas} onChange={(e) => setSoIncluidas(e.target.checked)} /> Só os do programa
+        </label>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 10.5, color: "var(--ink-dim)" }}>
+        <strong style={{ color: "var(--ink-soft)" }}>Padrão</strong>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="number" min="0" max="10" style={nIn} value={padrao.qtde} onChange={(e) => onSalvar({ padrao: { ...padrao, qtde: Number(e.target.value) }, programas })} /> aplicações</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>1ª aos <input type="number" min="0" style={nIn} value={padrao.inicio} onChange={(e) => onSalvar({ padrao: { ...padrao, inicio: Number(e.target.value) }, programas })} /> dias da emergência</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>intervalo de <input type="number" min="1" style={nIn} value={padrao.intervalo} onChange={(e) => onSalvar({ padrao: { ...padrao, intervalo: Number(e.target.value) }, programas })} /> dias</label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>emergência = plantio + <input type="number" min="0" style={nIn} value={padrao.diasEmergencia} onChange={(e) => onSalvar({ padrao: { ...padrao, diasEmergencia: Number(e.target.value) }, programas })} /> dias</label>
+        <GhostBtn disabled={!incluidas.length} onClick={aplicarPadraoNasIncluidas} style={{ padding: "5px 10px", fontSize: 10, marginLeft: "auto" }}>Aplicar padrão nos da lista</GhostBtn>
+      </div>
+
+      {linhas.length === 0 ? (
+        <EmptyState icon={SprayCan} title="Nenhuma safra nesse filtro" sub="Cadastre a safra do talhão (cultivar e data de plantio) em Propriedades → Talhões." />
+      ) : (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflowX: "auto" }}>
+          <table>
+            <thead>
+              <tr>
+                <th style={th}></th><th style={th}>Cód.</th><th style={th}>Cliente</th><th style={th}>Fazenda</th><th style={th}>Talhão</th><th style={th}>Cultivar</th>
+                <th style={th}>Emergência</th><th style={th}>Colheita</th><th style={th}>Qtde</th><th style={th}>Interv.</th><th style={th}>Início</th>
+                {Array.from({ length: maxQtde }, (_, i) => <th key={i} style={th}>{i + 1}ª aplic.</th>)}
+                <th style={th} title="Dias entre a última aplicação e a colheita">Aberto</th><th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {linhas.map(({ h, incluido, l }) => {
+                const prog = programas[h.id] || {};
+                const abertoCor = l.aberto === null ? "var(--ink-faint)" : l.aberto < 0 ? "var(--red)" : l.aberto > 25 ? "var(--gold)" : "var(--ink-soft)";
+                return (
+                  <tr key={h.id} style={{ opacity: incluido ? 1 : 0.55 }}>
+                    <td><input type="checkbox" checked={incluido} onChange={(e) => incluir(h, e.target.checked)} title={incluido ? "Tirar do programa" : "Incluir no programa"} /></td>
+                    <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{incluido ? l.codigo : ""}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{l.cliente}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{l.fazenda}</td>
+                    <td style={{ fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap" }}>{l.talhao}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{l.cultivar}</td>
+                    {incluido ? (
+                      <>
+                        <td><input type="date" style={dIn} value={l.emergencia || ""} onChange={(e) => salvarProg(h.id, { emergencia: e.target.value || null })} title={prog.emergencia ? "Digitada" : `Plantio + ${padrao.diasEmergencia} dias`} /></td>
+                        <td>
+                          <input type="date" style={{ ...dIn, fontStyle: l.colheitaEstimada ? "italic" : "normal" }} value={l.colheita || ""} onChange={(e) => salvarProg(h.id, { colheita: e.target.value || null })} title={l.colheitaEstimada ? "Estimada pelo ciclo da cultivar" : "Colheita"} />
+                        </td>
+                        <td><input type="number" min="0" max="10" style={nIn} value={l.qtde} onChange={(e) => salvarProg(h.id, { qtde: Number(e.target.value) })} /></td>
+                        <td><input type="number" min="1" style={nIn} value={l.intervalo} onChange={(e) => salvarProg(h.id, { intervalo: Number(e.target.value) })} /></td>
+                        <td><input type="number" min="0" style={nIn} value={l.inicio} onChange={(e) => salvarProg(h.id, { inicio: Number(e.target.value) })} /></td>
+                        {Array.from({ length: maxQtde }, (_, i) => (
+                          <td key={i}>
+                            {i < l.qtde ? (
+                              <input
+                                type="date" value={l.datas[i] || ""} onChange={(e) => ajustarData(h, l, i + 1, e.target.value)}
+                                style={{ ...dIn, borderColor: l.ajustes[i + 1] ? "var(--blue)" : undefined, fontWeight: l.ajustes[i + 1] ? 700 : 400 }}
+                                title={l.ajustes[i + 1] ? "Data digitada (as seguintes contam a partir dela)" : "Calculada"}
+                              />
+                            ) : null}
+                          </td>
+                        ))}
+                        <td style={{ fontWeight: 700, color: abertoCor, textAlign: "center" }} title={l.aberto > 25 ? "Período em aberto longo antes da colheita" : l.aberto < 0 ? "Última aplicação depois da colheita" : ""}>{l.aberto ?? "—"}</td>
+                        <td>
+                          {Object.keys(l.ajustes || {}).length > 0 && (
+                            <button onClick={() => salvarProg(h.id, { ajustes: {} })} style={{ ...iconBtnStyle, padding: 4 }} title="Voltar as datas pro cálculo automático"><Repeat size={12} /></button>
+                          )}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td style={{ color: "var(--ink-faint)" }}>{fmtDate(l.emergencia)}</td>
+                        <td style={{ color: "var(--ink-faint)" }}>{fmtDate(l.colheita)}</td>
+                        <td colSpan={4 + maxQtde} style={{ color: "var(--ink-faint)", fontSize: 10 }}>Marque pra incluir no programa</td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 8 }}>
+        Datas em azul foram digitadas — as aplicações seguintes passam a contar a partir delas. "Aberto" = dias entre a última aplicação e a colheita (amarelo acima de 25 dias, vermelho se a última passa da colheita). Colheita em itálico = estimada pelo ciclo da cultivar.
+      </div>
+    </div>
   );
 }
 
