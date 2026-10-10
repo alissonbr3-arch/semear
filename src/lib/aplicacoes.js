@@ -54,119 +54,200 @@ export function calcularLinha(safra, prog, padrao = PADRAO_PROGRAMA) {
   };
 }
 
-const VERDE = [[226, 234, 207], [240, 244, 230]];
-const AZUL = [[196, 214, 234], [222, 232, 243]];
+// ---------- PDFs no padrão visual Semear ----------
+// Cabeçalho creme com o logo, título verde, faixa de seção verde, tabela com
+// cabeçalho verde e linhas claras, rodapé com filete dourado e "Página N".
+const COR = {
+  verde: [27, 77, 46], verde2: [46, 107, 68], dourado: [200, 155, 60], creme: [251, 249, 243],
+  borda: [199, 210, 203], zebra: [241, 245, 238], cinza: [110, 110, 104], texto: [34, 34, 34],
+};
+// Cor de cada aplicação na linha do tempo (1ª verde, 2ª bege, 3ª azul…).
+const COR_APLIC = [[225, 238, 226], [251, 235, 199], [230, 233, 245], [246, 227, 224], [227, 241, 245], [238, 232, 245]];
 
-function rodape(doc, empresa) {
-  const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
-  doc.setFont("courier", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(80);
-  (empresa || ["Semear Consultoria Agropecuária"]).forEach((l, i, arr) => doc.text(l, w / 2, h - 8 - (arr.length - 1 - i) * 3.6, { align: "center" }));
+let logoCache = null;
+async function carregarLogo() {
+  if (logoCache) return logoCache;
+  try {
+    const blob = await fetch("/logo-pdf.png").then((r) => (r.ok ? r.blob() : null));
+    if (!blob) return null;
+    logoCache = await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); });
+  } catch { logoCache = null; }
+  return logoCache;
+}
+
+function cabecalhoSemear(doc, logo, docTitulo, safra) {
+  const W = doc.internal.pageSize.getWidth();
+  doc.setFillColor(...COR.creme);
+  doc.rect(0, 0, W, 24, "F");
+  if (logo) doc.addImage(logo, "PNG", 14, 5, 38, 13.4);
+  doc.setFont("times", "italic");
+  doc.setTextColor(...COR.verde);
+  doc.setFontSize(10.5);
+  doc.text(docTitulo, W - 15, 11, { align: "right" });
+  doc.setFontSize(9);
+  if (safra) doc.text(`Safra ${safra}`, W - 15, 16, { align: "right" });
+  doc.setFillColor(...COR.dourado);
+  doc.rect(0, 23.2, W, 1.1, "F");
+  doc.setFillColor(...COR.verde);
+  doc.rect(0, 24.3, W, 0.5, "F");
   doc.setTextColor(0);
 }
-function cabecalho(doc, titulo) {
-  const w = doc.internal.pageSize.getWidth();
-  const agora = new Date();
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(40);
-  doc.text(String(titulo || "").toUpperCase(), 10, 9);
-  doc.text(`${agora.toLocaleDateString("pt-BR")}  |  ${agora.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`, w - 10, 9, { align: "right" });
-  doc.setTextColor(0);
-}
-
-// PDF 1: um bloco por talhão (produtor, fazenda, talhão, cultivar, emergência,
-// colheita) com a lista de aplicações e datas à direita — cores alternadas.
-export function pdfPorTalhao(linhas, { titulo, empresa, nomeArquivo } = {}) {
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+function rodapeSemear(doc) {
   const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
-  const x0 = 10, xCod = x0 + 6, xEsq = xCod, wEsq = 112, xRot = xEsq + wEsq, wRot = 36, xData = xRot + wRot, wData = W - 10 - xData;
-  const linhaH = 9.5;
-  let y = 13;
-  cabecalho(doc, titulo);
-  linhas.forEach((l, idx) => {
-    const n = Math.max(l.qtde, 1);
-    const altura = Math.max(n, 4) * linhaH;
-    if (y + altura > H - 22) { rodape(doc, empresa); doc.addPage(); cabecalho(doc, titulo); y = 13; }
-    const [forte, fraco] = idx % 2 === 0 ? VERDE : AZUL;
-    // Fundo do bloco e coluna do código
-    doc.setFillColor(...fraco);
-    doc.rect(x0, y, W - 20, altura, "F");
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.5);
-    doc.rect(x0, y, W - 20, altura, "S");
-    doc.setLineWidth(0.2);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    String(l.codigo || idx + 1).split("").forEach((ch, i, arr) => doc.text(ch, x0 + 3, y + altura / 2 - ((arr.length - 1) * 3) / 2 + i * 3, { align: "center", baseline: "middle" }));
-
-    // Lado esquerdo: 2 linhas de rótulo/valor, talhão e cultivar.
-    const meio = xEsq + wEsq / 2, q = altura / 4;
-    const rot = (txt, x, yy) => { doc.setFont("helvetica", "bold"); doc.setFontSize(6.3); doc.text(txt, x, yy, { align: "center" }); };
-    const val = (txt, x, yy, tam = 8.5) => { doc.setFont("helvetica", "normal"); doc.setFontSize(tam); doc.text(String(txt || "—").toUpperCase(), x, yy, { align: "center", maxWidth: wEsq / 2 - 4 }); };
-    doc.line(xEsq, y + q / 2, xRot, y + q / 2);
-    doc.line(xEsq, y + q, xRot, y + q);
-    doc.line(xEsq, y + q * 1.5, xRot, y + q * 1.5);
-    doc.line(xEsq, y + q * 2, xRot, y + q * 2);
-    doc.line(xEsq, y + q * 3, xRot, y + q * 3);
-    doc.line(meio, y, meio, y + q * 2);
-    rot("PRODUTOR", xEsq + wEsq / 4, y + q * 0.33);
-    rot("DATA DE EMERGÊNCIA", meio + wEsq / 4, y + q * 0.33);
-    val(l.cliente, xEsq + wEsq / 4, y + q * 0.85);
-    val(dataBR(l.emergencia), meio + wEsq / 4, y + q * 0.85);
-    rot("FAZENDA", xEsq + wEsq / 4, y + q * 1.33);
-    rot(l.colheitaEstimada ? "COLHEITA (ESTIMADA)" : "DATA DE COLHEITA", meio + wEsq / 4, y + q * 1.33);
-    val(l.fazenda, xEsq + wEsq / 4, y + q * 1.85);
-    val(dataBR(l.colheita), meio + wEsq / 4, y + q * 1.85);
-    val(l.talhao, meio, y + q * 2.6, 9.5);
-    val(l.cultivar, meio, y + q * 3.6, 9);
-
-    // Lado direito: uma faixa por aplicação.
-    const hApl = altura / n;
-    for (let i = 0; i < n; i++) {
-      const yy = y + i * hApl;
-      doc.setFillColor(...(i % 2 === 0 ? forte : fraco));
-      doc.rect(xRot, yy, wRot + wData, hApl, "F");
-      doc.line(xRot, yy, xRot + wRot + wData, yy);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.text(l.qtde ? `${i + 1}º APLICAÇÃO` : "SEM APLICAÇÃO", xRot + wRot / 2, yy + hApl / 2, { align: "center", baseline: "middle" });
-      doc.setFont("helvetica", "normal");
-      doc.text(l.qtde ? dataBR(l.datas[i]) : "—", xData + wData / 2, yy + hApl / 2, { align: "center", baseline: "middle" });
-    }
-    doc.line(xRot, y, xRot, y + altura);
-    doc.line(xData, y, xData, y + altura);
-    doc.setLineWidth(0.5);
-    doc.rect(x0, y, W - 20, altura, "S");
-    doc.setLineWidth(0.2);
-    y += altura;
-  });
-  rodape(doc, empresa);
-  doc.save(nomeArquivo || "aplicacoes-por-talhao.pdf");
+  doc.setDrawColor(...COR.dourado);
+  doc.setLineWidth(0.35);
+  doc.line(15, H - 15, W - 15, H - 15);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...COR.verde);
+  doc.text("Semear Consultoria Agropecuária  |  Uso interno", 15, H - 10.5);
+  doc.text(`Página ${doc.internal.getCurrentPageInfo().pageNumber}`, W - 15, H - 10.5, { align: "right" });
+  doc.setTextColor(0);
+}
+function tituloSemear(doc, titulo, subtitulo) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(21);
+  doc.setTextColor(...COR.verde);
+  doc.text(titulo, 15, 38);
+  doc.setFont("times", "italic");
+  doc.setFontSize(10.5);
+  doc.setTextColor(...COR.cinza);
+  doc.text(subtitulo, 15, 44.5, { maxWidth: 180 });
+  doc.setTextColor(0);
+  return 50;
+}
+function secaoSemear(doc, y, texto) {
+  const W = doc.internal.pageSize.getWidth();
+  doc.setFillColor(...COR.verde);
+  doc.rect(15, y, W - 30, 8.5, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(255, 255, 255);
+  doc.text(texto, 18.5, y + 5.9);
+  doc.setTextColor(0);
+  return y + 10;
+}
+function notaSemear(doc, y, texto) {
+  doc.setFont("times", "italic");
+  doc.setFontSize(8.8);
+  doc.setTextColor(...COR.cinza);
+  const linhas = doc.splitTextToSize(texto, 180);
+  doc.text(linhas, 15, y);
+  doc.setTextColor(0);
+  return y + linhas.length * 4;
+}
+// Célula "Talhão" com o nome em negrito e a fazenda (e o produtor) embaixo em itálico.
+function celulaTalhao(doc, data, l, mostrarProdutor) {
+  const { x, y, height } = data.cell;
+  const sub = mostrarProdutor ? `${l.fazenda} · ${l.cliente}` : l.fazenda;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(...COR.texto);
+  doc.text(String(l.talhao || "—"), x + 2, y + height / 2 - 0.6);
+  doc.setFont("times", "italic");
+  doc.setFontSize(7.8);
+  doc.setTextColor(...COR.cinza);
+  doc.text(doc.splitTextToSize(String(sub || ""), data.cell.width - 4)[0] || "", x + 2, y + height / 2 + 3.4);
+  doc.setTextColor(0);
+}
+function nomeSafra(linhas) {
+  const anos = linhas.map((l) => l.emergencia).filter(Boolean).sort();
+  if (!anos.length) return "";
+  const d = new Date(`${anos[0]}T12:00:00Z`);
+  const ini = d.getUTCMonth() >= 6 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
+  return `${ini}/${String(ini + 1).slice(2)}`;
+}
+function subtituloPadrao(linhas, extra) {
+  const clientes = [...new Set(linhas.map((l) => l.cliente))];
+  const safra = nomeSafra(linhas);
+  return [clientes.length === 1 ? clientes[0] : `${clientes.length} produtores`, safra && `Safra ${safra}`, `Gerado em ${new Date().toLocaleDateString("pt-BR")}`, extra].filter(Boolean).join("  ·  ");
 }
 
-// PDF 2: todas as aplicações em ordem de data.
-export function pdfCronologico(linhas, { titulo, empresa, nomeArquivo } = {}) {
+// PDF 1: programa por talhão — uma linha por talhão com todas as aplicações.
+export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
-  const variasFazendas = new Set(linhas.map((l) => l.fazenda)).size > 1;
+  const logo = await carregarLogo();
+  const safra = nomeSafra(linhas);
   const variosClientes = new Set(linhas.map((l) => l.cliente)).size > 1;
-  const itens = linhas.flatMap((l) => l.datas.map((d, i) => ({ l, n: i + 1, d }))).filter((x) => x.d)
-    .sort((a, b) => a.d.localeCompare(b.d) || String(a.l.talhao).localeCompare(String(b.l.talhao)));
-  cabecalho(doc, titulo);
-  const head = [[...(variosClientes ? ["PRODUTOR"] : []), ...(variasFazendas ? ["FAZENDA"] : []), "TALHÃO", "APLICAÇÃO", "DATA"]];
-  const body = itens.map(({ l, n, d }) => [
-    ...(variosClientes ? [String(l.cliente || "").toUpperCase()] : []),
-    ...(variasFazendas ? [String(l.fazenda || "").toUpperCase()] : []),
-    String(l.talhao || "").toUpperCase(), `${n}ª APLIC`, dataBR(d),
+  const maxQ = Math.max(1, ...linhas.map((l) => l.qtde));
+  cabecalhoSemear(doc, logo, "Programa de Fungicidas", safra);
+  let y = tituloSemear(doc, "Programa de Fungicidas", subtituloPadrao(linhas, `${linhas.length} talhão(ões)`));
+  y = secaoSemear(doc, y, "1 · Aplicações por Talhão");
+  const head = [["Talhão", "Cultivar", "Emergência", "Colheita", ...Array.from({ length: maxQ }, (_, i) => `${i + 1}ª Aplic.`), "Em aberto"]];
+  const body = linhas.map((l) => [
+    "", `${l.cultivar}\n${l.qtde} aplic. · a cada ${l.intervalo} dias`, dataBR(l.emergencia), `${dataBR(l.colheita)}${l.colheitaEstimada ? "*" : ""}`,
+    ...Array.from({ length: maxQ }, (_, i) => (i < l.qtde && l.datas[i] ? dataBR(l.datas[i]).slice(0, 5) : "—")),
+    l.aberto === null ? "—" : `${l.aberto} dias`,
   ]);
   autoTable(doc, {
-    startY: 16, head, body, theme: "grid",
-    styles: { fontSize: 8.5, halign: "center", cellPadding: 1.8, lineColor: [237, 125, 49], lineWidth: 0.15 },
-    headStyles: { fillColor: [237, 125, 49], textColor: 255, fontStyle: "bold" },
-    alternateRowStyles: { fillColor: [251, 227, 214] },
-    margin: { left: 25, right: 25, bottom: 20 },
-    didDrawPage: () => { cabecalho(doc, titulo); rodape(doc, empresa); },
+    startY: y, head, body, theme: "grid",
+    margin: { left: 15, right: 15, top: 30, bottom: 22 },
+    styles: { font: "times", fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2.2, bottom: 2.2, left: 2, right: 2 }, valign: "middle", halign: "center", minCellHeight: 11 },
+    headStyles: { font: "helvetica", fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 8.6, halign: "center" },
+    alternateRowStyles: { fillColor: COR.zebra },
+    columnStyles: { 0: { cellWidth: 34, halign: "left" }, 1: { cellWidth: 32, halign: "left", fontSize: 8.4 } },
+    didParseCell: (d) => {
+      if (d.section === "body" && d.column.index === head[0].length - 1) {
+        const l = linhas[d.row.index];
+        d.cell.styles.fontStyle = "bold";
+        if (l.aberto !== null && l.aberto > 25) d.cell.styles.textColor = [168, 112, 20];
+        if (l.aberto !== null && l.aberto < 0) d.cell.styles.textColor = [176, 48, 40];
+      }
+    },
+    didDrawCell: (d) => { if (d.section === "body" && d.column.index === 0) celulaTalhao(doc, d, linhas[d.row.index], variosClientes); },
+    didDrawPage: () => { cabecalhoSemear(doc, logo, "Programa de Fungicidas", safra); rodapeSemear(doc); },
   });
-  doc.save(nomeArquivo || "aplicacoes-por-data.pdf");
+  let yn = doc.lastAutoTable.finalY + 5;
+  yn = notaSemear(doc, yn, "Em aberto = dias sem cobertura de fungicida: da última aplicação mais o intervalo (que ela ainda protege) até a colheita. "
+    + (linhas.some((l) => l.colheitaEstimada) ? "* Colheita estimada pelo ciclo da cultivar. " : "")
+    + "Datas sujeitas a ajuste conforme clima e condição da lavoura.");
+  doc.save(nomeArquivo || "programa-fungicidas-por-talhao.pdf");
+}
+
+// PDF 2: linha do tempo — todas as aplicações em ordem de data.
+export async function pdfCronologico(linhas, { titulo, nomeArquivo } = {}) {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const logo = await carregarLogo();
+  const safra = nomeSafra(linhas);
+  const variosClientes = new Set(linhas.map((l) => l.cliente)).size > 1;
+  const itens = linhas.flatMap((l) => l.datas.map((d, i) => ({ l, n: i + 1, d, ultima: i === l.qtde - 1 }))).filter((x) => x.d)
+    .sort((a, b) => a.d.localeCompare(b.d) || String(a.l.talhao).localeCompare(String(b.l.talhao), "pt-BR", { numeric: true }));
+  cabecalhoSemear(doc, logo, "Linha do Tempo de Fungicidas", safra);
+  let y = tituloSemear(doc, "Linha do Tempo de Aplicações", subtituloPadrao(linhas, `${itens.length} aplicações`));
+  y = secaoSemear(doc, y, "1 · Aplicações em Ordem de Data");
+  const sem = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+  const body = itens.map(({ l, n, d, ultima }) => [
+    `${dataBR(d).slice(0, 5)}\n${sem[new Date(`${d}T12:00:00Z`).getUTCDay()]}`, "", `${n}ª Aplicação${ultima ? " (última)" : ""}`,
+    ultima ? `${l.cultivar} · cobertura até ${dataBR(l.fimCobertura).slice(0, 5)} · colheita ${dataBR(l.colheita).slice(0, 5)}` : `${l.cultivar} · próxima em ${dataBR(l.datas[n]).slice(0, 5)}`,
+  ]);
+  autoTable(doc, {
+    startY: y, head: [["Data", "Talhão", "Evento", "Cultivar / Observação"]], body, theme: "grid",
+    margin: { left: 15, right: 15, top: 30, bottom: 22 },
+    styles: { font: "times", fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2, bottom: 2, left: 2.2, right: 2.2 }, valign: "middle", minCellHeight: 10.5 },
+    headStyles: { font: "helvetica", fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 9, halign: "center" },
+    columnStyles: { 0: { cellWidth: 18, halign: "center", font: "helvetica", fontStyle: "bold" }, 1: { cellWidth: 44 }, 2: { cellWidth: 38 } },
+    didParseCell: (d) => {
+      if (d.section !== "body") return;
+      d.cell.styles.fillColor = COR_APLIC[(itens[d.row.index].n - 1) % COR_APLIC.length];
+    },
+    didDrawCell: (d) => { if (d.section === "body" && d.column.index === 1) celulaTalhao(doc, d, itens[d.row.index].l, variosClientes); },
+    didDrawPage: () => { cabecalhoSemear(doc, logo, "Linha do Tempo de Fungicidas", safra); rodapeSemear(doc); },
+  });
+  // Legenda das cores (1ª, 2ª, 3ª… aplicação).
+  let yl = doc.lastAutoTable.finalY + 6;
+  const maxN = Math.max(1, ...itens.map((x) => x.n));
+  if (yl > doc.internal.pageSize.getHeight() - 30) { doc.addPage(); cabecalhoSemear(doc, logo, "Linha do Tempo de Fungicidas", safra); rodapeSemear(doc); yl = 34; }
+  let xl = 15;
+  for (let i = 0; i < maxN; i++) {
+    doc.setFillColor(...COR_APLIC[i % COR_APLIC.length]);
+    doc.setDrawColor(...COR.verde2);
+    doc.setLineWidth(0.25);
+    doc.rect(xl, yl - 3.3, 8, 4.2, "FD");
+    doc.setFont("times", "normal");
+    doc.setFontSize(8.8);
+    doc.text(`${i + 1}ª aplicação`, xl + 10, yl);
+    xl += 34;
+  }
+  notaSemear(doc, yl + 7, "Datas previstas a partir da emergência, do intervalo entre aplicações e do ciclo da cultivar — sujeitas a ajuste conforme clima e condição da lavoura.");
+  doc.save(nomeArquivo || "linha-do-tempo-fungicidas.pdf");
 }
