@@ -143,9 +143,9 @@ export async function gerarNotaFiscalHonorario({ financeId }) {
 }
 
 // kind: "boleto" | "nota" (financeId), "visita" (visitId), "agenda" (taskId), "teste"
-export async function enviarWhatsapp({ kind, financeId, visitId, taskId }) {
+export async function enviarWhatsapp({ kind, financeId, visitId, taskId, serviceId }) {
   return callNetlifyFunction("enviar-whatsapp", {
     method: "POST",
-    body: JSON.stringify({ kind, financeId, visitId, taskId }),
+    body: JSON.stringify({ kind, financeId, visitId, taskId, serviceId }),
   });
 }

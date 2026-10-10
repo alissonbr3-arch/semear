@@ -15,6 +15,10 @@ import { Delaunay } from "d3-delaunay";
 import { intersection, union } from "martinez-polygon-clipping";
 import shpwrite from "@mapbox/shp-write";
 import { safeGet, safeSet } from "./lib/storage.js";
+import {
+  STATUS_ABERTO, PARADO_PADRAO, VISITA_INTERVALO_PADRAO, novasEtapas, ehAvulso, emAberto, etapaAtual, diasParado,
+  ultimaVisitaPorCliente, semaforoVisita, addDiasIso,
+} from "../shared/gestores.js";
 import { askConsultorIA } from "./lib/ia.js";
 import {
   getSession, onAuthStateChange, signIn, signOut, getMyProfile,
@@ -665,16 +669,25 @@ export default function AgroTrackApp() {
     const r = await enviarWhatsapp({ kind: "teste" });
     alert(r.error ? r.error : "Mensagem de teste enviada ✅");
   }
-  async function handleTesteWhatsappGestores() {
-    if (!confirm("Enviar agora a prévia da cobrança semanal dos gestores pro número de teste (67 99969-3705)?")) return;
-    const r = await enviarWhatsapp({ kind: "gestores_teste" });
+  // Mensagens automáticas do Painel dos Gestores (modo off/teste/ativa e prévias).
+  async function previewAutomacao(kind, titulo) {
+    if (!confirm(`Enviar agora a prévia de "${titulo}" pro número de teste (67 99969-3705)?`)) return;
+    const r = await enviarWhatsapp({ kind });
     if (r.error) { alert(r.error); return; }
     const d = r.data || {};
-    alert(d.gestores ? `Prévia enviada ✅ (${d.enviados} de ${d.gestores} gestor(es))${d.falhas?.length ? `\n\nFalhas:\n${d.falhas.join("\n")}` : ""}` : "Nenhum gestor tem projeto em aberto no momento.");
+    const total = d.gestores ?? d.alvos ?? 0;
+    alert(total ? `Prévia enviada ✅ (${d.enviados} de ${total})${d.falhas?.length ? `\n\nFalhas:\n${d.falhas.join("\n")}` : ""}` : "Não há nada pra enviar no momento.");
   }
-  function updateWhatsappGestores(modo) {
-    logActivity(makeLogEntry("update", "settings", "WhatsApp", `Cobrança semanal dos gestores: ${modo}`));
-    persistSettings({ ...settings, whatsappGestores: modo });
+  function updateGestorSetting(key, value, label) {
+    logActivity(makeLogEntry("update", "settings", label || key, String(value)));
+    persistSettings({ ...settings, [key]: value });
+  }
+  // Etapas/pendência editadas pelo Painel dos Gestores: só esses campos, sem
+  // passar pelo saveService (que mexe nos honorários).
+  function saveProjetoEtapas(form) {
+    persistServices(services.map((sv) => (sv.id === form.id ? { ...sv, etapas: form.etapas, pendenciaCliente: form.pendenciaCliente, pendenciaCobradaEm: form.pendenciaCobradaEm } : sv)));
+    const client = clients.find((c) => c.id === form.clientId);
+    logActivity(makeLogEntry("update", "service", client?.name, `Etapas atualizadas (${form.tipo})`));
   }
   function updateWhatsappCobranca(modo) {
     logActivity(makeLogEntry("update", "settings", "WhatsApp", `Cobrança automática: ${modo}`));
@@ -1166,7 +1179,14 @@ export default function AgroTrackApp() {
   }
 
   function saveService(form) {
-    const entry = form.id ? form : { ...form, id: uid() };
+    const anterior = form.id ? services.find((s) => s.id === form.id) : null;
+    const agora = new Date().toISOString();
+    const entry = {
+      ...form,
+      id: form.id || uid(),
+      createdAt: form.createdAt || anterior?.createdAt || agora,
+      statusChangedAt: !anterior || anterior.status !== form.status ? agora : form.statusChangedAt || anterior.statusChangedAt || null,
+    };
 
     persistServices(form.id ? services.map((s) => (s.id === entry.id ? entry : s)) : [...services, entry]);
 
@@ -1188,6 +1208,21 @@ export default function AgroTrackApp() {
     }
 
     setModal(null);
+  }
+  // Salva o que falta/etapas do serviço e manda a cobrança pro cliente agora.
+  // Devolve a data do envio (pra mostrar no formulário) ou null.
+  async function cobrarPendenciaCliente(form) {
+    const atualizado = services.map((s) => (s.id === form.id ? { ...s, etapas: form.etapas, pendenciaCliente: form.pendenciaCliente } : s));
+    await persistServices(atualizado);
+    const r = await enviarWhatsapp({ kind: "pendencia_cliente", serviceId: form.id });
+    if (r.error) { alert(r.error); return null; }
+    if (!r.data?.enviados) { alert((r.data?.falhas || []).join("\n") || "Nada foi enviado."); return null; }
+    const at = new Date().toISOString();
+    setServices((prev) => prev.map((s) => (s.id === form.id ? { ...s, pendenciaCobradaEm: [...(s.pendenciaCobradaEm || []), at] } : s)));
+    const client = clients.find((c) => c.id === form.clientId);
+    logActivity(makeLogEntry("update", "service", client?.name, `Pendência cobrada do cliente por WhatsApp (${form.tipo})`));
+    alert("Cobrança enviada pro cliente ✅");
+    return at;
   }
   function deleteService(id) {
     persistServices(services.filter((s) => s.id !== id));
@@ -1345,6 +1380,8 @@ export default function AgroTrackApp() {
     });
   }, [properties, clients, fields]);
 
+  const ultimaVisitaCliente = useMemo(() => ultimaVisitaPorCliente({ visits, harvests, fields, properties }), [visits, harvests, fields, properties]);
+
   const clientsWithMeta = useMemo(() => {
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
     return clients.map((c) => {
@@ -1454,6 +1491,7 @@ export default function AgroTrackApp() {
     { id: "clientes", label: "Clientes", icon: Users },
     { id: "propriedades", label: "Propriedades", icon: Home },
     { id: "agenda", label: "Agenda", icon: Calendar },
+    { id: "gestores", label: isFinance ? "Gestores" : "Minha carteira", icon: UserCog },
     { id: "visitas", label: "Visitas", icon: ClipboardList },
     { id: "solo", label: "Análise de Solo", icon: FlaskConical },
     { id: "estoque", label: "Estoque", icon: Warehouse },
@@ -1809,6 +1847,18 @@ export default function AgroTrackApp() {
           />
         )}
 
+        {view === "gestores" && (
+          <GestoresView
+            team={team} teamAvatars={teamAvatars} clients={clients} services={services} tasks={tasks}
+            ultimaVisita={ultimaVisitaCliente} properties={properties} fields={fields} settings={settings}
+            isFinance={isFinance} currentUserId={profile?.id} proLaboreRows={monthFinanceSummary?.proLaboreRows}
+            onOpenClient={(id) => { setView("clientes"); setSelectedPropertyId(null); setSelectedFieldId(null); setSelectedHarvestId(null); setSelectedClientId(id); }}
+            onOpenProjeto={(sv) => setModal({ type: "projetoEtapas", data: sv })}
+            onChangeSetting={updateGestorSetting}
+            onPreview={previewAutomacao}
+          />
+        )}
+
         {view === "visitas" && (
           <VisitasView
             visits={visits} harvests={harvestsWithMeta} team={team} currentUserId={profile?.id}
@@ -1847,9 +1897,6 @@ export default function AgroTrackApp() {
             onEdit={(s) => setModal({ type: "service", data: s })}
             onDelete={deleteService}
             hasClients={clients.length > 0}
-            whatsappGestores={settings.whatsappGestores}
-            onChangeWhatsappGestores={updateWhatsappGestores}
-            onTesteWhatsappGestores={handleTesteWhatsappGestores}
           />
         )}
 
@@ -1985,7 +2032,15 @@ export default function AgroTrackApp() {
         <ExpenseCategoryModal kind="receita" data={modal.data} groups={groupCategories(revenueCategories)} onSave={saveRevenueCategory} onClose={() => setModal(null)} />
       )}
       {modal?.type === "service" && (
-        <ServiceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} services={services} onSave={saveService} onClose={() => setModal(null)} />
+        <ServiceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} services={services} onSave={saveService} onClose={() => setModal(null)} onCobrarCliente={cobrarPendenciaCliente} />
+      )}
+      {modal?.type === "projetoEtapas" && (
+        <ProjetoEtapasModal
+          service={modal.data} clients={clients}
+          onSave={(form) => { saveProjetoEtapas(form); setModal(null); }}
+          onCobrar={cobrarPendenciaCliente}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal?.type === "serviceType" && (
         <ServiceTypeModal data={modal.data} onSave={saveServiceType} onClose={() => setModal(null)} />
@@ -7742,7 +7797,7 @@ const ACTIVITY_ENTITY_LABELS = {
   visit: "a visita", task: "o item da agenda", document: "o documento",
   team: "o colaborador", clientAccess: "o acesso do cliente",
   finance: "o honorário de", bonus: "a bonificação de", settings: "a configuração",
-  bill: "a despesa", soilAnalysis: "a análise de solo de",
+  bill: "a despesa", soilAnalysis: "a análise de solo de", service: "o serviço de",
 };
 
 function ActivityLogView({ log }) {
@@ -8061,7 +8116,24 @@ function serviceCobrancaSummary(type) {
   return "—";
 }
 
-function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, onDelete, hasClients, whatsappGestores, onChangeWhatsappGestores, onTesteWhatsappGestores }) {
+// Etapa atual do projeto + há quantos dias está nela (vermelho se parado).
+function ServiceEtapaCell({ service, paradoDias = PARADO_PADRAO }) {
+  if (!emAberto(service)) return <span style={{ color: "var(--ink-faint)" }}>—</span>;
+  const atual = etapaAtual(service);
+  const dias = diasParado(service, toISODateLocal(new Date()));
+  const parado = dias >= paradoDias;
+  return (
+    <div style={{ minWidth: 120 }}>
+      <div style={{ fontSize: 10.5, color: "var(--ink-soft)" }}>
+        {atual ? atual.label : (service.etapas || []).length ? "Todas concluídas" : "—"}
+        {atual?.cliente && <span style={{ marginLeft: 5, fontSize: 9, color: "var(--gold)" }}>· cliente</span>}
+      </div>
+      <div style={{ fontSize: 9, color: parado ? "var(--red)" : "var(--ink-faint)", fontWeight: parado ? 600 : 400 }}>{parado ? "parado há " : "há "}{dias} dia(s)</div>
+    </div>
+  );
+}
+
+function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, onDelete, hasClients }) {
   const rows = useMemo(() => {
     return [...services]
       .map((s) => ({
@@ -8085,23 +8157,6 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
           <AlertTriangle size={15} /> Cadastre um cliente antes de adicionar um serviço.
         </div>
       )}
-      {onChangeWhatsappGestores && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14, fontSize: 10.5, color: "var(--ink-dim)" }}>
-          <MessageCircle size={14} />
-          <span>Cobrança semanal dos gestores (WhatsApp):</span>
-          <select
-            style={{ ...inputStyle, width: "auto", padding: "5px 10px", fontSize: 10.5 }}
-            value={whatsappGestores || "off"}
-            onChange={(e) => onChangeWhatsappGestores(e.target.value)}
-          >
-            <option value="off">Desligada</option>
-            <option value="teste">Modo teste (só pro meu número)</option>
-            <option value="ativa">Ativa (envia pros gestores)</option>
-          </select>
-          <GhostBtn onClick={onTesteWhatsappGestores} style={{ fontSize: 10, padding: "5px 10px" }}>Enviar prévia agora</GhostBtn>
-          <span style={{ color: "var(--ink-faint)", fontSize: 9.5 }}>Toda segunda às 7h: cada gestor recebe a lista dos serviços avulsos dele (projetos, análises, limites) em negociação ou em andamento.</span>
-        </div>
-      )}
       {rows.length === 0 ? (
         <EmptyState icon={Briefcase} title="Nenhum serviço cadastrado" sub="Cadastre os serviços contratados por cada cliente para acompanhar o andamento e o recebimento." />
       ) : (
@@ -8109,7 +8164,7 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
           <table>
             <thead>
               <tr>
-                <th>Código</th><th>Cliente</th><th>Tipo</th><th>Gestor</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th></th>
+                <th>Código</th><th>Cliente</th><th>Tipo</th><th>Gestor</th><th>Valor</th><th>Competência</th><th>Vencimento</th><th>Periodicidade</th><th>Status</th><th>Etapa</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -8127,6 +8182,7 @@ function ServicosView({ services, clients, serviceTypes, team, onAdd, onEdit, on
                     {s.periodicidade !== "unica" && s.recorrente ? " · recorrente" : ""}
                   </td>
                   <td><ServiceStatusBadge status={s.status} /></td>
+                  <td><ServiceEtapaCell service={s} /></td>
                   <td>
                     <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
                       <button onClick={() => onEdit(s)} style={iconBtnStyle}><Pencil size={14} /></button>
@@ -8295,15 +8351,304 @@ function nextServiceCode(services) {
   return `${prefix}${String(maxN + 1).padStart(3, "0")}`;
 }
 
-function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onClose }) {
-  const [form, setForm] = useState({
-    codigo: data?.codigo || nextServiceCode(services),
-    tipo: "", clientId: clients[0]?.id || "", gestorId: "", valor: "",
-    areaHa: "", valorProjeto: "", quantidade: "1",
-    competencia: new Date().toISOString().slice(0, 7),
-    periodicidade: "unica", recorrente: false, vencimento: new Date().toISOString().slice(0, 10), status: "negociacao",
-    ...(data || {}),
+// ---------- Painel dos Gestores ----------
+// Carteira de cada gestor: semáforo de visita dos clientes, projetos em
+// aberto (etapa atual e dias parado), agenda atrasada, hectares e pró-labore.
+// Técnico vê só o próprio quadro; administrador vê todos e liga as
+// mensagens automáticas de WhatsApp.
+const SEMAFORO_COR = { verde: "var(--green)", amarelo: "var(--gold)", vermelho: "var(--red)" };
+const AUTOMACOES = [
+  { key: "whatsappResumoDiario", preview: "resumo_teste", titulo: "Resumo diário do gestor", quando: "seg a sáb, 6h30", desc: "agenda do dia, atrasados, clientes sem visita e projetos que pedem atenção", destino: "gestores" },
+  { key: "whatsappGestores", preview: "gestores_teste", titulo: "Cobrança semanal dos projetos", quando: "segunda, 7h", desc: "lista dos projetos em aberto de cada gestor, com etapa e dias parado", destino: "gestores" },
+  { key: "whatsappPendenciaCliente", preview: "pendencias_teste", titulo: "Pendência do cliente", quando: "seg a sex, 8h — no máx. 1x por semana por projeto", desc: "pede ao produtor o que falta quando o projeto está numa etapa que depende dele", destino: "clientes" },
+];
+
+function GestoresView({ team, teamAvatars, clients, services, tasks, ultimaVisita, properties, fields, settings, isFinance, currentUserId, proLaboreRows, onOpenClient, onOpenProjeto, onChangeSetting, onPreview }) {
+  const hoje = toISODateLocal(new Date());
+  const intervalo = Number(settings.visitaIntervaloDias) || VISITA_INTERVALO_PADRAO;
+  const paradoDias = Number(settings.paradoDias) || PARADO_PADRAO;
+  const [soAtencao, setSoAtencao] = usePersistedState("gestoresSoAtencao", false);
+  const [previewing, setPreviewing] = useState("");
+
+  const cards = useMemo(() => {
+    const areaPorCliente = {};
+    fields.forEach((f) => {
+      const prop = properties.find((p) => p.id === f.propertyId);
+      if (prop) areaPorCliente[prop.clientId] = (areaPorCliente[prop.clientId] || 0) + fieldAreaHa(f);
+    });
+    const visiveis = isFinance ? team : team.filter((t) => t.id === currentUserId);
+    return visiveis.map((g) => {
+      const meusClientes = clients.filter((c) => c.gestorId === g.id).map((c) => ({ c, s: semaforoVisita(ultimaVisita[c.id], hoje, intervalo) }));
+      const projetos = services
+        .filter((sv) => emAberto(sv) && sv.gestorId === g.id)
+        .map((sv) => ({ sv, dias: diasParado(sv, hoje), atual: etapaAtual(sv), atrasado: !!(sv.vencimento && sv.vencimento < hoje) }))
+        .sort((a, b) => b.dias - a.dias);
+      const agendaAtrasada = tasks.filter((t) => t.assigneeId === g.id && !t.done && t.date && t.date < hoje).length;
+      const cont = { verde: 0, amarelo: 0, vermelho: 0 };
+      meusClientes.forEach((x) => { cont[x.s.cor]++; });
+      const parados = projetos.filter((p) => p.dias >= paradoDias).length;
+      const atrasados = projetos.filter((p) => p.atrasado).length;
+      const area = meusClientes.reduce((a, x) => a + (areaPorCliente[x.c.id] || 0), 0);
+      const pro = (proLaboreRows || []).find((r) => r.gestor.id === g.id);
+      const atencao = cont.vermelho + cont.amarelo + parados + atrasados + agendaAtrasada;
+      return { g, meusClientes, projetos, agendaAtrasada, cont, parados, atrasados, area, proLabore: pro?.total ?? null, atencao };
+    }).filter((c) => !isFinance || c.meusClientes.length || c.projetos.length || c.agendaAtrasada)
+      .sort((a, b) => b.atencao - a.atencao);
+  }, [team, clients, services, tasks, ultimaVisita, properties, fields, isFinance, currentUserId, proLaboreRows, hoje, intervalo, paradoDias]);
+
+  const chip = (cor, n, label) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--ink-soft)" }}>
+      <span style={{ width: 8, height: 8, borderRadius: "50%", background: cor }} />{n} {label}
+    </span>
+  );
+  const smallLabel = { fontSize: 9.5, fontWeight: 600, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: ".03em", margin: "12px 0 6px" };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>{isFinance ? "Gestores" : "Minha carteira"}</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>
+            Visita em dia a cada {intervalo} dias · projeto parado após {paradoDias} dias na mesma etapa
+          </p>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: "var(--ink-soft)", cursor: "pointer" }}>
+          <input type="checkbox" checked={soAtencao} onChange={(e) => setSoAtencao(e.target.checked)} /> Só o que precisa de atenção
+        </label>
+      </div>
+
+      {isFinance && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 11, fontWeight: 700, color: "var(--ink)" }}>
+            <MessageCircle size={15} /> Mensagens automáticas no WhatsApp
+          </div>
+          {AUTOMACOES.map((a) => (
+            <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "8px 0", borderTop: "1px solid var(--border-soft)" }}>
+              <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)" }}>{a.titulo} <span style={{ fontWeight: 400, color: "var(--ink-faint)" }}>· {a.quando}</span></div>
+                <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>{a.desc}</div>
+              </div>
+              <select style={{ ...inputStyle, width: "auto", padding: "5px 10px", fontSize: 10.5 }} value={settings[a.key] || "off"} onChange={(e) => onChangeSetting(a.key, e.target.value, a.titulo)}>
+                <option value="off">Desligada</option>
+                <option value="teste">Modo teste (só pro meu número)</option>
+                <option value="ativa">Ativa (envia pros {a.destino})</option>
+              </select>
+              <GhostBtn
+                disabled={!!previewing}
+                onClick={async () => { setPreviewing(a.key); await onPreview(a.preview, a.titulo); setPreviewing(""); }}
+                style={{ fontSize: 10, padding: "5px 10px" }}
+              >
+                {previewing === a.key ? "Enviando…" : "Enviar prévia"}
+              </GhostBtn>
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", paddingTop: 10, borderTop: "1px solid var(--border-soft)", fontSize: 10.5, color: "var(--ink-dim)" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              Visitar cada cliente a cada
+              <input type="number" min="1" style={{ ...inputStyle, width: 60, padding: "4px 7px" }} value={settings.visitaIntervaloDias || VISITA_INTERVALO_PADRAO} onChange={(e) => onChangeSetting("visitaIntervaloDias", Number(e.target.value) || VISITA_INTERVALO_PADRAO, "Intervalo de visita")} /> dias
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              Projeto parado após
+              <input type="number" min="1" style={{ ...inputStyle, width: 60, padding: "4px 7px" }} value={settings.paradoDias || PARADO_PADRAO} onChange={(e) => onChangeSetting("paradoDias", Number(e.target.value) || PARADO_PADRAO, "Dias parado")} /> dias na mesma etapa
+            </label>
+            <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>As prévias vão só pro 67 99969-3705.</span>
+          </div>
+        </div>
+      )}
+
+      {cards.length === 0 ? (
+        <EmptyState icon={UserCog} title="Nada por aqui ainda" sub="Defina o gestor de cada cliente e o gestor responsável de cada serviço pra montar a carteira." />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(330px, 1fr))", gap: 14 }}>
+          {cards.filter((c) => !soAtencao || c.atencao > 0).map((c) => {
+            const clientesMostrar = c.meusClientes.filter((x) => x.s.cor !== "verde" || !soAtencao)
+              .sort((a, b) => ({ vermelho: 0, amarelo: 1, verde: 2 }[a.s.cor] - { vermelho: 0, amarelo: 1, verde: 2 }[b.s.cor]));
+            const projetosMostrar = c.projetos.filter((p) => !soAtencao || p.dias >= paradoDias || p.atrasado || p.atual?.cliente);
+            return (
+              <div key={c.g.id} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Avatar name={c.g.name} url={teamAvatars[c.g.id]} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--ink)" }}>{c.g.name}</div>
+                    <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>
+                      {fmtNum(c.area, 0)} ha atendidos{isFinance && c.proLabore !== null ? ` · pró-labore do mês ${fmtCurrency(c.proLabore)}` : ""}
+                    </div>
+                  </div>
+                  {c.atencao > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--red)", background: "var(--red-bg)", borderRadius: 10, padding: "2px 8px" }}>{c.atencao}</span>}
+                </div>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
+                  {chip(SEMAFORO_COR.verde, c.cont.verde, "em dia")}
+                  {chip(SEMAFORO_COR.amarelo, c.cont.amarelo, "vence esta semana")}
+                  {chip(SEMAFORO_COR.vermelho, c.cont.vermelho, "atrasado")}
+                </div>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6, fontSize: 10, color: "var(--ink-dim)" }}>
+                  <span>{c.projetos.length} projeto(s) em aberto</span>
+                  {c.parados > 0 && <span style={{ color: "var(--red)" }}>{c.parados} parado(s)</span>}
+                  {c.atrasados > 0 && <span style={{ color: "var(--red)" }}>{c.atrasados} com prazo vencido</span>}
+                  {c.agendaAtrasada > 0 && <span style={{ color: "var(--gold)" }}>{c.agendaAtrasada} na agenda atrasado(s)</span>}
+                </div>
+
+                {projetosMostrar.length > 0 && (
+                  <>
+                    <div style={smallLabel}>Projetos</div>
+                    {projetosMostrar.map((p) => (
+                      <button key={p.sv.id} onClick={() => onOpenProjeto(p.sv)} style={{ display: "block", width: "100%", textAlign: "left", background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: "7px 9px", marginBottom: 6, cursor: "pointer" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink)" }}>{p.sv.tipo} — {(clients.find((cl) => cl.id === p.sv.clientId) || {}).name || "—"}</span>
+                          <span style={{ fontSize: 9.5, whiteSpace: "nowrap", color: p.dias >= paradoDias ? "var(--red)" : "var(--ink-faint)", fontWeight: p.dias >= paradoDias ? 700 : 400 }}>{p.dias}d</span>
+                        </div>
+                        <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginTop: 2 }}>
+                          {p.atual ? p.atual.label : STATUS_ABERTO[p.sv.status]}
+                          {p.atual?.cliente && <span style={{ color: "var(--gold)" }}> · aguardando o cliente</span>}
+                          {p.sv.vencimento && <span style={{ color: p.atrasado ? "var(--red)" : "var(--ink-faint)" }}> · prazo {fmtDate(p.sv.vencimento)}</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {clientesMostrar.length > 0 && (
+                  <>
+                    <div style={smallLabel}>Clientes</div>
+                    {clientesMostrar.map((x) => (
+                      <button key={x.c.id} onClick={() => onOpenClient(x.c.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "none", border: "none", padding: "4px 0", cursor: "pointer" }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: SEMAFORO_COR[x.s.cor], flexShrink: 0 }} />
+                        <span style={{ fontSize: 10.5, color: "var(--ink-soft)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.c.name}</span>
+                        <span style={{ fontSize: 9.5, color: "var(--ink-faint)", whiteSpace: "nowrap" }}>
+                          {x.s.diasSem === null ? "nunca visitado" : x.s.cor === "vermelho" ? `há ${x.s.diasSem} dias` : `próxima até ${fmtDate(x.s.vence)}`}
+                        </span>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Etapas de um projeto aberto a partir do Painel dos Gestores (sem valores).
+function ProjetoEtapasModal({ service, clients, onSave, onCobrar, onClose }) {
+  const [form, setForm] = useState(() => ({
+    ...service,
+    etapas: (service.etapas || []).length ? service.etapas : novasEtapas(service.tipo, uid),
+  }));
+  const [cobrando, setCobrando] = useState(false);
+  const client = clients.find((c) => c.id === service.clientId);
+  return (
+    <Modal title={`${service.tipo} — ${client?.name || "—"}`} onClose={onClose} maxWidth={560}>
+      <div style={{ fontSize: 10, color: "var(--ink-dim)", marginBottom: 10 }}>
+        {service.codigo ? `${service.codigo} · ` : ""}{STATUS_ABERTO[service.status] || service.status}{service.vencimento ? ` · prazo ${fmtDate(service.vencimento)}` : ""}
+      </div>
+      <ServiceEtapasEditor
+        form={form} setForm={setForm} savedId={service.id} cobrando={cobrando}
+        onCobrar={async () => {
+          if (!confirm(`Enviar agora pro WhatsApp de ${client?.name || "cliente"} a mensagem pedindo o que falta?`)) return;
+          setCobrando(true);
+          const at = await onCobrar(form);
+          setCobrando(false);
+          if (at) setForm((f) => ({ ...f, pendenciaCobradaEm: [...(f.pendenciaCobradaEm || []), at] }));
+        }}
+      />
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+        <PrimaryBtn onClick={() => onSave(form)}>Salvar</PrimaryBtn>
+      </div>
+    </Modal>
+  );
+}
+
+// Etapas do projeto (checklist com data). A primeira etapa não marcada é a
+// atual; "depende do cliente" libera o campo "O que falta" e a cobrança do
+// produtor por WhatsApp.
+function ServiceEtapasEditor({ form, setForm, savedId, onCobrar, cobrando }) {
+  const hoje = toISODateLocal(new Date());
+  const etapas = form.etapas || [];
+  const atual = etapaAtual(form);
+  const parado = diasParado(form, hoje);
+  const setEtapa = (id, patch) => setForm((f) => ({ ...f, etapas: f.etapas.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+  return (
+    <div style={{ marginBottom: 14, padding: 12, border: "1px solid var(--border)", borderRadius: 8, background: "var(--bg-inset)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 9.5, fontWeight: 600, color: "var(--ink-dim)", textTransform: "uppercase", letterSpacing: ".03em" }}>Etapas</span>
+        {atual && <span style={{ fontSize: 9.5, color: parado >= PARADO_PADRAO ? "var(--red)" : "var(--ink-faint)" }}>Na etapa atual há {parado} dia(s)</span>}
+      </div>
+      {etapas.map((e) => {
+        const isAtual = atual && e.id === atual.id;
+        return (
+          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--border-soft)" }}>
+            <input
+              type="checkbox" checked={!!e.doneAt}
+              onChange={(ev) => setEtapa(e.id, { doneAt: ev.target.checked ? hoje : null })}
+            />
+            <input
+              value={e.label} onChange={(ev) => setEtapa(e.id, { label: ev.target.value })}
+              style={{ ...inputStyle, padding: "5px 7px", fontSize: 10.5, flex: 1, fontWeight: isAtual ? 700 : 400, textDecoration: e.doneAt ? "line-through" : "none", color: e.doneAt ? "var(--ink-faint)" : "var(--select-text)" }}
+            />
+            {e.doneAt ? (
+              <input type="date" value={String(e.doneAt).slice(0, 10)} onChange={(ev) => setEtapa(e.id, { doneAt: ev.target.value || hoje })} style={{ ...inputStyle, width: 120, padding: "5px 7px", fontSize: 10 }} />
+            ) : (
+              <button
+                onClick={() => setEtapa(e.id, { cliente: !e.cliente })} title="Marque se esta etapa depende do produtor (ex.: enviar documentos)"
+                style={{ border: "1px solid " + (e.cliente ? "var(--gold)" : "var(--border)"), background: e.cliente ? "var(--gold-bg)" : "transparent", color: e.cliente ? "var(--gold)" : "var(--ink-faint)", borderRadius: 12, fontSize: 9, padding: "3px 8px", cursor: "pointer", whiteSpace: "nowrap" }}
+              >
+                {e.cliente ? "depende do cliente" : "da equipe"}
+              </button>
+            )}
+            <button onClick={() => setForm((f) => ({ ...f, etapas: f.etapas.filter((x) => x.id !== e.id) }))} style={{ ...iconBtnStyle, padding: 4 }} title="Remover etapa"><X size={12} /></button>
+          </div>
+        );
+      })}
+      <GhostBtn onClick={() => setForm((f) => ({ ...f, etapas: [...(f.etapas || []), { id: uid(), label: "Nova etapa", cliente: false, doneAt: null }] }))} style={{ marginTop: 8, fontSize: 10, padding: "5px 10px" }}>
+        <Plus size={12} /> Etapa
+      </GhostBtn>
+      {atual?.cliente && (
+        <div style={{ marginTop: 12 }}>
+          <Field label="O que falta do cliente (vai na mensagem pra ele)">
+            <textarea
+              style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.pendenciaCliente || ""}
+              onChange={(ev) => setForm({ ...form, pendenciaCliente: ev.target.value })}
+              placeholder={"Ex:\n• Matrícula atualizada do imóvel\n• CAR\n• Comprovante de endereço"}
+            />
+          </Field>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: -6 }}>
+            {onCobrar ? (
+              <GhostBtn onClick={onCobrar} disabled={cobrando || !String(form.pendenciaCliente || "").trim()} style={{ fontSize: 10, padding: "5px 10px" }}>
+                <MessageCircle size={13} /> {cobrando ? "Enviando…" : "Cobrar cliente agora"}
+              </GhostBtn>
+            ) : (
+              <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>{savedId ? "" : "Salve o serviço pra poder cobrar o cliente."}</span>
+            )}
+            {(form.pendenciaCobradaEm || []).length > 0 && (
+              <span style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>Cobrado em {(form.pendenciaCobradaEm || []).slice(-3).map((d) => fmtDate(String(d).slice(0, 10))).join(", ")}</span>
+            )}
+          </div>
+          <div style={{ fontSize: 9, color: "var(--ink-faint)", marginTop: 6 }}>Com a cobrança automática ligada (Painel dos Gestores), o cliente recebe esse pedido 1x por semana enquanto o projeto estiver nesta etapa.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onClose, onCobrarCliente }) {
+  const [form, setForm] = useState(() => {
+    const f = {
+      codigo: data?.codigo || nextServiceCode(services),
+      tipo: "", clientId: clients[0]?.id || "", gestorId: "", valor: "",
+      areaHa: "", valorProjeto: "", quantidade: "1",
+      competencia: new Date().toISOString().slice(0, 7),
+      periodicidade: "unica", recorrente: false, vencimento: new Date().toISOString().slice(0, 10), status: "negociacao",
+      pendenciaCliente: "",
+      ...(data || {}),
+    };
+    // Serviço avulso antigo (de antes das etapas) ganha as etapas padrão do tipo.
+    if (ehAvulso(f) && f.tipo && !(f.etapas || []).length) f.etapas = novasEtapas(f.tipo, uid);
+    return f;
   });
+  const [cobrando, setCobrando] = useState(false);
   const tipoOptions = Array.from(new Set([...(serviceTypes || []).map((t) => t.name), ...DEFAULT_SERVICE_TYPES]));
   const selectedType = (serviceTypes || []).find((t) => t.name === form.tipo);
 
@@ -8312,6 +8657,8 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
     setForm((f) => {
       const next = { ...f, tipo: tipoName };
       if (type?.cobranca === "area") next.periodicidade = f.periodicidade === "unica" ? "anual" : f.periodicidade;
+      // Troca as etapas pelas do novo tipo enquanto nenhuma foi marcada ainda.
+      if (!(f.etapas || []).some((e) => e.doneAt)) next.etapas = ehAvulso(next) && tipoName ? novasEtapas(tipoName, uid) : [];
       return next;
     });
   }
@@ -8410,6 +8757,20 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
           {SERVICE_STATUS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
       </Field>
+      {ehAvulso(form) && (form.etapas || []).length > 0 && (
+        <ServiceEtapasEditor
+          form={form} setForm={setForm} savedId={data?.id}
+          cobrando={cobrando}
+          onCobrar={onCobrarCliente && data?.id ? async () => {
+            const client = clients.find((c) => c.id === form.clientId);
+            if (!confirm(`Enviar agora pro WhatsApp de ${client?.name || "cliente"} a mensagem pedindo o que falta?`)) return;
+            setCobrando(true);
+            const at = await onCobrarCliente(form);
+            setCobrando(false);
+            if (at) setForm((f) => ({ ...f, pendenciaCobradaEm: [...(f.pendenciaCobradaEm || []), at] }));
+          } : null}
+        />
+      )}
       <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
 Ao marcar como "Finalizado", gera um honorário Pendente em Financeiro (aparece em Entradas Previstas e no Extrato, com data do vencimento). Ao marcar como "Recebido", esse honorário vira Pago e conta como pró-labore pro gestor responsável escolhido acima. Voltar pra "Em negociação"/"Em andamento" ou editar o serviço atualiza/remove o honorário automaticamente.
       </div>

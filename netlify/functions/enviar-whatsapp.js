@@ -8,10 +8,13 @@
 //   agenda  { taskId }     → confirmação de visita agendada pro cliente
 //   teste                  → mensagem de teste só pro número de teste da Semear
 //   gestores_teste         → prévia da cobrança semanal dos gestores, só pro número de teste
+//   resumo_teste           → prévia do resumo diário dos gestores, só pro número de teste
+//   pendencias_teste       → prévia da cobrança de pendências dos clientes, só pro número de teste
+//   pendencia_cliente { serviceId } → cobra agora o cliente desse serviço (o que falta)
 // Qualquer usuário da equipe (role diferente de "cliente") pode enviar.
 import { createClient } from "@supabase/supabase-js";
 import { TEST_PHONE, formatarTelefone, enviarTexto, msgBoleto, msgNota, msgVisita, msgAgenda } from "../lib/whatsapp.js";
-import { enviarCobrancaGestores } from "../lib/cobrancaGestores.js";
+import { enviarCobrancaGestores, enviarResumoDiario, enviarPendenciaCliente } from "../lib/cobrancaGestores.js";
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
@@ -55,8 +58,11 @@ export const handler = async (event) => {
     return json({ ok: true, para: TEST_PHONE });
   }
 
-  if (kind === "gestores_teste") {
-    const r = await enviarCobrancaGestores(adminClient, getBlob, "teste");
+  if (kind === "gestores_teste" || kind === "resumo_teste" || kind === "pendencias_teste" || kind === "pendencia_cliente") {
+    const r = kind === "gestores_teste" ? await enviarCobrancaGestores(adminClient, getBlob, "teste")
+      : kind === "resumo_teste" ? await enviarResumoDiario(adminClient, getBlob, "teste")
+      : kind === "pendencias_teste" ? await enviarPendenciaCliente(adminClient, getBlob, setBlob, "teste")
+      : await enviarPendenciaCliente(adminClient, getBlob, setBlob, "ativa", { serviceId: body.serviceId });
     if (r.enviados === 0 && r.falhas.length) return json({ error: r.falhas.join("\n") }, 500);
     return json({ ok: true, ...r });
   }
