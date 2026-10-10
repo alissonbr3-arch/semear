@@ -89,5 +89,5 @@ export function msgVisita(visit, ctx) {
 
 export function msgAgenda(task, client, assigneeName) {
   const dia = new Date(`${task.date}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit" });
-  return `Olá, ${primeiroNome(client.name)}! Tudo bem?\n\nConfirmando a visita técnica: *${dia}*${assigneeName ? `, com ${assigneeName}` : ""}.${task.notes ? `\n\n${task.notes}` : ""}\n\nSe precisar remarcar, é só responder esta mensagem.\n${ASSINATURA}`;
+  return `Olá, ${primeiroNome(client.name)}! Tudo bem?\n\nConfirmando a visita técnica: *${dia}${task.time ? `, às ${task.time}` : ""}*${assigneeName ? `, com ${assigneeName}` : ""}.${task.notes ? `\n\n${task.notes}` : ""}\n\nSe precisar remarcar, é só responder esta mensagem.\n${ASSINATURA}`;
 }

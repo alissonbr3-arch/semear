@@ -97,7 +97,7 @@ export function montarResumoDiario(gestor, dados, hoje) {
   const intervalo = Number(settings.visitaIntervaloDias) || VISITA_INTERVALO_PADRAO;
   const paradoDias = Number(settings.paradoDias) || PARADO_PADRAO;
   const minhas = (tasks || []).filter((t) => t.assigneeId === gestor.id && !t.done);
-  const deHoje = minhas.filter((t) => t.date === hoje);
+  const deHoje = minhas.filter((t) => t.date === hoje).sort((a, b) => String(a.time || "99").localeCompare(String(b.time || "99")));
   const atrasadas = minhas.filter((t) => t.date && t.date < hoje).sort((a, b) => a.date.localeCompare(b.date));
   const semVisita = clients
     .filter((c) => c.gestorId === gestor.id)
@@ -109,7 +109,7 @@ export function montarResumoDiario(gestor, dados, hoje) {
     .filter((s) => (s.vencimento && s.vencimento <= daqui7) || diasParado(s, hoje) >= paradoDias);
 
   const blocos = [];
-  const fmtTask = (t) => `• ${t.type === "visita" ? "Visita" : "Tarefa"}: ${t.title}${t.clientId ? ` — ${nomeCliente(clients, t.clientId)}` : ""}`;
+  const fmtTask = (t) => `• ${t.time ? `${t.time} ` : ""}${t.type === "visita" ? "Visita" : "Tarefa"}: ${t.title}${t.clientId ? ` — ${nomeCliente(clients, t.clientId)}` : ""}`;
   if (deHoje.length) blocos.push(`📅 *Agenda de hoje* (${deHoje.length})\n${deHoje.map(fmtTask).join("\n")}`);
   if (atrasadas.length) blocos.push(`⏰ *Atrasados na agenda* (${atrasadas.length})\n${atrasadas.slice(0, 8).map((t) => `${fmtTask(t)} (${dataCurta(t.date)})`).join("\n")}${atrasadas.length > 8 ? `\n…e mais ${atrasadas.length - 8}` : ""}`);
   if (semVisita.length) blocos.push(`🔴 *Clientes sem visita há mais de ${intervalo} dias* (${semVisita.length})\n${semVisita.slice(0, 10).map((x) => `• ${x.c.name} — ${x.s.diasSem === null ? "nunca visitado" : `última há ${x.s.diasSem} dias`}`).join("\n")}${semVisita.length > 10 ? `\n…e mais ${semVisita.length - 10}` : ""}`);

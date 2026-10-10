@@ -1838,7 +1838,7 @@ export default function AgroTrackApp() {
         {view === "agenda" && (
           <AgendaView
             tasks={tasks} team={team} teamAvatars={teamAvatars} clients={clients}
-            onAdd={(date) => setModal({ type: "task", data: date ? { date } : null })}
+            onAdd={(date, time) => setModal({ type: "task", data: date ? { date, ...(time ? { time } : {}) } : null })}
             onEdit={(t) => setModal({ type: "task", data: t })}
             onDelete={deleteTask}
             onToggleDone={toggleTaskDone}
@@ -2062,7 +2062,7 @@ export default function AgroTrackApp() {
         <ColaboradorCreatedModal data={modal.data} onClose={() => setModal(null)} />
       )}
       {modal?.type === "task" && (
-        <TaskModal data={modal.data} team={team} clients={clients} onSave={saveTask} onClose={() => setModal(null)} />
+        <TaskModal data={modal.data} team={team} clients={clients} onSave={saveTask} onClose={() => setModal(null)} onDelete={deleteTask} onEnviarWhatsapp={handleEnviarWhatsapp} currentUserId={profile?.id} />
       )}
       {modal?.type === "clientAccess" && (
         <ClientAccessModal
@@ -6473,160 +6473,106 @@ function GoogleAgendaModal({ userId, userName, onClose, onGoogleChanged }) {
   );
 }
 
-function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
-  const [googleOpen, setGoogleOpen] = useState(false);
-  const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
-  // Eventos do Google Agenda de quem está logado (só leitura).
-  const [google, setGoogle] = useState({ conectado: false, eventos: [], erro: "", carregando: false });
-  const [googleVersao, setGoogleVersao] = useState(0);
+function useLarguraJanela() {
+  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1200));
   useEffect(() => {
-    if (!currentUserId) return;
-    let vivo = true;
-    const from = toISODateLocal(weekStart), to = toISODateLocal(addDays(weekStart, 7));
-    setGoogle((g) => ({ ...g, carregando: true }));
-    fetchGoogleEventos(from, to).then((r) => {
-      if (!vivo) return;
-      if (r.error) setGoogle({ conectado: false, eventos: [], erro: "", carregando: false });
-      else setGoogle({ conectado: !!r.data.conectado, eventos: r.data.eventos || [], erro: r.data.erro || "", carregando: false });
+    const on = () => setW(window.innerWidth);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return w;
+}
+
+// ---------- Agenda (grade por horário, no estilo do Google Agenda) ----------
+// Semana (domingo a sábado) ou dia, com faixa "dia inteiro" no topo, linha da
+// hora atual, minicalendário e os eventos do Google Agenda da pessoa logada.
+// Item sem horário vai pra faixa "dia inteiro"; clicar num horário vazio cria
+// um item já com data e hora.
+const AGENDA_TZ = "America/Campo_Grande";
+const AGENDA_HORA_PX = 48;
+const AGENDA_CORES = {
+  visita: { bg: "#2F6B4F", fg: "#F2F7F3" },
+  tarefa: { bg: "#8A6A24", fg: "#FFF8E8" },
+  google: { bg: "#2E5D8F", fg: "#EEF4FB" },
+};
+const MESES_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const DIAS_CURTOS = ["DOM.", "SEG.", "TER.", "QUA.", "QUI.", "SEX.", "SÁB."];
+
+function inicioSemanaDomingo(d) {
+  const s = new Date(d);
+  s.setHours(0, 0, 0, 0);
+  s.setDate(s.getDate() - s.getDay());
+  return s;
+}
+function isoParaData(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function hhmmParaMin(hhmm) {
+  if (!/^\d{1,2}:\d{2}$/.test(String(hhmm || ""))) return null;
+  const [h, m] = String(hhmm).split(":").map(Number);
+  return Number.isFinite(h) ? h * 60 + (m || 0) : null;
+}
+function minParaHhmm(min) {
+  return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
+}
+// Data (YYYY-MM-DD) e minuto do dia de um instante, no fuso de MS.
+function partesMS(isoInstante) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: AGENDA_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .formatToParts(new Date(isoInstante)).map((x) => [x.type, x.value]));
+  return { iso: `${p.year}-${p.month}-${p.day}`, min: Number(p.hour) * 60 + Number(p.minute) };
+}
+
+// Distribui os itens com horário de um dia em colunas quando se sobrepõem.
+function layoutSobrepostos(itens) {
+  const ord = [...itens].sort((a, b) => a.ini - b.ini || b.fim - a.fim);
+  const out = [];
+  let grupo = [], fimGrupo = -1;
+  const fechar = () => {
+    const colunas = [];
+    grupo.forEach((it) => {
+      let c = colunas.findIndex((fim) => fim <= it.ini);
+      if (c === -1) { c = colunas.length; colunas.push(it.fim); } else colunas[c] = it.fim;
+      it.col = c;
     });
-    return () => { vivo = false; };
-  }, [weekStart, currentUserId, googleVersao]);
-  const [assigneeFilter, setAssigneeFilter] = useState("Todos");
+    grupo.forEach((it) => { it.cols = colunas.length; out.push(it); });
+    grupo = []; fimGrupo = -1;
+  };
+  ord.forEach((it) => {
+    if (grupo.length && it.ini >= fimGrupo) fechar();
+    grupo.push(it);
+    fimGrupo = Math.max(fimGrupo, it.fim);
+  });
+  if (grupo.length) fechar();
+  return out;
+}
 
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  const todayIso = toISODateLocal(new Date());
-  const weekdayLabels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-
-  const filteredTasks = tasks.filter((t) => assigneeFilter === "Todos" || t.assigneeId === assigneeFilter);
-  const tasksByDay = {};
-  for (const d of days) tasksByDay[toISODateLocal(d)] = [];
-  for (const t of filteredTasks) {
-    if (tasksByDay[t.date]) tasksByDay[t.date].push(t);
-  }
-  for (const iso in tasksByDay) {
-    tasksByDay[iso].sort((a, b) => Number(a.done) - Number(b.done));
-  }
-  const TZ_MS = "America/Campo_Grande";
-  const mostrarGoogle = assigneeFilter === "Todos" || assigneeFilter === currentUserId;
-  const googleByDay = {};
-  for (const d of days) googleByDay[toISODateLocal(d)] = [];
-  if (mostrarGoogle) {
-    for (const ev of google.eventos) {
-      if (ev.allDay) {
-        // Evento de vários dias aparece em cada dia (o fim é exclusivo).
-        for (const iso in googleByDay) if (iso >= ev.start && iso < (ev.end || ev.start) || iso === ev.start) googleByDay[iso].push(ev);
-      } else {
-        const iso = new Date(ev.start).toLocaleDateString("en-CA", { timeZone: TZ_MS });
-        if (googleByDay[iso]) googleByDay[iso].push(ev);
-      }
-    }
-  }
-  const horaMS = (iso) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: TZ_MS });
-
-  const rangeLabel = `${days[0].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })} – ${days[6].toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}`;
-
+function MiniCalendario({ ancora, hojeIso, diasVisiveis, onEscolher }) {
+  const [mes, setMes] = useState(() => new Date(ancora.getFullYear(), ancora.getMonth(), 1));
+  useEffect(() => { setMes(new Date(ancora.getFullYear(), ancora.getMonth(), 1)); }, [ancora]);
+  const inicio = inicioSemanaDomingo(mes);
+  const dias = Array.from({ length: 42 }, (_, i) => addDays(inicio, i));
+  const visiveis = new Set(diasVisiveis);
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Agenda</h2>
-          <p style={{ color: "var(--ink-dim)", fontSize: 10.5, margin: 0 }}>
-            Visitas e tarefas da semana · {rangeLabel}
-            {google.conectado && (
-              <span style={{ color: google.erro ? "var(--red)" : "var(--blue)" }}>
-                {" · "}{google.erro ? google.erro : google.carregando ? "carregando o Google Agenda…" : `Google Agenda: ${google.eventos.length} evento(s)`}
-              </span>
-            )}
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {currentUserId && (
-            <GhostBtn onClick={() => setGoogleOpen(true)} title="Ver seus itens da Agenda no Google Agenda"><Calendar size={14} /> Google Agenda</GhostBtn>
-          )}
-          {googleOpen && <GoogleAgendaModal userId={currentUserId} userName={currentUserName} onClose={() => setGoogleOpen(false)} onGoogleChanged={() => setGoogleVersao((v) => v + 1)} />}
-          <select style={{ ...inputStyle, width: 170 }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
-            <option value="Todos">Toda a equipe</option>
-            {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-          <GhostBtn onClick={() => setWeekStart(startOfWeekMonday(new Date()))}>Hoje</GhostBtn>
-          <GhostBtn onClick={() => setWeekStart(addDays(weekStart, -7))}><ArrowLeft size={14} /></GhostBtn>
-          <GhostBtn onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight size={16} /></GhostBtn>
-          <PrimaryBtn onClick={() => onAdd(null)}><Plus size={16} /> Nova tarefa</PrimaryBtn>
-        </div>
+    <div style={{ fontSize: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+        <span style={{ fontWeight: 700, color: "var(--ink)", fontSize: 10.5 }}>{MESES_PT[mes.getMonth()][0].toUpperCase() + MESES_PT[mes.getMonth()].slice(1)} de {mes.getFullYear()}</span>
+        <span style={{ display: "flex", gap: 2 }}>
+          <button onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))} style={{ ...iconBtnStyle, border: "none", padding: 3 }}><ChevronLeft size={13} /></button>
+          <button onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1))} style={{ ...iconBtnStyle, border: "none", padding: 3 }}><ChevronRight size={13} /></button>
+        </span>
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(160px, 1fr))", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
-        {days.map((d, i) => {
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1, textAlign: "center" }}>
+        {["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => <div key={i} style={{ color: "var(--ink-faint)", fontSize: 9, padding: "2px 0" }}>{d}</div>)}
+        {dias.map((d) => {
           const iso = toISODateLocal(d);
-          const isToday = iso === todayIso;
-          const dayTasks = tasksByDay[iso] || [];
-          const dayGoogle = googleByDay[iso] || [];
+          const hoje = iso === hojeIso;
           return (
-            <div key={iso} style={{
-              background: "var(--card)", border: "1px solid " + (isToday ? "var(--green)" : "var(--border)"), borderRadius: 12, padding: 12,
-              display: "flex", flexDirection: "column", gap: 8, minHeight: 160
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 9.5, color: isToday ? "var(--green)" : "var(--ink-faint)", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>{weekdayLabels[i]}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink)", fontFamily: "'Manrope', sans-serif" }}>{d.getDate()}</div>
-                </div>
-                <button onClick={() => onAdd(iso)} style={iconBtnStyle}><Plus size={13} /></button>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-                {dayGoogle.map((ev) => (
-                  <div key={ev.id} title={ev.location || ev.title} style={{ background: "var(--blue-bg)", borderLeft: "3px solid var(--blue)", borderRadius: 6, padding: "5px 7px" }}>
-                    <div style={{ fontSize: 9, color: "var(--blue)", fontWeight: 700 }}>{ev.allDay ? "Dia inteiro" : `${horaMS(ev.start)}–${horaMS(ev.end)}`} · Google</div>
-                    <div style={{ fontSize: 10, color: "var(--ink-soft)", fontWeight: 600 }}>{ev.title}</div>
-                    {ev.location && <div style={{ fontSize: 9, color: "var(--ink-faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.location}</div>}
-                  </div>
-                ))}
-                {dayTasks.length === 0 ? (
-                  dayGoogle.length ? null : <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>—</div>
-                ) : (
-                  dayTasks.map((t) => {
-                    const assignee = team.find((tm) => tm.id === t.assigneeId);
-                    const client = clients.find((c) => c.id === t.clientId);
-                    return (
-                      <div key={t.id} style={{ background: "var(--bg-inset)", border: "1px solid var(--border-soft)", borderRadius: 8, padding: 8 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 6, marginBottom: 4 }}>
-                          <TaskTypeBadge type={t.type} />
-                          <div style={{ display: "flex", gap: 3 }}>
-                            <button onClick={() => onEdit(t)} style={{ ...iconBtnStyle, padding: 3 }}><Pencil size={11} /></button>
-                            <button onClick={() => { if (confirm("Remover este item da agenda?")) onDelete(t.id); }} style={{ ...iconBtnStyle, padding: 3 }}><Trash2 size={11} /></button>
-                          </div>
-                        </div>
-                        <div
-                          onClick={() => onToggleDone(t.id)}
-                          style={{
-                            fontSize: 10.5, fontWeight: 600, color: t.done ? "var(--ink-faint)" : "var(--ink-soft)",
-                            textDecoration: t.done ? "line-through" : "none", cursor: "pointer", marginBottom: 4
-                          }}
-                        >
-                          {t.title}
-                        </div>
-                        {client && <div style={{ fontSize: 9.5, color: "var(--ink-dim)", marginBottom: 4 }}>{client.name}</div>}
-                        {client && t.type === "visita" && (
-                          <button
-                            onClick={() => onEnviarWhatsapp({ kind: "agenda", taskId: t.id, clientName: client.name, phone: client.phone })}
-                            title="Avisar o cliente da visita por WhatsApp"
-                            style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", padding: 0, marginBottom: 4, cursor: "pointer", fontSize: 9.5, color: "var(--green)", fontWeight: 600 }}
-                          >
-                            <MessageCircle size={11} /> Avisar cliente
-                          </button>
-                        )}
-                        {assignee && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                            <Avatar name={assignee.name} url={teamAvatars?.[assignee.id]} size={16} />
-                            <span style={{ fontSize: 9.5, color: "var(--ink-dim)" }}>{assignee.name}</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            <button key={iso} onClick={() => onEscolher(d)} style={{
+              border: "none", cursor: "pointer", borderRadius: 12, padding: "3px 0", fontSize: 9.5,
+              background: hoje ? "var(--green-solid)" : visiveis.has(iso) ? "var(--green-soft-bg)" : "transparent",
+              color: hoje ? "var(--cream)" : d.getMonth() === mes.getMonth() ? "var(--ink-soft)" : "var(--ink-faint)", fontWeight: hoje ? 700 : 400,
+            }}>{d.getDate()}</button>
           );
         })}
       </div>
@@ -6634,10 +6580,247 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
   );
 }
 
-function TaskModal({ data, team, clients, onSave, onClose }) {
+function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
+  const largura = useLarguraJanela();
+  const celular = largura < 760;
+  const [modoSalvo, setModo] = usePersistedState("agendaModo", "semana");
+  const modo = celular ? "dia" : modoSalvo;
+  const [ancora, setAncora] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  const [assigneeFilter, setAssigneeFilter] = usePersistedState("agendaFiltro", "Todos");
+  const [mostrar, setMostrar] = usePersistedState("agendaCamadas", { visita: true, tarefa: true, google: true });
+  const [googleOpen, setGoogleOpen] = useState(false);
+  const [agora, setAgora] = useState(() => new Date());
+  useEffect(() => { const t = setInterval(() => setAgora(new Date()), 60000); return () => clearInterval(t); }, []);
+  const hojeIso = toISODateLocal(agora);
+
+  const dias = modo === "dia" ? [ancora] : Array.from({ length: 7 }, (_, i) => addDays(inicioSemanaDomingo(ancora), i));
+  const diasIso = dias.map(toISODateLocal);
+  const passo = modo === "dia" ? 1 : 7;
+
+  // Eventos do Google Agenda de quem está logado (só leitura).
+  const [google, setGoogle] = useState({ conectado: false, eventos: [], erro: "", carregando: false });
+  const [googleVersao, setGoogleVersao] = useState(0);
+  const faixaGoogle = `${diasIso[0]}|${toISODateLocal(addDays(dias[dias.length - 1], 1))}`;
+  useEffect(() => {
+    if (!currentUserId) return;
+    let vivo = true;
+    const [from, to] = faixaGoogle.split("|");
+    setGoogle((g) => ({ ...g, carregando: true }));
+    fetchGoogleEventos(from, to).then((r) => {
+      if (!vivo) return;
+      if (r.error) setGoogle({ conectado: false, eventos: [], erro: "", carregando: false });
+      else setGoogle({ conectado: !!r.data.conectado, eventos: r.data.eventos || [], erro: r.data.erro || "", carregando: false });
+    });
+    return () => { vivo = false; };
+  }, [faixaGoogle, currentUserId, googleVersao]);
+
+  // Rola a grade até 7h (ou uma hora antes de agora, se for hoje) ao abrir.
+  const gradeRef = useRef(null);
+  useEffect(() => {
+    if (!gradeRef.current) return;
+    const h = diasIso.includes(hojeIso) ? Math.max(0, agora.getHours() - 1) : 7;
+    gradeRef.current.scrollTop = Math.min(h, 7) * AGENDA_HORA_PX;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modo]);
+
+  // Junta tarefas do Semear e eventos do Google num formato só.
+  const itens = useMemo(() => {
+    const out = [];
+    const visiveis = new Set(diasIso);
+    tasks.forEach((t) => {
+      if (!visiveis.has(t.date)) return;
+      if (assigneeFilter !== "Todos" && t.assigneeId !== assigneeFilter) return;
+      const tipo = t.type === "visita" ? "visita" : "tarefa";
+      if (!mostrar[tipo]) return;
+      const cliente = clients.find((c) => c.id === t.clientId);
+      const resp = team.find((m) => m.id === t.assigneeId);
+      const ini = hhmmParaMin(t.time);
+      out.push({
+        key: `t:${t.id}`, origem: "task", task: t, tipo, titulo: t.title, done: !!t.done,
+        sub: [cliente?.name, assigneeFilter === "Todos" ? resp?.name?.split(" ")[0] : null].filter(Boolean).join(" · "),
+        dia: t.date, allDay: ini === null, ini, fim: ini === null ? null : Math.min(24 * 60, ini + (Number(t.duration) || 60)),
+      });
+    });
+    if (mostrar.google && (assigneeFilter === "Todos" || assigneeFilter === currentUserId)) {
+      google.eventos.forEach((ev) => {
+        if (ev.allDay) {
+          diasIso.forEach((iso) => {
+            if (iso === ev.start || (iso > ev.start && iso < (ev.end || ev.start))) {
+              out.push({ key: `g:${ev.id}:${iso}`, origem: "google", tipo: "google", titulo: ev.title, sub: ev.location, dia: iso, allDay: true });
+            }
+          });
+        } else {
+          const a = partesMS(ev.start), b = partesMS(ev.end);
+          if (!visiveis.has(a.iso)) return;
+          const fim = b.iso === a.iso ? b.min : 24 * 60;
+          out.push({ key: `g:${ev.id}`, origem: "google", tipo: "google", titulo: ev.title, sub: ev.location, dia: a.iso, allDay: false, ini: a.min, fim: Math.max(fim, a.min + 15) });
+        }
+      });
+    }
+    return out;
+  }, [tasks, clients, team, google.eventos, assigneeFilter, mostrar, currentUserId, diasIso.join()]);
+
+  const porDia = Object.fromEntries(diasIso.map((iso) => [iso, { todos: itens.filter((x) => x.dia === iso && x.allDay), horario: layoutSobrepostos(itens.filter((x) => x.dia === iso && !x.allDay)) }]));
+  const temDiaInteiro = diasIso.some((iso) => porDia[iso].todos.length);
+
+  const titulo = modo === "dia"
+    ? `${ancora.getDate()} de ${MESES_PT[ancora.getMonth()]} de ${ancora.getFullYear()}`
+    : (() => {
+      const a = dias[0], b = dias[6];
+      const cap = (m) => m[0].toUpperCase() + m.slice(1);
+      return a.getMonth() === b.getMonth() ? `${cap(MESES_PT[a.getMonth()])} de ${a.getFullYear()}` : `${cap(MESES_PT[a.getMonth()]).slice(0, 3)} – ${cap(MESES_PT[b.getMonth()]).slice(0, 3)} de ${b.getFullYear()}`;
+    })();
+
+  function clicarGrade(e, iso) {
+    if (e.target !== e.currentTarget) return;
+    const y = e.nativeEvent.offsetY;
+    const min = Math.max(0, Math.min(23 * 60 + 30, Math.floor(y / AGENDA_HORA_PX * 2) * 30));
+    onAdd(iso, minParaHhmm(min));
+  }
+
+  const blocoEvento = (it, compacto) => {
+    const cor = AGENDA_CORES[it.tipo];
+    return (
+      <div
+        title={`${it.titulo}${it.sub ? ` — ${it.sub}` : ""}${it.origem === "google" ? " (Google Agenda)" : ""}`}
+        onClick={() => it.origem === "task" && onEdit(it.task)}
+        style={{
+          background: cor.bg, color: cor.fg, borderRadius: 5, padding: compacto ? "2px 6px" : "3px 6px", fontSize: 9.5, lineHeight: 1.3,
+          cursor: it.origem === "task" ? "pointer" : "default", overflow: "hidden", height: "100%", boxSizing: "border-box",
+          opacity: it.done ? 0.55 : 1, borderLeft: `3px solid rgba(255,255,255,${it.origem === "google" ? 0.35 : 0.2})`,
+        }}
+      >
+        <div style={{ fontWeight: 700, whiteSpace: compacto ? "nowrap" : "normal", overflow: "hidden", textOverflow: "ellipsis", textDecoration: it.done ? "line-through" : "none" }}>
+          {it.done ? "✓ " : ""}{it.titulo}
+        </div>
+        {!compacto && !it.allDay && <div style={{ opacity: 0.85 }}>{minParaHhmm(it.ini)} – {minParaHhmm(it.fim)}</div>}
+        {!compacto && it.sub && <div style={{ opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.sub}</div>}
+      </div>
+    );
+  };
+
+  const camada = (k, label) => (
+    <label key={k} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10.5, color: "var(--ink-soft)", cursor: "pointer", padding: "3px 0" }}>
+      <input type="checkbox" checked={!!mostrar[k]} onChange={(e) => setMostrar({ ...mostrar, [k]: e.target.checked })} style={{ accentColor: AGENDA_CORES[k].bg }} />
+      <span style={{ width: 9, height: 9, borderRadius: 2, background: AGENDA_CORES[k].bg }} />{label}
+    </label>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 8px 0 0" }}>Agenda</h2>
+        <GhostBtn onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); setAncora(d); }} style={{ padding: "6px 14px", borderRadius: 18 }}>Hoje</GhostBtn>
+        <button onClick={() => setAncora(addDays(ancora, -passo))} style={{ ...iconBtnStyle, border: "none" }}><ChevronLeft size={16} /></button>
+        <button onClick={() => setAncora(addDays(ancora, passo))} style={{ ...iconBtnStyle, border: "none" }}><ChevronRight size={16} /></button>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", marginRight: "auto" }}>{titulo}</span>
+        {google.conectado && (
+          <span style={{ fontSize: 9.5, color: google.erro ? "var(--red)" : "var(--ink-faint)" }}>
+            {google.erro || (google.carregando ? "carregando o Google…" : "")}
+          </span>
+        )}
+        <select style={{ ...inputStyle, width: 160, padding: "6px 10px" }} value={assigneeFilter} onChange={(e) => setAssigneeFilter(e.target.value)}>
+          <option value="Todos">Toda a equipe</option>
+          {team.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        {!celular && (
+          <div style={{ display: "flex", border: "1px solid var(--border-input)", borderRadius: 18, overflow: "hidden" }}>
+            {[["dia", "Dia"], ["semana", "Semana"]].map(([k, l]) => (
+              <button key={k} onClick={() => setModo(k)} style={{ border: "none", padding: "6px 12px", fontSize: 10.5, cursor: "pointer", background: modo === k ? "var(--green-deep)" : "transparent", color: modo === k ? "var(--cream)" : "var(--ink-soft)", fontWeight: 600 }}>{l}</button>
+            ))}
+          </div>
+        )}
+        {currentUserId && <GhostBtn onClick={() => setGoogleOpen(true)} style={{ padding: "6px 12px" }} title="Conectar com o Google Agenda"><Calendar size={14} /> Google</GhostBtn>}
+        <PrimaryBtn onClick={() => onAdd(toISODateLocal(modo === "dia" ? ancora : (diasIso.includes(hojeIso) ? agora : dias[0])), null)}><Plus size={16} /> Criar</PrimaryBtn>
+      </div>
+      {googleOpen && <GoogleAgendaModal userId={currentUserId} userName={currentUserName} onClose={() => setGoogleOpen(false)} onGoogleChanged={() => setGoogleVersao((v) => v + 1)} />}
+
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        {largura >= 1100 && (
+          <div style={{ width: 190, flexShrink: 0 }}>
+            <MiniCalendario ancora={ancora} hojeIso={hojeIso} diasVisiveis={diasIso} onEscolher={(d) => setAncora(d)} />
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ink-dim)", margin: "18px 0 6px" }}>Minhas agendas</div>
+            {camada("visita", "Visitas")}
+            {camada("tarefa", "Tarefas")}
+            {camada("google", google.conectado ? "Google Agenda" : "Google Agenda (conectar)")}
+          </div>
+        )}
+
+        <div style={{ flex: 1, minWidth: 0, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+          {/* Cabeçalho dos dias */}
+          <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${dias.length}, 1fr)`, borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 8.5, color: "var(--ink-faint)", alignSelf: "end", padding: "0 0 4px 6px" }}>GMT-04</div>
+            {dias.map((d, i) => {
+              const iso = diasIso[i], hoje = iso === hojeIso;
+              return (
+                <button key={iso} onClick={() => { setAncora(d); if (!celular) setModo("dia"); }} style={{ background: "none", border: "none", borderLeft: "1px solid var(--border-soft)", padding: "8px 0 6px", cursor: "pointer", textAlign: "center" }}>
+                  <div style={{ fontSize: 9, fontWeight: 600, color: hoje ? "var(--green)" : "var(--ink-faint)", letterSpacing: ".05em" }}>{DIAS_CURTOS[d.getDay()]}</div>
+                  <div style={{
+                    margin: "3px auto 0", width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 16, fontWeight: hoje ? 700 : 500, fontFamily: "'Manrope', sans-serif",
+                    background: hoje ? "var(--green-solid)" : "transparent", color: hoje ? "var(--cream)" : "var(--ink)",
+                  }}>{d.getDate()}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Faixa "dia inteiro" */}
+          {temDiaInteiro && (
+            <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${dias.length}, 1fr)`, borderBottom: "1px solid var(--border)" }}>
+              <div style={{ fontSize: 8.5, color: "var(--ink-faint)", padding: "6px 0 0 6px" }}>dia todo</div>
+              {diasIso.map((iso) => (
+                <div key={iso} style={{ borderLeft: "1px solid var(--border-soft)", padding: 3, display: "flex", flexDirection: "column", gap: 2, minHeight: 22 }}>
+                  {porDia[iso].todos.map((it) => <div key={it.key} style={{ height: 20 }}>{blocoEvento(it, true)}</div>)}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Grade por horário */}
+          <div ref={gradeRef} style={{ height: "min(70vh, 720px)", overflowY: "auto", position: "relative" }}>
+            <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${dias.length}, 1fr)`, position: "relative", height: 24 * AGENDA_HORA_PX }}>
+              <div style={{ position: "relative" }}>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <div key={h} style={{ position: "absolute", top: h * AGENDA_HORA_PX - 6, right: 6, fontSize: 9, color: "var(--ink-faint)" }}>{h === 0 ? "" : `${pad2(h)}:00`}</div>
+                ))}
+              </div>
+              {diasIso.map((iso) => (
+                <div
+                  key={iso}
+                  onClick={(e) => clicarGrade(e, iso)}
+                  style={{
+                    position: "relative", borderLeft: "1px solid var(--border-soft)", cursor: "pointer",
+                    backgroundImage: `repeating-linear-gradient(to bottom, var(--border-soft) 0, var(--border-soft) 1px, transparent 1px, transparent ${AGENDA_HORA_PX}px)`,
+                  }}
+                >
+                  {porDia[iso].horario.map((it) => (
+                    <div key={it.key} style={{
+                      position: "absolute", top: (it.ini / 60) * AGENDA_HORA_PX + 1, height: Math.max(18, ((it.fim - it.ini) / 60) * AGENDA_HORA_PX - 2),
+                      left: `calc(${(it.col / it.cols) * 100}% + 2px)`, width: `calc(${100 / it.cols}% - 4px)`, zIndex: 1,
+                    }}>
+                      {blocoEvento(it, (it.fim - it.ini) < 40)}
+                    </div>
+                  ))}
+                  {iso === hojeIso && (
+                    <div style={{ position: "absolute", left: -4, right: 0, top: ((agora.getHours() * 60 + agora.getMinutes()) / 60) * AGENDA_HORA_PX, height: 2, background: "#E5484D", zIndex: 2, pointerEvents: "none" }}>
+                      <span style={{ position: "absolute", left: -2, top: -4, width: 10, height: 10, borderRadius: "50%", background: "#E5484D" }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskModal({ data, team, clients, onSave, onClose, onDelete, onEnviarWhatsapp, currentUserId }) {
   const [form, setForm] = useState({
-    type: "visita", title: "", assigneeId: team[0]?.id || "", clientId: "",
-    date: toISODateLocal(new Date()), notes: "", done: false,
+    type: "visita", title: "", assigneeId: (team.some((t) => t.id === currentUserId) ? currentUserId : team[0]?.id) || "", clientId: "",
+    date: toISODateLocal(new Date()), time: "", duration: 60, notes: "", done: false,
     ...(data || {}),
   });
   const canSave = form.title.trim() && form.assigneeId && form.date;
@@ -6668,15 +6851,54 @@ function TaskModal({ data, team, clients, onSave, onClose }) {
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </Field>
-      <Field label="Data">
-        <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-      </Field>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ flex: "2 1 150px" }}>
+          <Field label="Data">
+            <input type="date" style={inputStyle} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          </Field>
+        </div>
+        <div style={{ flex: "1 1 100px" }}>
+          <Field label="Horário (opcional)">
+            <input type="time" step="900" style={inputStyle} value={form.time || ""} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+          </Field>
+        </div>
+        {form.time && (
+          <div style={{ flex: "1 1 100px" }}>
+            <Field label="Duração">
+              <select style={inputStyle} value={form.duration || 60} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })}>
+                {[15, 30, 45, 60, 90, 120, 180, 240, 360, 480].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`.replace(".5", ",5")}</option>)}
+              </select>
+            </Field>
+          </div>
+        )}
+      </div>
+      {!form.time && <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: -8, marginBottom: 12 }}>Sem horário, o item aparece na faixa "dia todo".</div>}
       <Field label="Observações">
         <textarea style={{ ...inputStyle, minHeight: 60, resize: "vertical" }} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Detalhes, pauta, contexto…" />
       </Field>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-        <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
-        <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+      {data?.id && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-soft)", marginBottom: 12, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!form.done} onChange={(e) => setForm({ ...form, done: e.target.checked })} /> Concluído
+        </label>
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          {data?.id && onDelete && (
+            <GhostBtn onClick={() => { if (confirm("Remover este item da agenda?")) { onDelete(data.id); onClose(); } }} style={{ color: "var(--red)" }}><Trash2 size={13} /> Excluir</GhostBtn>
+          )}
+          {data?.id && onEnviarWhatsapp && form.type === "visita" && form.clientId && (() => {
+            const client = clients.find((c) => c.id === form.clientId);
+            return client ? (
+              <GhostBtn onClick={() => onEnviarWhatsapp({ kind: "agenda", taskId: data.id, clientName: client.name, phone: client.phone })} title="Avisar o cliente da visita por WhatsApp">
+                <MessageCircle size={13} /> Avisar cliente
+              </GhostBtn>
+            ) : null;
+          })()}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
+          <PrimaryBtn onClick={() => canSave && onSave(form)}>Salvar</PrimaryBtn>
+        </div>
       </div>
     </Modal>
   );

@@ -37,6 +37,18 @@ function nextDay(iso) {
   return d.toISOString().slice(0, 10);
 }
 
+// Com horário: início/fim no fuso de MS; sem horário: evento de dia inteiro.
+function quando(t) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(t.time || ""));
+  if (!m) return [`DTSTART;VALUE=DATE:${ymd(t.date)}`, `DTEND;VALUE=DATE:${ymd(nextDay(t.date))}`];
+  const ini = Number(m[1]) * 60 + Number(m[2]);
+  const fimTotal = ini + (Number(t.duration) || 60);
+  const diaFim = fimTotal >= 1440 ? nextDay(t.date) : String(t.date).slice(0, 10);
+  const fim = fimTotal % 1440;
+  const hm = (x) => `${String(Math.floor(x / 60)).padStart(2, "0")}${String(x % 60).padStart(2, "0")}00`;
+  return [`DTSTART;TZID=America/Campo_Grande:${ymd(t.date)}T${hm(ini)}`, `DTEND;TZID=America/Campo_Grande:${ymd(diaFim)}T${hm(fim)}`];
+}
+
 export const handler = async (event) => {
   if (!supabaseUrl || !serviceRoleKey) return { statusCode: 500, body: "Configuração incompleta." };
   // Vem como ?t=<token> (chamada direta) ou no caminho /agenda/<token>.ics
@@ -70,7 +82,7 @@ export const handler = async (event) => {
     const desc = [`${tipo}${cliente ? ` · ${cliente}` : ""}`, t.notes || "", t.done ? "Concluída no Semear." : ""].filter(Boolean).join("\n");
     lines.push(
       "BEGIN:VEVENT", `UID:${t.id}@semear-agenda`, `DTSTAMP:${stamp}`,
-      `DTSTART;VALUE=DATE:${ymd(t.date)}`, `DTEND;VALUE=DATE:${ymd(nextDay(t.date))}`,
+      ...quando(t),
       `SUMMARY:${esc(titulo)}`, `DESCRIPTION:${esc(desc)}`, "TRANSP:TRANSPARENT",
       t.done ? "STATUS:CONFIRMED" : "STATUS:TENTATIVE", "END:VEVENT",
     );
