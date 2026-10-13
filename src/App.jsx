@@ -82,6 +82,11 @@ function pad2(n) {
 function toISODateLocal(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
+// Safra só conta como "Colhida" quando a data de colheita já chegou; data futura
+// (ex.: a prevista) mantém a safra "Em andamento".
+function harvestStatus(h) {
+  return h.harvestDate && h.harvestDate <= toISODateLocal(new Date()) ? "Colhida" : "Em andamento";
+}
 
 function addMonthsToISODate(dateStr, months) {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -1424,7 +1429,7 @@ export default function AgroTrackApp() {
         clientId: client ? client.id : null,
         fieldMap: field ? field.fieldMap : null,
         gestorId: client?.gestorId || null,
-        status: h.harvestDate ? "Colhida" : "Em andamento",
+        status: harvestStatus(h),
         estimatedHarvestDate,
         lastVisit: harvestVisits[0] || null,
         visitCount: harvestVisits.length,
@@ -2346,7 +2351,7 @@ function ClientPortalApp({ data, error, onSignOut }) {
   const fieldsWithMeta = fields.map((f) => {
     const fieldHarvests = harvests
       .filter((h) => h.fieldId === f.id)
-      .map((h) => ({ ...h, status: h.harvestDate ? "Colhida" : "Em andamento" }))
+      .map((h) => ({ ...h, status: harvestStatus(h) }))
       .sort((a, b) => (b.plantingDate || "").localeCompare(a.plantingDate || ""));
     const activeHarvest = fieldHarvests.find((h) => h.status === "Em andamento") || null;
     return { ...f, harvests: fieldHarvests, activeHarvest, areaHa: fieldAreaHa(f) };
@@ -5758,7 +5763,7 @@ function FieldDetail({ field, soilAnalyses, onBack, onAddHarvest, onEditHarvest,
               <div style={{ fontSize: 9.5, color: "var(--ink-faint)", lineHeight: 1.6 }}>
                 <div>Plantio: {fmtDate(h.plantingDate)}</div>
                 {h.status === "Em andamento" && h.estimatedHarvestDate && <div>Colheita estimada: {fmtDate(h.estimatedHarvestDate)}</div>}
-                {h.harvestDate && <div>Colhida em: {fmtDate(h.harvestDate)}</div>}
+                {h.harvestDate && harvestStatus(h) === "Colhida" && <div>Colhida em: {fmtDate(h.harvestDate)}</div>}
               </div>
               {h.lastVisit && (
                 <div style={{ marginTop: 10 }}>
@@ -7435,6 +7440,11 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
       )}
       <Field label="Data de colheita (preencha ao colher)">
         <input type="date" style={inputStyle} value={form.harvestDate} onChange={(e) => setForm({ ...form, harvestDate: e.target.value })} />
+        {form.harvestDate && form.harvestDate > toISODateLocal(new Date()) && (
+          <div style={{ fontSize: 9.5, color: "var(--gold)", marginTop: 4 }}>
+            Data futura: a safra continua "em andamento" até esse dia. Deixe em branco se a colheita ainda não aconteceu.
+          </div>
+        )}
       </Field>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
