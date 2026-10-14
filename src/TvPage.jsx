@@ -8,7 +8,7 @@ import "leaflet/dist/leaflet.css";
 const SCENES = [
   { id: "painel", title: "Painel geral" },
   { id: "agenda", title: "Agenda e visitas" },
-  { id: "mapa", title: "Mapa dos talhões" },
+  { id: "mapa", title: "Mapa das fazendas" },
   { id: "tempo", title: "Previsão do tempo · 15 dias" },
 ];
 const SCENE_MS = 20000;
