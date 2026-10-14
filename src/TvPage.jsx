@@ -2,7 +2,7 @@
 // (usa o link privado ?k=...), atualiza sozinha e alterna as telas a cada 20 s.
 // Não mostra nada de financeiro.
 import React, { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Polygon } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, CircleMarker } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 const SCENES = [
@@ -206,6 +206,9 @@ function SceneMapa({ m }) {
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
         {m.geoFields.map((f) => (
           <Polygon key={f.id} positions={f.positions} pathOptions={{ color: "#FFFFFF", weight: 1.5, fillColor: f.color, fillOpacity: 0.65 }} />
+        ))}
+        {centers.map((c) => (
+          <CircleMarker key={`c-${c.f.id}`} center={[c.lat, c.lng]} radius={7} pathOptions={{ color: "#FFFFFF", weight: 2, fillColor: c.f.color, fillOpacity: 1 }} />
         ))}
       </MapContainer>
       <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.92)", borderRadius: "0.7em", padding: "0.6em 0.9em", fontSize: "0.85em", display: "flex", gap: "1.1em" }}>
