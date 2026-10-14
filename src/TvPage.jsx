@@ -214,7 +214,7 @@ function SceneMapa({ m }) {
       <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.92)", borderRadius: "0.7em", padding: "0.6em 0.9em", fontSize: "0.85em", display: "flex", gap: "1.1em" }}>
         <span><span style={{ color: CULTURE_COLOR.Soja }}>●</span> Soja</span>
         <span><span style={{ color: CULTURE_COLOR.Milho }}>●</span> Milho</span>
-        <span><span style={{ color: "#8A8F86" }}>●</span> Sem safra ativa</span>
+        <span><span style={{ color: "#5F6B5A" }}>●</span> Sem safra ativa</span>
         <span style={{ color: C.dim }}>{m.geoFields.length} talhões mapeados</span>
       </div>
     </div>
@@ -357,7 +357,7 @@ export default function TvPage() {
       .filter((f) => f.fieldMap?.points?.length >= 3)
       .map((f) => {
         const h = activeByField.get(f.id);
-        return { id: f.id, positions: f.fieldMap.points.map(([lat, lng]) => [lat, lng]), color: h ? CULTURE_COLOR[h.culture] || C.blue : "#8A8F86" };
+        return { id: f.id, positions: f.fieldMap.points.map(([lat, lng]) => [lat, lng]), color: h ? CULTURE_COLOR[h.culture] || C.blue : "#5F6B5A" };
       });
 
     return {
