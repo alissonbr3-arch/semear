@@ -1334,6 +1334,13 @@ export default function AgroTrackApp() {
     logActivity(makeLogEntry("delete", "task", task?.title));
     persistTasks(tasks.filter((t) => t.id !== id));
   }
+  // Arrastar na agenda: muda dia (e horário) do compromisso sem abrir o formulário.
+  function moveTask(task, { date, time }) {
+    const novoHorario = time || "";
+    if (task.date === date && (task.time || "") === novoHorario) return;
+    logActivity(makeLogEntry("update", "task", task.title, `Movido para ${fmtDate(date)}${novoHorario ? ` às ${novoHorario}` : ""}`));
+    persistTasks(tasks.map((t) => (t.id === task.id ? { ...t, date, time: novoHorario, ...(novoHorario && !t.duration ? { duration: 60 } : {}) } : t)));
+  }
   function toggleTaskDone(id) {
     persistTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
   }
@@ -1860,6 +1867,7 @@ export default function AgroTrackApp() {
             tasks={tasks} team={team} teamAvatars={teamAvatars} clients={clients}
             onAdd={(date, time) => setModal({ type: "task", data: date ? { date, ...(time ? { time } : {}) } : null })}
             onEdit={(t) => setModal({ type: "task", data: t })}
+            onMove={moveTask}
             onDelete={deleteTask}
             onToggleDone={toggleTaskDone}
             onEnviarWhatsapp={handleEnviarWhatsapp}
@@ -6792,7 +6800,7 @@ function layoutSobrepostos(itens) {
   return out;
 }
 
-function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
+function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onMove, onDelete, onToggleDone, onEnviarWhatsapp, currentUserId, currentUserName }) {
   const largura = useLarguraJanela();
   const celular = largura < 760;
   const [modoSalvo, setModo] = usePersistedState("agendaModo", "semana");
@@ -6804,6 +6812,9 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
   const [agora, setAgora] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setAgora(new Date()), 60000); return () => clearInterval(t); }, []);
   const hojeIso = toISODateLocal(agora);
+  // Arrastar compromissos entre dias/horários (HTML5 drag and drop).
+  const arrasto = useRef(null);
+  const [sobreIso, setSobreIso] = useState(null);
 
   const dias = modo === "dia" ? [ancora] : Array.from({ length: 7 }, (_, i) => addDays(inicioSemanaDomingo(ancora), i));
   const diasIso = dias.map(toISODateLocal);
@@ -6890,15 +6901,42 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
     onAdd(iso, minParaHhmm(min));
   }
 
+  // Solta um compromisso num dia (e horário, se for na grade). Na faixa "dia todo" o horário é removido.
+  function soltar(e, iso, naGrade) {
+    e.preventDefault();
+    setSobreIso(null);
+    const a = arrasto.current;
+    arrasto.current = null;
+    if (!a || !onMove) return;
+    let time = "";
+    if (naGrade) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const bruto = ((e.clientY - rect.top) / AGENDA_HORA_PX) * 60 - a.grabMin;
+      const min = Math.max(0, Math.min(23 * 60 + 45, Math.round(bruto / 15) * 15));
+      time = minParaHhmm(min);
+    }
+    onMove(a.task, { date: iso, time });
+  }
+  const aceitaSoltar = (iso) => (e) => { if (arrasto.current) { e.preventDefault(); if (sobreIso !== iso) setSobreIso(iso); } };
+
   const blocoEvento = (it, compacto) => {
     const cor = AGENDA_CORES[it.tipo];
     return (
       <div
-        title={`${it.titulo}${it.sub ? ` — ${it.sub}` : ""}${it.origem === "google" ? " (Google Agenda)" : ""}`}
+        title={`${it.titulo}${it.sub ? ` — ${it.sub}` : ""}${it.origem === "google" ? " (Google Agenda)" : " — arraste para mudar o dia ou o horário"}`}
         onClick={() => it.origem === "task" && onEdit(it.task)}
+        draggable={it.origem === "task" && !!onMove}
+        onDragStart={(e) => {
+          if (it.origem !== "task") return;
+          const r = e.currentTarget.getBoundingClientRect();
+          arrasto.current = { task: it.task, grabMin: Math.max(0, ((e.clientY - r.top) / AGENDA_HORA_PX) * 60) };
+          e.dataTransfer.effectAllowed = "move";
+          try { e.dataTransfer.setData("text/plain", it.task.id); } catch {}
+        }}
+        onDragEnd={() => { arrasto.current = null; setSobreIso(null); }}
         style={{
           background: cor.bg, color: cor.fg, borderRadius: 5, padding: compacto ? "2px 6px" : "3px 6px", fontSize: 9.5, lineHeight: 1.3,
-          cursor: it.origem === "task" ? "pointer" : "default", overflow: "hidden", height: "100%", boxSizing: "border-box",
+          cursor: it.origem === "task" ? "grab" : "default", overflow: "hidden", height: "100%", boxSizing: "border-box",
           opacity: it.done ? 0.55 : 1, borderLeft: `3px solid rgba(255,255,255,${it.origem === "google" ? 0.35 : 0.2})`,
         }}
       >
@@ -6983,7 +7021,13 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
             <div style={{ display: "grid", gridTemplateColumns: `52px repeat(${dias.length}, 1fr)`, borderBottom: "1px solid var(--border)" }}>
               <div style={{ fontSize: 8.5, color: "var(--ink-faint)", padding: "6px 0 0 6px" }}>dia todo</div>
               {diasIso.map((iso) => (
-                <div key={iso} style={{ borderLeft: "1px solid var(--border-soft)", padding: 3, display: "flex", flexDirection: "column", gap: 2, minHeight: 22 }}>
+                <div
+                  key={iso}
+                  onDragOver={aceitaSoltar(iso)}
+                  onDragLeave={() => setSobreIso((v) => (v === iso ? null : v))}
+                  onDrop={(e) => soltar(e, iso, false)}
+                  style={{ borderLeft: "1px solid var(--border-soft)", padding: 3, display: "flex", flexDirection: "column", gap: 2, minHeight: 22, background: sobreIso === iso ? "var(--green-soft-bg)" : "transparent" }}
+                >
                   {porDia[iso].todos.map((it) => <div key={it.key} style={{ height: 20 }}>{blocoEvento(it, true)}</div>)}
                 </div>
               ))}
@@ -7002,8 +7046,12 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onDelete
                 <div
                   key={iso}
                   onClick={(e) => clicarGrade(e, iso)}
+                  onDragOver={aceitaSoltar(iso)}
+                  onDragLeave={() => setSobreIso((v) => (v === iso ? null : v))}
+                  onDrop={(e) => soltar(e, iso, true)}
                   style={{
                     position: "relative", borderLeft: "1px solid var(--border-soft)", cursor: "pointer",
+                    backgroundColor: sobreIso === iso ? "var(--green-soft-bg)" : "transparent",
                     backgroundImage: `repeating-linear-gradient(to bottom, var(--border-soft) 0, var(--border-soft) 1px, transparent 1px, transparent ${AGENDA_HORA_PX}px)`,
                   }}
                 >
