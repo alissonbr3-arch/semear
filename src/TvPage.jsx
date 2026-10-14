@@ -9,6 +9,7 @@ const SCENES = [
   { id: "painel", title: "Painel geral" },
   { id: "agenda", title: "Agenda e visitas" },
   { id: "mapa", title: "Mapa dos talhões" },
+  { id: "tempo", title: "Previsão do tempo · 15 dias" },
 ];
 const SCENE_MS = 20000;
 const REFRESH_MS = 5 * 60 * 1000;
@@ -34,6 +35,15 @@ const firstName = (n) => String(n || "").trim().split(/\s+/).slice(0, 2).join(" 
 function daysBetween(aIso, bIso) {
   return Math.round((Date.parse(`${aIso}T00:00:00`) - Date.parse(`${bIso}T00:00:00`)) / 86400000);
 }
+const WMO_ICON = (c) => {
+  if (c === 0) return "☀️";
+  if (c <= 2) return "🌤️";
+  if (c === 3) return "☁️";
+  if (c <= 48) return "🌫️";
+  if (c <= 67) return "🌧️";
+  if (c <= 82) return "🌦️";
+  return "⛈️";
+};
 const WMO = (c) => {
   if (c === 0) return "Céu limpo";
   if (c <= 3) return "Parcialmente nublado";
@@ -186,6 +196,36 @@ function SceneAgenda({ m }) {
   );
 }
 
+
+function SceneTempo({ weather }) {
+  if (!weather?.days) return <Card><div style={{ color: C.dim }}>Carregando previsão…</div></Card>;
+  const totalMm = Math.round(weather.days.reduce((s, d) => s + d.mm, 0));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.8em", height: "100%", minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gridTemplateRows: "repeat(3, 1fr)", gap: "0.7em", flex: 1, minHeight: 0 }}>
+        {weather.days.map((d, i) => {
+          const dt = new Date(`${d.date}T12:00:00`);
+          const label = i === 0 ? "Hoje" : dt.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+          const wet = d.prob >= 60 || d.mm >= 5;
+          return (
+            <div key={d.date} style={{ background: C.card, border: `${i === 0 ? 2 : 1}px solid ${i === 0 ? C.green : C.border}`, borderRadius: "0.8em", padding: "0.5em 0.7em", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5em", minHeight: 0 }}>
+              <div>
+                <div style={{ fontSize: "0.7em", fontWeight: 700, letterSpacing: ".05em", color: i === 0 ? C.green : C.dim }}>{label.toUpperCase()} · {d.date.slice(8, 10)}/{d.date.slice(5, 7)}</div>
+                <div style={{ fontSize: "1.3em", fontWeight: 800, lineHeight: 1.15 }}>{d.max}° <span style={{ color: C.dim, fontWeight: 600, fontSize: "0.75em" }}>{d.min}°</span></div>
+                <div style={{ fontSize: "0.72em", color: wet ? C.blue : C.dim, fontWeight: wet ? 700 : 500 }}>chuva {d.prob}%{d.mm > 0 ? ` · ${d.mm} mm` : ""}</div>
+              </div>
+              <div style={{ fontSize: "2em" }}>{WMO_ICON(d.code)}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: "0.85em", color: C.soft }}>
+        Chuva prevista nos próximos 15 dias: <strong>{totalMm} mm</strong> · fonte Open-Meteo · São Gabriel do Oeste, MS
+      </div>
+    </div>
+  );
+}
+
 function SceneMapa({ m }) {
   const all = m.geoFields.flatMap((f) => f.positions);
   if (all.length === 0) return <Card><div style={{ color: C.dim }}>Nenhum talhão com mapa (KML) cadastrado ainda.</div></Card>;
@@ -235,7 +275,7 @@ export default function TvPage() {
     let alive = true;
     async function load() {
       try {
-        const r = await fetch(`/.netlify/functions/tv-data?k=${encodeURIComponent(key)}`, { cache: "no-store" });
+        const r = await fetch(`/.netlify/functions/tv-data${key ? `?k=${encodeURIComponent(key)}` : ""}`, { cache: "no-store" });
         const body = await r.json();
         if (!alive) return;
         if (!r.ok) { setError(body?.error || "Não foi possível carregar a TV."); return; }
@@ -269,13 +309,18 @@ export default function TvPage() {
     let alive = true;
     async function loadWeather() {
       try {
-        const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-19.39&longitude=-54.56&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FCampo_Grande&forecast_days=1");
+        const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-19.39&longitude=-54.56&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=America%2FCampo_Grande&forecast_days=16");
         const w = await r.json();
         if (alive && w?.current) {
           setWeather({
             temp: Math.round(w.current.temperature_2m), text: WMO(w.current.weather_code),
             max: Math.round(w.daily.temperature_2m_max[0]), min: Math.round(w.daily.temperature_2m_min[0]),
             rain: w.daily.precipitation_probability_max?.[0],
+            days: w.daily.time.slice(0, 15).map((t, i) => ({
+              date: t, code: w.daily.weather_code[i], max: Math.round(w.daily.temperature_2m_max[i]), min: Math.round(w.daily.temperature_2m_min[i]),
+              prob: w.daily.precipitation_probability_max?.[i] ?? 0, mm: Math.round((w.daily.precipitation_sum?.[i] ?? 0) * 10) / 10,
+              wind: Math.round(w.daily.wind_speed_10m_max?.[i] ?? 0),
+            })),
           });
         }
       } catch {}
@@ -393,7 +438,9 @@ export default function TvPage() {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, padding: "1.1em 1.6em" }}>
-        {!m ? (
+        {SCENES[scene].id === "tempo" ? (
+          <SceneTempo weather={weather} />
+        ) : !m ? (
           <div style={{ color: C.dim, fontSize: "1.2em" }}>Carregando…</div>
         ) : (
           <>

@@ -21,8 +21,15 @@ export const handler = async (event) => {
   const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
   const config = await getBlob(adminClient, "tvConfig", null);
+  // TV pública (config.public = true): qualquer um com o endereço /tv vê. Fora disso, exige a chave ?k=.
   const key = event.queryStringParameters?.k;
-  if (!config?.key || !key || key !== config.key) return json({ error: "Link da TV inválido." }, 401);
+  if (!config?.public && (!config?.key || !key || key !== config.key)) return json({ error: "Link da TV inválido." }, 401);
+  // config.mask = true abrevia o nome dos clientes (ex.: "Humberto R.") pra quando a TV é pública.
+  const maskName = (n) => {
+    if (!config?.mask) return n;
+    const parts = String(n || "").trim().split(/\s+/);
+    return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0] || "";
+  };
 
   const [clients, properties, fields, harvests, visits, tasks, avatars, profilesResp] = await Promise.all([
     getBlob(adminClient, "clients", []), getBlob(adminClient, "properties", []), getBlob(adminClient, "fields", []),
@@ -38,8 +45,8 @@ export const handler = async (event) => {
     generatedAt: new Date().toISOString(),
     avisos: Array.isArray(config.avisos) ? config.avisos : [],
     team,
-    clients: clients.map((c) => ({ id: c.id, name: c.name, gestorId: c.gestorId || null })),
-    properties: properties.map((p) => ({ id: p.id, clientId: p.clientId, name: p.name })),
+    clients: clients.map((c) => ({ id: c.id, name: maskName(c.name), gestorId: c.gestorId || null })),
+    properties: properties.map((p) => ({ id: p.id, clientId: p.clientId, name: config?.mask ? "" : p.name })),
     fields: fields.map((f) => ({
       id: f.id, propertyId: f.propertyId, name: f.name, area: f.area,
       fieldMap: f.fieldMap ? { mode: f.fieldMap.mode, points: f.fieldMap.points, areaHa: f.fieldMap.areaHa } : null,
