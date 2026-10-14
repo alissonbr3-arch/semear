@@ -516,7 +516,7 @@ export default function TvPage() {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif", fontSize: "min(0.95vw, 1.7vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
+    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif", fontSize: "min(0.95vw, 1.7vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "pointer" }} onClick={() => setScene((x) => (x + 1) % SCENES.length)}>
       {radioUrl && <audio ref={audioRef} src={radioUrl} preload="none" />}
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');"}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.7em 1.6em", background: C.card, borderBottom: `1px solid ${C.border}` }}>
@@ -551,7 +551,7 @@ export default function TvPage() {
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#FAC775" }}>{aviso}</span>
         {offline && <span style={{ color: "#F09595", whiteSpace: "nowrap" }}>sem conexão — mostrando últimos dados</span>}
         {radioUrl && (
-          <button onClick={toggleSound} style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#EDEBE0", borderRadius: 99, padding: "0.2em 0.9em", fontSize: "0.85em", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button onClick={(e) => { e.stopPropagation(); toggleSound(); }} style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#EDEBE0", borderRadius: 99, padding: "0.2em 0.9em", fontSize: "0.85em", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
             {!soundOn ? "🔇 Música desligada" : needsClick ? "🔈 Toque para ativar a música" : `🎵 ${data.radio.name}`}
           </button>
         )}
