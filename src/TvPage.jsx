@@ -257,6 +257,17 @@ function SceneCotacoes({ q }) {
   );
 }
 
+// Cor do card do dia: azul mais forte quanto mais chuva; amarelo nos dias de sol; cinza nos nublados secos.
+function tintDoDia(d) {
+  if (d.mm >= 15) return { bg: "#B9D6F3", border: "#5B9BD5" };
+  if (d.mm >= 8 || (d.prob >= 85 && d.mm >= 4)) return { bg: "#CCE1F6", border: "#7DB0E0" };
+  if (d.mm >= 3 || d.prob >= 70) return { bg: "#DDEBF9", border: "#9CC3EA" };
+  if (d.mm >= 0.5 || d.prob >= 40) return { bg: "#EDF4FB", border: "#BFD7F0" };
+  if (d.code <= 1) return { bg: "#FFF1B8", border: "#F2D45C" };
+  if (d.code === 2) return { bg: "#FFF8DA", border: "#EFDFA0" };
+  return { bg: "#EEF0EA", border: "#D6D9D0" };
+}
+
 function SceneTempo({ weather }) {
   if (!weather?.days) return <Card><div style={{ color: C.dim }}>Carregando previsão…</div></Card>;
   const totalMm = Math.round(weather.days.reduce((s, d) => s + d.mm, 0));
@@ -268,11 +279,11 @@ function SceneTempo({ weather }) {
           const label = i === 0 ? "Hoje" : dt.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
           const wet = d.prob >= 60 || d.mm >= 5;
           return (
-            <div key={d.date} style={{ background: C.card, border: `${i === 0 ? 2 : 1}px solid ${i === 0 ? C.green : C.border}`, borderRadius: "0.8em", padding: "0.5em 0.7em", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5em", minHeight: 0 }}>
+            <div key={d.date} style={{ background: tintDoDia(d).bg, border: `${i === 0 ? 3 : 1}px solid ${i === 0 ? C.green : tintDoDia(d).border}`, borderRadius: "0.8em", padding: "0.5em 0.7em", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5em", minHeight: 0 }}>
               <div>
                 <div style={{ fontSize: "0.7em", fontWeight: 700, letterSpacing: ".05em", color: i === 0 ? C.green : C.dim }}>{label.toUpperCase()} · {d.date.slice(8, 10)}/{d.date.slice(5, 7)}</div>
                 <div style={{ fontSize: "1.3em", fontWeight: 800, lineHeight: 1.15 }}>{d.max}° <span style={{ color: C.dim, fontWeight: 600, fontSize: "0.75em" }}>{d.min}°</span></div>
-                <div style={{ fontSize: "0.72em", color: wet ? C.blue : C.dim, fontWeight: wet ? 700 : 500 }}>chuva {d.prob}%{d.mm > 0 ? ` · ${d.mm} mm` : ""}</div>
+                <div style={{ fontSize: "0.72em", color: wet ? "#1F5F9E" : C.soft, fontWeight: wet ? 700 : 500 }}>chuva {d.prob}%{d.mm > 0 ? ` · ${d.mm.toLocaleString("pt-BR")} mm` : ""}</div>
               </div>
               <div style={{ fontSize: "2em" }}>{WMO_ICON(d.code)}</div>
             </div>
