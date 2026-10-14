@@ -321,6 +321,9 @@ export default function TvPage() {
   const [scene, setScene] = useState(0);
   const [avisoIdx, setAvisoIdx] = useState(0);
   const [weather, setWeather] = useState(null);
+  const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem("semear_tv_som") !== "off"; } catch { return true; } });
+  const [needsClick, setNeedsClick] = useState(false);
+  const audioRef = React.useRef(null);
   const now = useNow();
 
   useEffect(() => {
@@ -472,6 +475,29 @@ export default function TvPage() {
     return () => clearTimeout(t);
   }, [scene, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Música de fundo: o navegador só libera som depois do primeiro clique/tecla na página
+  // (regra de autoplay). Tenta tocar sozinho e, se bloquear, o primeiro toque liga.
+  const radioUrl = data?.radio?.url || "";
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a || !radioUrl) return;
+    if (!soundOn) { a.pause(); return; }
+    a.volume = 0.5;
+    a.play().then(() => setNeedsClick(false)).catch(() => setNeedsClick(true));
+  }, [radioUrl, soundOn]);
+  useEffect(() => {
+    if (!needsClick || !soundOn) return undefined;
+    const kick = () => audioRef.current?.play().then(() => setNeedsClick(false)).catch(() => {});
+    window.addEventListener("pointerdown", kick);
+    window.addEventListener("keydown", kick);
+    return () => { window.removeEventListener("pointerdown", kick); window.removeEventListener("keydown", kick); };
+  }, [needsClick, soundOn]);
+  function toggleSound() {
+    const next = !soundOn;
+    setSoundOn(next);
+    try { localStorage.setItem("semear_tv_som", next ? "on" : "off"); } catch {}
+  }
+
   const avisos = data?.avisos?.length ? data.avisos : [];
   const aviso = avisos.length ? avisos[avisoIdx % avisos.length] : "";
   const dateRaw = now.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
@@ -487,6 +513,7 @@ export default function TvPage() {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif", fontSize: "min(0.95vw, 1.7vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
+      {radioUrl && <audio ref={audioRef} src={radioUrl} preload="none" />}
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');"}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.7em 1.6em", background: C.card, borderBottom: `1px solid ${C.border}` }}>
         <img src="/logo-semear.png" alt="Semear Consultoria Agropecuária" style={{ height: "3.4em", width: "auto" }} />
@@ -519,6 +546,11 @@ export default function TvPage() {
         )}
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#FAC775" }}>{aviso}</span>
         {offline && <span style={{ color: "#F09595", whiteSpace: "nowrap" }}>sem conexão — mostrando últimos dados</span>}
+        {radioUrl && (
+          <button onClick={toggleSound} style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#EDEBE0", borderRadius: 99, padding: "0.2em 0.9em", fontSize: "0.85em", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
+            {!soundOn ? "🔇 Música desligada" : needsClick ? "🔈 Toque para ativar a música" : `🎵 ${data.radio.name}`}
+          </button>
+        )}
         <span style={{ display: "flex", gap: "0.5em" }}>
           {SCENES.map((s, i) => (
             <span key={s.id} style={{ width: "0.7em", height: "0.7em", borderRadius: "50%", background: i === scene ? "#7BC142" : "rgba(255,255,255,.3)" }} />

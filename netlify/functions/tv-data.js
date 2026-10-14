@@ -44,6 +44,7 @@ export const handler = async (event) => {
   return json({
     generatedAt: new Date().toISOString(),
     avisos: Array.isArray(config.avisos) ? config.avisos : [],
+    radio: config.radio === false ? null : (config.radio || { name: "Illinois Street Lounge (SomaFM)", url: "https://ice2.somafm.com/illstreet-128-aac" }),
     team,
     clients: clients.map((c) => ({ id: c.id, name: maskName(c.name), gestorId: c.gestorId || null })),
     properties: properties.map((p) => ({ id: p.id, clientId: p.clientId, name: config?.mask ? "" : p.name })),
