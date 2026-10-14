@@ -221,7 +221,7 @@ function Variation({ pct, big }) {
 }
 function QuoteCard({ title, sub, value, unit, line2, pct }) {
   return (
-    <Card style={{ justifyContent: "space-between" }}>
+    <Card style={{ justifyContent: "space-between", gap: "2.2em", padding: "1.4em 1.4em" }}>
       <div>
         <div style={{ fontSize: "0.8em", fontWeight: 700, letterSpacing: ".06em", color: C.dim }}>{title}</div>
         <div style={{ fontSize: "0.8em", color: C.dim }}>{sub}</div>
@@ -244,7 +244,7 @@ function SceneCotacoes({ q }) {
   const hora = upd ? new Date(upd).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.8em", height: "100%", minHeight: 0 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1em", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1em", flex: 1, minHeight: 0, alignItems: "center" }}>
         {sojaNov && <QuoteCard title="SOJA · NOVEMBRO" sub="CBOT · Chicago" value={fmtBRL(sojaNov.ultima / 100)} unit="US$/bu" pct={sojaNov.pct} line2={`≈ R$ ${fmtBRL(sojaNov.sacaBrl)} por saca de 60 kg`} />}
         {sojaMar && <QuoteCard title="SOJA · MARÇO" sub="CBOT · Chicago" value={fmtBRL(sojaMar.ultima / 100)} unit="US$/bu" pct={sojaMar.pct} line2={`≈ R$ ${fmtBRL(sojaMar.sacaBrl)} por saca de 60 kg`} />}
         {milhoB3 && <QuoteCard title="MILHO · B3" sub={milhoB3.mes} value={`R$ ${fmtBRL(milhoB3.ultima)}`} unit="/saca 60 kg" pct={milhoB3.pct} line2="Fechamento do último pregão" />}
