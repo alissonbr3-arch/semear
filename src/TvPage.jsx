@@ -137,7 +137,10 @@ function ScenePainel({ m }) {
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5em" }}>
           {m.late.slice(0, 7).map((c) => (
             <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6em", fontSize: "0.9em", paddingBottom: "0.4em", borderBottom: `1px solid ${C.border}` }}>
-              <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "0.55em", minWidth: 0 }}>
+                {c.gestorName && <Avatar name={c.gestorName} url={c.gestorAvatar} size="1.9em" />}
+                <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+              </span>
               <span style={{ background: c.days === null || c.days > 14 ? C.redSoft : C.goldSoft, color: c.days === null || c.days > 14 ? C.red : C.gold, borderRadius: 99, padding: "0.1em 0.7em", fontSize: "0.85em", fontWeight: 700, whiteSpace: "nowrap" }}>
                 {c.days === null ? "sem visitas" : `${c.days} dias`}
               </span>
@@ -171,7 +174,13 @@ function SceneAgenda({ m }) {
                 <div key={t.id} style={{ background: C.bg, borderRadius: "0.5em", padding: "0.4em 0.5em", fontSize: "0.75em", opacity: t.done ? 0.55 : 1 }}>
                   <div style={{ color: t.type === "visita" ? C.green : C.soft, fontWeight: 700, fontSize: "0.85em" }}>{t.type === "visita" ? "VISITA" : "TAREFA"}</div>
                   <div style={{ fontWeight: 600, lineHeight: 1.25 }}>{t.title}</div>
-                  {(t.clientName || t.assigneeName) && <div style={{ color: C.dim, marginTop: "0.15em" }}>{[t.clientName, t.assigneeName && firstName(t.assigneeName)].filter(Boolean).join(" · ")}</div>}
+                  {t.clientName && <div style={{ color: C.dim, marginTop: "0.15em" }}>{t.clientName}</div>}
+                  {t.assigneeName && (
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.4em", marginTop: "0.35em" }}>
+                      <Avatar name={t.assigneeName} url={t.assigneeAvatar} size="1.8em" />
+                      <span style={{ color: C.soft, fontWeight: 600 }}>{firstName(t.assigneeName)}</span>
+                    </div>
+                  )}
                 </div>
               ))}
               {items.length > 5 && <div style={{ fontSize: "0.7em", color: C.dim }}>+ {items.length - 5}</div>}
@@ -183,7 +192,8 @@ function SceneAgenda({ m }) {
       <Card title="ÚLTIMAS VISITAS" style={{ flexShrink: 0 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5em 1.2em" }}>
           {m.recentVisits.slice(0, 6).map((v) => (
-            <div key={v.id} style={{ fontSize: "0.85em", display: "flex", gap: "0.6em", alignItems: "baseline" }}>
+            <div key={v.id} style={{ fontSize: "0.85em", display: "flex", gap: "0.6em", alignItems: "center" }}>
+              {v.personName && <Avatar name={v.personName} url={v.personAvatar} size="1.9em" />}
               <span style={{ color: C.dim, fontVariantNumeric: "tabular-nums" }}>{v.date.slice(8, 10)}/{v.date.slice(5, 7)}</span>
               <span style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.clientName}</span>
               <span style={{ color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.fieldName}</span>
@@ -380,7 +390,7 @@ export default function TvPage() {
     });
     const late = tracked
       .filter((c) => (lastVisitByClient[c.id] || "") < weekAgo)
-      .map((c) => ({ id: c.id, name: c.name, days: lastVisitByClient[c.id] ? daysBetween(todayIso, lastVisitByClient[c.id]) : null }))
+      .map((c) => ({ id: c.id, name: c.name, gestorName: teamById.get(c.gestorId)?.name || "", gestorAvatar: teamById.get(c.gestorId)?.avatar || null, days: lastVisitByClient[c.id] ? daysBetween(todayIso, lastVisitByClient[c.id]) : null }))
       .sort((a, b) => (b.days ?? 9999) - (a.days ?? 9999));
 
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(today, i));
@@ -388,14 +398,17 @@ export default function TvPage() {
     tasks.forEach((t) => {
       if (!t.date) return;
       (tasksByDay[t.date] = tasksByDay[t.date] || []).push({
-        ...t, clientName: t.clientId ? firstName(clientById.get(t.clientId)?.name) : "", assigneeName: teamById.get(t.assigneeId)?.name || "",
+        ...t, clientName: t.clientId ? firstName(clientById.get(t.clientId)?.name) : "", assigneeName: teamById.get(t.assigneeId)?.name || "", assigneeAvatar: teamById.get(t.assigneeId)?.avatar || null,
       });
     });
     Object.values(tasksByDay).forEach((arr) => arr.sort((a, b) => Number(a.done) - Number(b.done)));
 
     const recentVisits = [...visits].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6).map((v) => {
       const h = harvestById.get(v.harvestId); const f = h && fieldById.get(h.fieldId); const c = h ? fieldClient(h.fieldId) : null;
-      return { id: v.id, date: v.date, clientName: c?.name || "—", fieldName: f?.name || "" };
+      const norm = (x) => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      const tech = norm(v.technician);
+      const person = team.find((t) => tech && (norm(t.name) === tech || norm(t.name).startsWith(tech) || tech.startsWith(norm(t.name).split(" ")[0]))) || teamById.get(c?.gestorId) || null;
+      return { id: v.id, date: v.date, clientName: c?.name || "—", fieldName: f?.name || "", personName: person?.name || v.technician || "", personAvatar: person?.avatar || null };
     });
 
     const geoFields = fields
