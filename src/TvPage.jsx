@@ -240,14 +240,16 @@ const MAP_OVERVIEW_S = 4;
 const MAP_FIELD_S = 4;
 const MAP_FIELDS_PER_ROUND = 4;
 
-// Sorteia alguns talhões com safra ativa a cada passagem (a tela inteira dura ~20 s).
+// Sorteia algumas fazendas a cada passagem (a tela inteira dura ~20 s); dá preferência às com safra ativa.
 function pickFocusFields(m) {
-  const pool = m.geoFields.filter((f) => f.active);
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  return pool.slice(0, MAP_FIELDS_PER_ROUND);
+  const shuffle = (arr) => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  };
+  const active = shuffle(m.geoProps.filter((p) => p.active));
+  const rest = shuffle(m.geoProps.filter((p) => !p.active));
+  return [...active, ...rest].slice(0, MAP_FIELDS_PER_ROUND);
 }
 
 function MapFocus({ bounds, zoomed }) {
@@ -293,7 +295,7 @@ function SceneMapa({ m }) {
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
         <MapFocus bounds={target} zoomed={!!current} />
         {m.geoFields.map((f) => (
-          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.id === f.id ? "#FFE082" : "#FFFFFF", weight: current?.id === f.id ? 4 : 1.5, fillColor: f.color, fillOpacity: current?.id === f.id ? 0.1 : 0.65 }} />
+          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.fieldIds.includes(f.id) ? "#FFE082" : "#FFFFFF", weight: current?.fieldIds.includes(f.id) ? 3 : 1.5, fillColor: f.color, fillOpacity: current?.fieldIds.includes(f.id) ? 0.15 : 0.65 }} />
         ))}
         {!current && centers.map((c) => (
           <CircleMarker key={`c-${c.f.id}`} center={[c.lat, c.lng]} radius={7} pathOptions={{ color: "#FFFFFF", weight: 2, fillColor: c.f.color, fillOpacity: 1 }} />
@@ -301,9 +303,11 @@ function SceneMapa({ m }) {
       </MapContainer>
       {current ? (
         <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.95)", borderRadius: "0.8em", padding: "0.7em 1.1em", minWidth: "18em" }}>
-          <div style={{ fontSize: "0.7em", fontWeight: 700, letterSpacing: ".06em", color: C.dim }}>{current.culture.toUpperCase()} · {current.areaHa ? fmtHa(current.areaHa) : "área não informada"}</div>
-          <div style={{ fontSize: "1.3em", fontWeight: 800, lineHeight: 1.15 }}>{current.fieldName}</div>
-          <div style={{ fontSize: "0.85em", color: C.soft }}>{[current.clientName, current.propertyName].filter(Boolean).join(" · ")}</div>
+          <div style={{ fontSize: "0.7em", fontWeight: 700, letterSpacing: ".06em", color: C.dim }}>
+            FAZENDA · {current.nFields} {current.nFields === 1 ? "TALHÃO" : "TALHÕES"}{current.areaHa ? ` · ${fmtHa(current.areaHa)}` : ""}
+          </div>
+          <div style={{ fontSize: "1.3em", fontWeight: 800, lineHeight: 1.15 }}>{current.name}</div>
+          <div style={{ fontSize: "0.85em", color: C.soft }}>{[current.clientName, current.cultures.join(" · ")].filter(Boolean).join(" · ")}</div>
         </div>
       ) : (
         <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.92)", borderRadius: "0.7em", padding: "0.6em 0.9em", fontSize: "0.85em", display: "flex", gap: "1.1em" }}>
@@ -461,12 +465,24 @@ export default function TvPage() {
         const h = activeByField.get(f.id);
         const p = propById.get(f.propertyId); const c = p ? clientById.get(p.clientId) : null;
         return {
-          id: f.id, positions: f.fieldMap.points.map(([lat, lng]) => [lat, lng]), color: h ? CULTURE_COLOR[h.culture] || C.blue : "#5F6B5A",
+          id: f.id, propertyId: f.propertyId, positions: f.fieldMap.points.map(([lat, lng]) => [lat, lng]), color: h ? CULTURE_COLOR[h.culture] || C.blue : "#5F6B5A",
           active: !!h, culture: h?.culture || "", fieldName: f.name, clientName: c?.name || "", propertyName: p?.name || "", areaHa: fieldAreaHa(f),
         };
       });
 
+    const propMap = new Map();
+    geoFields.forEach((g) => {
+      const p = propById.get(g.propertyId); const c = p ? clientById.get(p.clientId) : null;
+      const e = propMap.get(g.propertyId) || { id: g.propertyId, name: p?.name || "Fazenda", clientName: c?.name || "", positions: [], fieldIds: [], nFields: 0, areaHa: 0, cultures: new Set(), active: false };
+      e.positions.push(...g.positions); e.fieldIds.push(g.id); e.nFields += 1; e.areaHa += g.areaHa || 0;
+      if (g.culture) e.cultures.add(g.culture);
+      if (g.active) e.active = true;
+      propMap.set(g.propertyId, e);
+    });
+    const geoProps = [...propMap.values()].map((e) => ({ ...e, cultures: [...e.cultures] }));
+
     return {
+      geoProps,
       clients: clients.length, properties: properties.length, fields: fields.length, activeHarvests: active.length,
       areaTotal, areaPlanted, areaByCulture, byGestor: [...byGestorMap.values()].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
       late, weekDays, tasksByDay, recentVisits, geoFields, todayIso,
