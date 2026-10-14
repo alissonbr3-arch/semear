@@ -236,35 +236,38 @@ function SceneTempo({ weather }) {
   );
 }
 
-const MAP_OVERVIEW_S = 7;
-const MAP_FIELD_S = 6;
-const MAP_MAX_FIELDS = 10;
+const MAP_OVERVIEW_S = 4;
+const MAP_FIELD_S = 4;
+const MAP_FIELDS_PER_ROUND = 4;
 
-function focusFieldsOf(m) {
-  return m.geoFields.filter((f) => f.active).sort((a, b) => a.clientName.localeCompare(b.clientName, "pt-BR")).slice(0, MAP_MAX_FIELDS);
-}
-function mapDurationMs(m) {
-  return (MAP_OVERVIEW_S + focusFieldsOf(m).length * MAP_FIELD_S) * 1000;
+// Sorteia alguns talhões com safra ativa a cada passagem (a tela inteira dura ~20 s).
+function pickFocusFields(m) {
+  const pool = m.geoFields.filter((f) => f.active);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, MAP_FIELDS_PER_ROUND);
 }
 
 function MapFocus({ bounds, zoomed }) {
   const map = useMap();
   useEffect(() => {
-    map.flyToBounds(bounds, { padding: zoomed ? [90, 90] : [30, 30], duration: 1.6, maxZoom: zoomed ? 16 : 12 });
+    map.flyToBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], duration: 1.1, maxZoom: zoomed ? 16 : 12 });
   }, [map, bounds, zoomed]);
   return null;
 }
 
 function SceneMapa({ m }) {
   const [tick, setTick] = useState(0);
+  const focus = useMemo(() => pickFocusFields(m), []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const t = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(t);
   }, []);
   const all = m.geoFields.flatMap((f) => f.positions);
   if (all.length === 0) return <Card><div style={{ color: C.dim }}>Nenhum talhão com mapa (KML) cadastrado ainda.</div></Card>;
-  const focus = focusFieldsOf(m);
-  // Primeiro a visão regional; depois um zoom em cada talhão com safra ativa.
+  // Primeiro a visão regional; depois zoom rápido em alguns talhões sorteados.
   const step = tick < MAP_OVERVIEW_S ? -1 : Math.min(focus.length - 1, Math.floor((tick - MAP_OVERVIEW_S) / MAP_FIELD_S));
   const current = step >= 0 ? focus[step] : null;
 
@@ -289,7 +292,7 @@ function SceneMapa({ m }) {
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
         <MapFocus bounds={target} zoomed={!!current} />
         {m.geoFields.map((f) => (
-          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.id === f.id ? "#FFE082" : "#FFFFFF", weight: current?.id === f.id ? 3 : 1.5, fillColor: f.color, fillOpacity: current?.id === f.id ? 0.5 : 0.65 }} />
+          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.id === f.id ? "#FFE082" : "#FFFFFF", weight: current?.id === f.id ? 4 : 1.5, fillColor: f.color, fillOpacity: current?.id === f.id ? 0.1 : 0.65 }} />
         ))}
         {!current && centers.map((c) => (
           <CircleMarker key={`c-${c.f.id}`} center={[c.lat, c.lng]} radius={7} pathOptions={{ color: "#FFFFFF", weight: 2, fillColor: c.f.color, fillOpacity: 1 }} />
@@ -470,7 +473,7 @@ export default function TvPage() {
   }, [data, now.getMinutes()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    const dur = SCENES[scene].id === "mapa" && m ? mapDurationMs(m) : SCENE_MS;
+    const dur = SCENE_MS;
     const t = setTimeout(() => setScene((s) => (s + 1) % SCENES.length), dur);
     return () => clearTimeout(t);
   }, [scene, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
