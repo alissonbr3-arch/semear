@@ -2,7 +2,7 @@
 // (usa o link privado ?k=...), atualiza sozinha e alterna as telas a cada 20 s.
 // Não mostra nada de financeiro.
 import React, { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Polygon, CircleMarker } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 const SCENES = [
@@ -236,9 +236,38 @@ function SceneTempo({ weather }) {
   );
 }
 
+const MAP_OVERVIEW_S = 7;
+const MAP_FIELD_S = 6;
+const MAP_MAX_FIELDS = 10;
+
+function focusFieldsOf(m) {
+  return m.geoFields.filter((f) => f.active).sort((a, b) => a.clientName.localeCompare(b.clientName, "pt-BR")).slice(0, MAP_MAX_FIELDS);
+}
+function mapDurationMs(m) {
+  return (MAP_OVERVIEW_S + focusFieldsOf(m).length * MAP_FIELD_S) * 1000;
+}
+
+function MapFocus({ bounds, zoomed }) {
+  const map = useMap();
+  useEffect(() => {
+    map.flyToBounds(bounds, { padding: zoomed ? [90, 90] : [30, 30], duration: 1.6, maxZoom: zoomed ? 16 : 12 });
+  }, [map, bounds, zoomed]);
+  return null;
+}
+
 function SceneMapa({ m }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
   const all = m.geoFields.flatMap((f) => f.positions);
   if (all.length === 0) return <Card><div style={{ color: C.dim }}>Nenhum talhão com mapa (KML) cadastrado ainda.</div></Card>;
+  const focus = focusFieldsOf(m);
+  // Primeiro a visão regional; depois um zoom em cada talhão com safra ativa.
+  const step = tick < MAP_OVERVIEW_S ? -1 : Math.min(focus.length - 1, Math.floor((tick - MAP_OVERVIEW_S) / MAP_FIELD_S));
+  const current = step >= 0 ? focus[step] : null;
+
   // Enquadra o grupo principal de talhões; um talhão isolado e distante não deve afastar o zoom.
   const centers = m.geoFields.map((f) => ({
     f, lat: f.positions.reduce((s, p) => s + p[0], 0) / f.positions.length, lng: f.positions.reduce((s, p) => s + p[1], 0) / f.positions.length,
@@ -248,25 +277,38 @@ function SceneMapa({ m }) {
   const near = centers.filter((c) => Math.abs(c.lat - mLat) < 0.6 && Math.abs(c.lng - mLng) < 0.6);
   const pts = (near.length ? near : centers).flatMap((c) => c.f.positions);
   const lats = pts.map((p) => p[0]); const lngs = pts.map((p) => p[1]);
-  const bounds = [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
+  const overview = [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
+  const target = current
+    ? [[Math.min(...current.positions.map((p) => p[0])), Math.min(...current.positions.map((p) => p[1]))], [Math.max(...current.positions.map((p) => p[0])), Math.max(...current.positions.map((p) => p[1]))]]
+    : overview;
+
   return (
     <div style={{ position: "relative", height: "100%", borderRadius: "0.9em", overflow: "hidden", border: `1px solid ${C.border}` }}>
-      <MapContainer bounds={bounds} boundsOptions={{ padding: [30, 30] }} style={{ height: "100%", width: "100%" }}
+      <MapContainer bounds={overview} boundsOptions={{ padding: [30, 30] }} style={{ height: "100%", width: "100%" }}
         zoomControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} keyboard={false} attributionControl={false}>
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+        <MapFocus bounds={target} zoomed={!!current} />
         {m.geoFields.map((f) => (
-          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: "#FFFFFF", weight: 1.5, fillColor: f.color, fillOpacity: 0.65 }} />
+          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.id === f.id ? "#FFE082" : "#FFFFFF", weight: current?.id === f.id ? 3 : 1.5, fillColor: f.color, fillOpacity: current?.id === f.id ? 0.5 : 0.65 }} />
         ))}
-        {centers.map((c) => (
+        {!current && centers.map((c) => (
           <CircleMarker key={`c-${c.f.id}`} center={[c.lat, c.lng]} radius={7} pathOptions={{ color: "#FFFFFF", weight: 2, fillColor: c.f.color, fillOpacity: 1 }} />
         ))}
       </MapContainer>
-      <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.92)", borderRadius: "0.7em", padding: "0.6em 0.9em", fontSize: "0.85em", display: "flex", gap: "1.1em" }}>
-        <span><span style={{ color: CULTURE_COLOR.Soja }}>●</span> Soja</span>
-        <span><span style={{ color: CULTURE_COLOR.Milho }}>●</span> Milho</span>
-        <span><span style={{ color: "#5F6B5A" }}>●</span> Sem safra ativa</span>
-        <span style={{ color: C.dim }}>{m.geoFields.length} talhões mapeados</span>
-      </div>
+      {current ? (
+        <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.95)", borderRadius: "0.8em", padding: "0.7em 1.1em", minWidth: "18em" }}>
+          <div style={{ fontSize: "0.7em", fontWeight: 700, letterSpacing: ".06em", color: C.dim }}>{current.culture.toUpperCase()} · {current.areaHa ? fmtHa(current.areaHa) : "área não informada"}</div>
+          <div style={{ fontSize: "1.3em", fontWeight: 800, lineHeight: 1.15 }}>{current.fieldName}</div>
+          <div style={{ fontSize: "0.85em", color: C.soft }}>{[current.clientName, current.propertyName].filter(Boolean).join(" · ")}</div>
+        </div>
+      ) : (
+        <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.92)", borderRadius: "0.7em", padding: "0.6em 0.9em", fontSize: "0.85em", display: "flex", gap: "1.1em" }}>
+          <span><span style={{ color: CULTURE_COLOR.Soja }}>●</span> Soja</span>
+          <span><span style={{ color: CULTURE_COLOR.Milho }}>●</span> Milho</span>
+          <span><span style={{ color: "#5F6B5A" }}>●</span> Sem safra ativa</span>
+          <span style={{ color: C.dim }}>{m.geoFields.length} talhões mapeados</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -302,11 +344,6 @@ export default function TvPage() {
   // Recarrega a página de madrugada pra pegar versões novas do app.
   useEffect(() => {
     const t = setInterval(() => { const n = new Date(); if (n.getHours() === 4 && n.getMinutes() === 0 && n.getSeconds() < 5) window.location.reload(); }, 5000);
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setScene((s) => (s + 1) % SCENES.length), SCENE_MS);
     return () => clearInterval(t);
   }, []);
 
@@ -415,7 +452,11 @@ export default function TvPage() {
       .filter((f) => f.fieldMap?.points?.length >= 3)
       .map((f) => {
         const h = activeByField.get(f.id);
-        return { id: f.id, positions: f.fieldMap.points.map(([lat, lng]) => [lat, lng]), color: h ? CULTURE_COLOR[h.culture] || C.blue : "#5F6B5A" };
+        const p = propById.get(f.propertyId); const c = p ? clientById.get(p.clientId) : null;
+        return {
+          id: f.id, positions: f.fieldMap.points.map(([lat, lng]) => [lat, lng]), color: h ? CULTURE_COLOR[h.culture] || C.blue : "#5F6B5A",
+          active: !!h, culture: h?.culture || "", fieldName: f.name, clientName: c?.name || "", propertyName: p?.name || "", areaHa: fieldAreaHa(f),
+        };
       });
 
     return {
@@ -424,6 +465,12 @@ export default function TvPage() {
       late, weekDays, tasksByDay, recentVisits, geoFields, todayIso,
     };
   }, [data, now.getMinutes()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const dur = SCENES[scene].id === "mapa" && m ? mapDurationMs(m) : SCENE_MS;
+    const t = setTimeout(() => setScene((s) => (s + 1) % SCENES.length), dur);
+    return () => clearTimeout(t);
+  }, [scene, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const avisos = data?.avisos?.length ? data.avisos : [];
   const aviso = avisos.length ? avisos[avisoIdx % avisos.length] : "";
