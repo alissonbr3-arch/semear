@@ -23,7 +23,6 @@ const CULTURE_COLOR = { Soja: "#3E8E2F", Milho: "#D6A93A" };
 const pad2 = (n) => String(n).padStart(2, "0");
 const isoLocal = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
-function mondayOf(d) { const x = new Date(d); const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); x.setHours(0, 0, 0, 0); return x; }
 function fieldAreaHa(f) {
   const manual = Number(f?.area);
   if (manual > 0) return manual;
@@ -144,7 +143,7 @@ function ScenePainel({ m }) {
 
 function SceneAgenda({ m }) {
   const days = m.weekDays;
-  const labels = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const labels = days.map((d, i) => (i === 0 ? "Hoje" : d.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1em", height: "100%", minHeight: 0 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "0.7em", flex: 1, minHeight: 0 }}>
@@ -190,7 +189,15 @@ function SceneAgenda({ m }) {
 function SceneMapa({ m }) {
   const all = m.geoFields.flatMap((f) => f.positions);
   if (all.length === 0) return <Card><div style={{ color: C.dim }}>Nenhum talhão com mapa (KML) cadastrado ainda.</div></Card>;
-  const lats = all.map((p) => p[0]); const lngs = all.map((p) => p[1]);
+  // Enquadra o grupo principal de talhões; um talhão isolado e distante não deve afastar o zoom.
+  const centers = m.geoFields.map((f) => ({
+    f, lat: f.positions.reduce((s, p) => s + p[0], 0) / f.positions.length, lng: f.positions.reduce((s, p) => s + p[1], 0) / f.positions.length,
+  }));
+  const med = (arr) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+  const mLat = med(centers.map((c) => c.lat)); const mLng = med(centers.map((c) => c.lng));
+  const near = centers.filter((c) => Math.abs(c.lat - mLat) < 0.6 && Math.abs(c.lng - mLng) < 0.6);
+  const pts = (near.length ? near : centers).flatMap((c) => c.f.positions);
+  const lats = pts.map((p) => p[0]); const lngs = pts.map((p) => p[1]);
   const bounds = [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
   return (
     <div style={{ position: "relative", height: "100%", borderRadius: "0.9em", overflow: "hidden", border: `1px solid ${C.border}` }}>
@@ -198,7 +205,7 @@ function SceneMapa({ m }) {
         zoomControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} keyboard={false} attributionControl={false}>
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
         {m.geoFields.map((f) => (
-          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: f.color, weight: 2, fillColor: f.color, fillOpacity: 0.4 }} />
+          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: "#FFFFFF", weight: 1.5, fillColor: f.color, fillOpacity: 0.65 }} />
         ))}
       </MapContainer>
       <div style={{ position: "absolute", left: "1em", bottom: "1em", zIndex: 1000, background: "rgba(255,255,255,.92)", borderRadius: "0.7em", padding: "0.6em 0.9em", fontSize: "0.85em", display: "flex", gap: "1.1em" }}>
@@ -328,8 +335,7 @@ export default function TvPage() {
       .map((c) => ({ id: c.id, name: c.name, days: lastVisitByClient[c.id] ? daysBetween(todayIso, lastVisitByClient[c.id]) : null }))
       .sort((a, b) => (b.days ?? 9999) - (a.days ?? 9999));
 
-    const weekStart = mondayOf(today);
-    const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+    const weekDays = Array.from({ length: 7 }, (_, i) => addDays(today, i));
     const tasksByDay = {};
     tasks.forEach((t) => {
       if (!t.date) return;
@@ -360,7 +366,8 @@ export default function TvPage() {
 
   const avisos = data?.avisos?.length ? data.avisos : [];
   const aviso = avisos.length ? avisos[avisoIdx % avisos.length] : "";
-  const dateLabel = now.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+  const dateRaw = now.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
+  const dateLabel = dateRaw.charAt(0).toUpperCase() + dateRaw.slice(1);
 
   if (error) {
     return (
@@ -371,14 +378,14 @@ export default function TvPage() {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Manrope', 'Inter', system-ui, sans-serif", fontSize: "min(1.15vw, 2vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
+    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Manrope', 'Inter', system-ui, sans-serif", fontSize: "min(1.45vw, 2.6vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap');"}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.7em 1.6em", background: C.card, borderBottom: `1px solid ${C.border}` }}>
         <img src="/logo-semear.png" alt="Semear Consultoria Agropecuária" style={{ height: "3.4em", width: "auto" }} />
         <div style={{ fontSize: "1.5em", fontWeight: 700, color: C.greenDark }}>{SCENES[scene].title}</div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: "2.2em", fontWeight: 800, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pad2(now.getHours())}:{pad2(now.getMinutes())}</div>
-          <div style={{ fontSize: "0.85em", color: C.dim, textTransform: "capitalize" }}>{dateLabel}</div>
+          <div style={{ fontSize: "0.85em", color: C.dim }}>{dateLabel}</div>
         </div>
       </div>
 
