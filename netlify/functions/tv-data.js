@@ -37,12 +37,33 @@ export const handler = async (event) => {
     getBlob(adminClient, "teamAvatars", {}), adminClient.from("profiles").select("id,name,role"),
   ]);
 
+  // Cotações: lidas das tabelas que o painel Nexus já mantém atualizadas (CBOT via Yahoo,
+  // Milho B3 via Notícias Agrícolas e dólar à vista). Se faltar algo, a TV só omite o card.
+  let cotacoes = null;
+  try {
+    const { data: rows } = await adminClient.from("nexus_cotacoes").select("codigo,produto,mes,ultima,varr,pct,preco_saca_brl,updated_at").in("codigo", ["ZSX26.CBT", "ZSH27.CBT", "CCM", "USD/BRL"]);
+    const { data: dolarRows } = await adminClient.from("nexus_dolar").select("atual,anterior,variacao,ptax_auto,ptax_auto_data,updated_at").eq("id", 1);
+    const by = Object.fromEntries((rows || []).map((r) => [r.codigo, r]));
+    const num = (v) => (v === null || v === undefined ? null : Number(v));
+    const pick = (r) => (r ? { mes: r.mes, ultima: num(r.ultima), pct: num(r.pct), sacaBrl: num(r.preco_saca_brl), updatedAt: r.updated_at } : null);
+    const d = dolarRows?.[0];
+    cotacoes = {
+      sojaNov: pick(by["ZSX26.CBT"]),
+      sojaMar: pick(by["ZSH27.CBT"]),
+      milhoB3: pick(by["CCM"]),
+      dolar: d ? { atual: num(d.atual), anterior: num(d.anterior), variacao: num(d.variacao), ptax: num(d.ptax_auto), ptaxData: d.ptax_auto_data, updatedAt: d.updated_at } : null,
+    };
+  } catch {
+    cotacoes = null;
+  }
+
   const team = (profilesResp.data || [])
     .filter((p) => p.role !== "cliente")
     .map((p) => ({ id: p.id, name: p.name, avatar: avatars?.[p.id] || null }));
 
   return json({
     generatedAt: new Date().toISOString(),
+    cotacoes,
     avisos: Array.isArray(config.avisos) ? config.avisos : [],
     radio: config.radio === false ? null : (config.radio || { name: "Groove Salad (SomaFM)", url: "https://ice2.somafm.com/groovesalad-128-aac" }),
     team,

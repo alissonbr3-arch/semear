@@ -7,6 +7,7 @@ import "leaflet/dist/leaflet.css";
 
 const SCENES = [
   { id: "painel", title: "Painel geral" },
+  { id: "cotacoes", title: "Cotações" },
   { id: "agenda", title: "Agenda e visitas" },
   { id: "mapa", title: "Mapa das fazendas" },
   { id: "tempo", title: "Previsão do tempo · 15 dias" },
@@ -206,6 +207,55 @@ function SceneAgenda({ m }) {
   );
 }
 
+
+
+const fmtBRL = (n, d = 2) => (n == null ? "—" : n.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d }));
+function Variation({ pct, big }) {
+  if (pct == null || Number.isNaN(pct)) return null;
+  const up = pct >= 0;
+  return (
+    <span style={{ color: up ? C.green : C.red, fontWeight: 700, fontSize: big ? "1.1em" : "0.9em" }}>
+      {up ? "▲" : "▼"} {Math.abs(pct).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+    </span>
+  );
+}
+function QuoteCard({ title, sub, value, unit, line2, pct }) {
+  return (
+    <Card style={{ justifyContent: "space-between" }}>
+      <div>
+        <div style={{ fontSize: "0.8em", fontWeight: 700, letterSpacing: ".06em", color: C.dim }}>{title}</div>
+        <div style={{ fontSize: "0.8em", color: C.dim }}>{sub}</div>
+      </div>
+      <div>
+        <div style={{ fontSize: "3.2em", fontWeight: 800, lineHeight: 1.05, fontVariantNumeric: "tabular-nums" }}>
+          {value} <span style={{ fontSize: "0.3em", color: C.dim, fontWeight: 600 }}>{unit}</span>
+        </div>
+        <div style={{ marginTop: "0.3em" }}><Variation pct={pct} big /></div>
+      </div>
+      <div style={{ fontSize: "0.85em", color: C.soft }}>{line2}</div>
+    </Card>
+  );
+}
+function SceneCotacoes({ q }) {
+  if (!q) return <Card><div style={{ color: C.dim }}>Cotações indisponíveis no momento.</div></Card>;
+  const { sojaNov, sojaMar, milhoB3, dolar } = q;
+  const pctDolar = dolar?.anterior ? ((dolar.atual - dolar.anterior) / dolar.anterior) * 100 : null;
+  const upd = [sojaNov?.updatedAt, dolar?.updatedAt].filter(Boolean).sort().pop();
+  const hora = upd ? new Date(upd).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.8em", height: "100%", minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1em", flex: 1, minHeight: 0 }}>
+        {sojaNov && <QuoteCard title="SOJA · NOVEMBRO" sub="CBOT · Chicago" value={fmtBRL(sojaNov.ultima / 100)} unit="US$/bu" pct={sojaNov.pct} line2={`≈ R$ ${fmtBRL(sojaNov.sacaBrl)} por saca de 60 kg`} />}
+        {sojaMar && <QuoteCard title="SOJA · MARÇO" sub="CBOT · Chicago" value={fmtBRL(sojaMar.ultima / 100)} unit="US$/bu" pct={sojaMar.pct} line2={`≈ R$ ${fmtBRL(sojaMar.sacaBrl)} por saca de 60 kg`} />}
+        {milhoB3 && <QuoteCard title="MILHO · B3" sub={milhoB3.mes} value={`R$ ${fmtBRL(milhoB3.ultima)}`} unit="/saca 60 kg" pct={milhoB3.pct} line2="Fechamento do último pregão" />}
+        {dolar && <QuoteCard title="DÓLAR · HOJE" sub="USD/BRL à vista" value={`R$ ${fmtBRL(dolar.atual, 4)}`} unit="" pct={pctDolar} line2={dolar.ptax ? `PTAX ${fmtBRL(dolar.ptax, 4)} (${String(dolar.ptaxData || "").split("-").reverse().slice(0, 2).join("/")})` : ""} />}
+      </div>
+      <div style={{ fontSize: "0.8em", color: C.dim }}>
+        Soja CBOT e dólar via mercado (podem ter atraso de alguns minutos) · Milho B3: fechamento do pregão anterior{hora ? ` · atualizado às ${hora}` : ""}
+      </div>
+    </div>
+  );
+}
 
 function SceneTempo({ weather }) {
   if (!weather?.days) return <Card><div style={{ color: C.dim }}>Carregando previsão…</div></Card>;
@@ -547,6 +597,8 @@ export default function TvPage() {
       <div style={{ flex: 1, minHeight: 0, padding: "1.1em 1.6em" }}>
         {SCENES[scene].id === "tempo" ? (
           <SceneTempo weather={weather} />
+        ) : SCENES[scene].id === "cotacoes" ? (
+          <SceneCotacoes q={data?.cotacoes} />
         ) : !m ? (
           <div style={{ color: C.dim, fontSize: "1.2em" }}>Carregando…</div>
         ) : (
