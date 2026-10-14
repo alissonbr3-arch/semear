@@ -1865,7 +1865,7 @@ export default function AgroTrackApp() {
         {view === "agenda" && (
           <AgendaView
             tasks={tasks} team={team} teamAvatars={teamAvatars} clients={clients}
-            onAdd={(date, time) => setModal({ type: "task", data: date ? { date, ...(time ? { time } : {}) } : null })}
+            onAdd={(date, time, duration) => setModal({ type: "task", data: date ? { date, ...(time ? { time } : {}), ...(duration ? { duration } : {}) } : null })}
             onEdit={(t) => setModal({ type: "task", data: t })}
             onMove={moveTask}
             onDelete={deleteTask}
@@ -6815,6 +6815,9 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onMove, 
   // Arrastar compromissos entre dias/horários (HTML5 drag and drop).
   const arrasto = useRef(null);
   const [sobreIso, setSobreIso] = useState(null);
+  // Arrastar na grade vazia pra criar um compromisso com início e fim (ex.: das 8 às 9).
+  const [criando, setCriando] = useState(null); // { iso, ini, fim } em minutos
+  const acabouDeCriar = useRef(false);
 
   const dias = modo === "dia" ? [ancora] : Array.from({ length: 7 }, (_, i) => addDays(inicioSemanaDomingo(ancora), i));
   const diasIso = dias.map(toISODateLocal);
@@ -6894,7 +6897,39 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onMove, 
       return a.getMonth() === b.getMonth() ? `${cap(MESES_PT[a.getMonth()])} de ${a.getFullYear()}` : `${cap(MESES_PT[a.getMonth()]).slice(0, 3)} – ${cap(MESES_PT[b.getMonth()]).slice(0, 3)} de ${b.getFullYear()}`;
     })();
 
+  function comecarSelecao(e, iso) {
+    if (e.button !== 0 || e.target !== e.currentTarget || !onAdd) return;
+    const coluna = e.currentTarget;
+    const quarto = (clientY) => {
+      const y = clientY - coluna.getBoundingClientRect().top;
+      return Math.max(0, Math.min(24 * 4 - 1, Math.floor((y / AGENDA_HORA_PX) * 4)));
+    };
+    const q0 = quarto(e.clientY);
+    let moveu = false;
+    let atual = { iso, ini: q0 * 15, fim: q0 * 15 + 15 };
+    const mover = (ev) => {
+      const q = quarto(ev.clientY);
+      if (q !== q0) moveu = true;
+      const a = Math.min(q0, q), b = Math.max(q0, q);
+      atual = { iso, ini: a * 15, fim: Math.min(24 * 60, b * 15 + 15) };
+      if (moveu) setCriando(atual);
+    };
+    const soltarMouse = () => {
+      window.removeEventListener("mousemove", mover);
+      window.removeEventListener("mouseup", soltarMouse);
+      setCriando(null);
+      if (moveu) {
+        acabouDeCriar.current = true;
+        setTimeout(() => { acabouDeCriar.current = false; }, 50);
+        onAdd(iso, minParaHhmm(atual.ini), atual.fim - atual.ini);
+      }
+    };
+    window.addEventListener("mousemove", mover);
+    window.addEventListener("mouseup", soltarMouse);
+  }
+
   function clicarGrade(e, iso) {
+    if (acabouDeCriar.current) return;
     if (e.target !== e.currentTarget) return;
     const y = e.nativeEvent.offsetY;
     const min = Math.max(0, Math.min(23 * 60 + 30, Math.floor(y / AGENDA_HORA_PX * 2) * 30));
@@ -7046,6 +7081,7 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onMove, 
                 <div
                   key={iso}
                   onClick={(e) => clicarGrade(e, iso)}
+                  onMouseDown={(e) => comecarSelecao(e, iso)}
                   onDragOver={aceitaSoltar(iso)}
                   onDragLeave={() => setSobreIso((v) => (v === iso ? null : v))}
                   onDrop={(e) => soltar(e, iso, true)}
@@ -7063,6 +7099,15 @@ function AgendaView({ tasks, team, teamAvatars, clients, onAdd, onEdit, onMove, 
                       {blocoEvento(it, (it.fim - it.ini) < 40)}
                     </div>
                   ))}
+                  {criando?.iso === iso && (
+                    <div style={{
+                      position: "absolute", left: 2, right: 2, top: (criando.ini / 60) * AGENDA_HORA_PX, height: ((criando.fim - criando.ini) / 60) * AGENDA_HORA_PX,
+                      background: "var(--green-solid)", opacity: 0.85, borderRadius: 5, color: "var(--cream)", fontSize: 10, fontWeight: 700, padding: "3px 6px",
+                      pointerEvents: "none", zIndex: 3, boxSizing: "border-box",
+                    }}>
+                      {minParaHhmm(criando.ini)} – {minParaHhmm(criando.fim)}
+                    </div>
+                  )}
                   {iso === hojeIso && (
                     <div style={{ position: "absolute", left: -4, right: 0, top: ((agora.getHours() * 60 + agora.getMinutes()) / 60) * AGENDA_HORA_PX, height: 2, background: "#E5484D", zIndex: 2, pointerEvents: "none" }}>
                       <span style={{ position: "absolute", left: -2, top: -4, width: 10, height: 10, borderRadius: "50%", background: "#E5484D" }} />
@@ -7127,7 +7172,7 @@ function TaskModal({ data, team, clients, onSave, onClose, onDelete, onEnviarWha
           <div style={{ flex: "1 1 100px" }}>
             <Field label="Duração">
               <select style={inputStyle} value={form.duration || 60} onChange={(e) => setForm({ ...form, duration: Number(e.target.value) })}>
-                {[15, 30, 45, 60, 90, 120, 180, 240, 360, 480].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`.replace(".5", ",5")}</option>)}
+                {Array.from(new Set([15, 30, 45, 60, 90, 120, 180, 240, 360, 480, Number(form.duration) || 60])).sort((a, b) => a - b).map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${String(m / 60).replace(".", ",")} h`}</option>)}
               </select>
             </Field>
           </div>
