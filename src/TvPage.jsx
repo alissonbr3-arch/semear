@@ -419,15 +419,15 @@ export default function TvPage() {
 
   if (error) {
     return (
-      <div style={{ position: "fixed", inset: 0, background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Manrope', 'Inter', system-ui, sans-serif", color: C.soft, fontSize: 22 }}>
+      <div style={{ position: "fixed", inset: 0, background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif", color: C.soft, fontSize: 22 }}>
         {error}
       </div>
     );
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Manrope', 'Inter', system-ui, sans-serif", fontSize: "min(0.95vw, 1.7vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
-      <style>{"@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap');"}</style>
+    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif", fontSize: "min(0.95vw, 1.7vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
+      <style>{"@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');"}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.7em 1.6em", background: C.card, borderBottom: `1px solid ${C.border}` }}>
         <img src="/logo-semear.png" alt="Semear Consultoria Agropecuária" style={{ height: "3.4em", width: "auto" }} />
         <div style={{ fontSize: "1.5em", fontWeight: 700, color: C.greenDark }}>{SCENES[scene].title}</div>
