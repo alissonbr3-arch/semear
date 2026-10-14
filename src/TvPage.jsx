@@ -426,7 +426,7 @@ export default function TvPage() {
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Manrope', 'Inter', system-ui, sans-serif", fontSize: "min(1.2vw, 2.15vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
+    <div style={{ position: "fixed", inset: 0, background: C.bg, color: C.ink, fontFamily: "'Manrope', 'Inter', system-ui, sans-serif", fontSize: "min(0.95vw, 1.7vh)", display: "flex", flexDirection: "column", overflow: "hidden", cursor: "none" }}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap');"}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.7em 1.6em", background: C.card, borderBottom: `1px solid ${C.border}` }}>
         <img src="/logo-semear.png" alt="Semear Consultoria Agropecuária" style={{ height: "3.4em", width: "auto" }} />
