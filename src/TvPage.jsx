@@ -253,7 +253,8 @@ function pickFocusFields(m) {
 function MapFocus({ bounds, zoomed }) {
   const map = useMap();
   useEffect(() => {
-    map.flyToBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], duration: 1.1, maxZoom: zoomed ? 16 : 12 });
+    // Corte direto (sem animar): durante a animação o navegador estica o desenho dos contornos e fica borrado.
+    map.fitBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], maxZoom: zoomed ? 16 : 12, animate: false });
   }, [map, bounds, zoomed]);
   return null;
 }
