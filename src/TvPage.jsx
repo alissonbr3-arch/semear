@@ -289,14 +289,16 @@ function SceneNews({ news }) {
   // 6 manchetes por vez; a segunda metade da tela mostra as 6 seguintes.
   const pagina = news.length > 6 && tick >= SCENE_MS / 2000 ? 1 : 0;
   const itens = news.slice(pagina * 6, pagina * 6 + 6);
-  const fonteCor = { "Canal Rural": "#2F7A2F", "G1 Agro": "#C24B42", Agrolink: "#2F6FB0" };
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(2, 1fr)", gap: "1em", height: "100%", minHeight: 0 }}>
       {itens.map((n) => (
         <div key={n.link} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "0.9em", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ height: "42%", background: C.greenDark, position: "relative", flexShrink: 0 }}>
             {n.imagem && <img src={n.imagem} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-            <span style={{ position: "absolute", left: "0.6em", top: "0.6em", background: fonteCor[n.fonte] || C.greenDark, color: "#fff", fontSize: "0.7em", fontWeight: 700, padding: "0.2em 0.7em", borderRadius: 99 }}>{n.fonte}</span>
+            <span style={{ position: "absolute", left: "0.6em", top: "0.6em", display: "flex", gap: "0.4em" }}>
+              <span style={{ background: C.greenDark, color: "#fff", fontSize: "0.7em", fontWeight: 700, padding: "0.2em 0.7em", borderRadius: 99 }}>{n.tema}</span>
+              <span style={{ background: "rgba(255,255,255,.92)", color: C.ink, fontSize: "0.7em", fontWeight: 700, padding: "0.2em 0.7em", borderRadius: 99 }}>{n.fonte}</span>
+            </span>
           </div>
           <div style={{ padding: "0.7em 0.9em", display: "flex", flexDirection: "column", gap: "0.35em", minHeight: 0 }}>
             <div style={{ fontSize: "1em", fontWeight: 800, lineHeight: 1.25, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.titulo}</div>
@@ -745,8 +747,16 @@ export default function TvPage() {
       {radioUrl && <audio ref={audioRef} src={radioUrl} preload="none" />}
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');"}</style>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.7em 1.6em", background: C.card, borderBottom: `1px solid ${C.border}` }}>
-        <img src="/logo-semear.png" alt="Semear Consultoria Agropecuária" style={{ height: "3.4em", width: "auto" }} />
-        <div style={{ fontSize: "1.5em", fontWeight: 700, color: C.greenDark }}>{SCENES[scene].title}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.9em" }}>
+          <img src="/logo-semear.png" alt="Semear Consultoria Agropecuária" style={{ height: "3.4em", width: "auto" }} />
+          {SCENES[scene].id === "news" && (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4em", background: C.greenDark, color: "#fff", borderRadius: "0.5em", padding: "0.25em 0.7em 0.25em 0.55em" }} aria-label="News">
+              <span style={{ width: "0.55em", height: "0.55em", borderRadius: "50%", background: "#FF4D4F", boxShadow: "0 0 0 0.18em rgba(255,77,79,.35)" }} />
+              <span style={{ fontSize: "1.7em", fontWeight: 800, letterSpacing: ".08em", lineHeight: 1 }}>NEWS</span>
+            </div>
+          )}
+        </div>
+        <div style={{ fontSize: "1.5em", fontWeight: 700, color: C.greenDark }}>{SCENES[scene].id === "news" ? "" : SCENES[scene].title}</div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: "2.2em", fontWeight: 800, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{pad2(now.getHours())}:{pad2(now.getMinutes())}</div>
           <div style={{ fontSize: "0.85em", color: C.dim }}>{dateLabel}</div>
