@@ -5,10 +5,11 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const SCENES = [
   { id: "painel", title: "Painel geral" },
-  { id: "cotacoes", title: "Cotações" },
-  { id: "agenda", title: "Agenda e visitas" },
-  { id: "mapa", title: "Mapa das fazendas" },
-  { id: "tempo", title: "Previsão do tempo · 15 dias" },
+  { id: "mapa", title: "Semear Map" },
+  { id: "cotacoes", title: "Semear Cotações" },
+  { id: "news", title: "Semear News" },
+  { id: "tempo", title: "Semear Tempo" },
+  { id: "agenda", title: "Semear Agenda" },
 ];
 const SCENE_MS = 20000;
 const REFRESH_MS = 5 * 60 * 1000;
@@ -266,6 +267,48 @@ function tintDoDia(d) {
   return { bg: "#EEF0EA", border: "#D6D9D0" };
 }
 
+
+function tempoRelativo(dataStr) {
+  const t = Date.parse(dataStr);
+  if (!t) return "";
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (min < 60) return `há ${Math.max(1, min)} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? "ontem" : `há ${d} dias`;
+}
+
+function SceneNews({ news }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!news || news.length === 0) return <Card><div style={{ color: C.dim }}>Carregando notícias do agro…</div></Card>;
+  // 6 manchetes por vez; a segunda metade da tela mostra as 6 seguintes.
+  const pagina = news.length > 6 && tick >= SCENE_MS / 2000 ? 1 : 0;
+  const itens = news.slice(pagina * 6, pagina * 6 + 6);
+  const fonteCor = { "Canal Rural": "#2F7A2F", "G1 Agro": "#C24B42", Agrolink: "#2F6FB0" };
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(2, 1fr)", gap: "1em", height: "100%", minHeight: 0 }}>
+      {itens.map((n) => (
+        <div key={n.link} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: "0.9em", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ height: "42%", background: C.greenDark, position: "relative", flexShrink: 0 }}>
+            {n.imagem && <img src={n.imagem} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+            <span style={{ position: "absolute", left: "0.6em", top: "0.6em", background: fonteCor[n.fonte] || C.greenDark, color: "#fff", fontSize: "0.7em", fontWeight: 700, padding: "0.2em 0.7em", borderRadius: 99 }}>{n.fonte}</span>
+          </div>
+          <div style={{ padding: "0.7em 0.9em", display: "flex", flexDirection: "column", gap: "0.35em", minHeight: 0 }}>
+            <div style={{ fontSize: "1em", fontWeight: 800, lineHeight: 1.25, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.titulo}</div>
+            {n.resumo && <div style={{ fontSize: "0.78em", color: C.soft, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{n.resumo}</div>}
+            <div style={{ fontSize: "0.72em", color: C.dim, marginTop: "auto" }}>{tempoRelativo(n.data)}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SceneTempo({ weather }) {
   if (!weather?.days) return <Card><div style={{ color: C.dim }}>Carregando previsão…</div></Card>;
   const totalMm = Math.round(weather.days.reduce((s, d) => s + d.mm, 0));
@@ -456,6 +499,7 @@ export default function TvPage() {
   const [scene, setScene] = useState(0);
   const [avisoIdx, setAvisoIdx] = useState(0);
   const [weather, setWeather] = useState(null);
+  const [news, setNews] = useState(null);
   const [soundOn, setSoundOn] = useState(() => { try { return localStorage.getItem("semear_tv_som") !== "off"; } catch { return true; } });
   const [needsClick, setNeedsClick] = useState(false);
   const audioRef = React.useRef(null);
@@ -488,6 +532,20 @@ export default function TvPage() {
   useEffect(() => {
     const t = setInterval(() => setAvisoIdx((i) => i + 1), 8000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadNews() {
+      try {
+        const r = await fetch("/.netlify/functions/tv-noticias");
+        const d = await r.json();
+        if (alive && Array.isArray(d.itens)) setNews(d.itens);
+      } catch {}
+    }
+    loadNews();
+    const t = setInterval(loadNews, 10 * 60 * 1000);
+    return () => { alive = false; clearInterval(t); };
   }, []);
 
   useEffect(() => {
@@ -687,6 +745,8 @@ export default function TvPage() {
       <div style={{ flex: 1, minHeight: 0, padding: "1.1em 1.6em" }}>
         {SCENES[scene].id === "tempo" ? (
           <SceneTempo weather={weather} />
+        ) : SCENES[scene].id === "news" ? (
+          <SceneNews key={`news-${scene}`} news={news} />
         ) : SCENES[scene].id === "cotacoes" ? (
           <SceneCotacoes q={data?.cotacoes} />
         ) : !m ? (
