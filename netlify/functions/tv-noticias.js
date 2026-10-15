@@ -38,7 +38,7 @@ function parse(xml, fonte) {
     titulo: limpa(tag(b, "title")),
     link: limpa(tag(b, "link")),
     data: limpa(tag(b, "pubDate")),
-    resumo: limpa(tag(b, "description")).slice(0, 220),
+    resumo: limpa(tag(b, "description")).replace(/^Foto:\s*[^/]*\/(?:Canal Rural|G1|Agrolink|\S+)\s*/i, "").slice(0, 220),
     imagem: imagem(b),
     fonte,
   })).filter((it) => it.titulo && it.link);
