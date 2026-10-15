@@ -316,17 +316,26 @@ function pickFocusFields(m) {
 
 const TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const MAP_ZOOM_FAZENDA = 15;
-const prefetchCache = []; // mantém as imagens vivas até o fim da tela
+const MAP_ZOOM_REGIAO = 12;
+const prefetchCache = []; // mantém as imagens vivas na memória
 
-// Baixa antes os mapas que vão aparecer (TVs lentas ficavam com a tela em branco esperando).
-function prefetchTiles(map, bounds, zoomed) {
+// Baixa com antecedência as imagens do mapa que vão aparecer, pra TV lenta não mostrar blocos em branco.
+// Replica o enquadramento do Leaflet (Web Mercator, tiles de 256 px) sem precisar de um mapa na tela.
+function prefetchBounds(bounds, zoomed) {
   try {
-    const size = map.getSize();
+    const w = Math.max(400, window.innerWidth - 60), h = Math.max(300, window.innerHeight * 0.7);
     const pad = zoomed ? 110 : 30;
-    const z = Math.min(zoomed ? MAP_ZOOM_FAZENDA : 12, map.getBoundsZoom(bounds, false, L.point(pad, pad)));
-    const c = map.project(L.latLngBounds(bounds).getCenter(), z);
-    const x0 = Math.floor((c.x - size.x / 2) / 256), x1 = Math.floor((c.x + size.x / 2) / 256);
-    const y0 = Math.floor((c.y - size.y / 2) / 256), y1 = Math.floor((c.y + size.y / 2) / 256);
+    const proj = (lat, lng, z) => L.CRS.EPSG3857.latLngToPoint(L.latLng(lat, lng), z);
+    const maxZ = zoomed ? MAP_ZOOM_FAZENDA : MAP_ZOOM_REGIAO;
+    let z = maxZ;
+    for (; z > 0; z--) {
+      const sw = proj(bounds[0][0], bounds[0][1], z), ne = proj(bounds[1][0], bounds[1][1], z);
+      if (Math.abs(ne.x - sw.x) <= w - pad * 2 && Math.abs(sw.y - ne.y) <= h - pad * 2) break;
+    }
+    const cLat = (bounds[0][0] + bounds[1][0]) / 2, cLng = (bounds[0][1] + bounds[1][1]) / 2;
+    const c = proj(cLat, cLng, z);
+    const x0 = Math.floor((c.x - w / 2) / 256), x1 = Math.floor((c.x + w / 2) / 256);
+    const y0 = Math.floor((c.y - h / 2) / 256), y1 = Math.floor((c.y + h / 2) / 256);
     const max = 2 ** z;
     for (let x = x0; x <= x1; x++) {
       for (let y = y0; y <= y1; y++) {
@@ -339,38 +348,17 @@ function prefetchTiles(map, bounds, zoomed) {
   } catch {}
 }
 
-function MapFocus({ bounds, zoomed, prefetch }) {
+function MapFocus({ bounds, zoomed }) {
   const map = useMap();
   useEffect(() => {
     // Corte direto (sem animar): durante a animação o navegador estica o desenho dos contornos e fica borrado.
-    map.fitBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], maxZoom: zoomed ? MAP_ZOOM_FAZENDA : 12, animate: false });
+    map.fitBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], maxZoom: zoomed ? MAP_ZOOM_FAZENDA : MAP_ZOOM_REGIAO, animate: false });
   }, [map, bounds, zoomed]);
-  useEffect(() => {
-    prefetchCache.length = 0;
-    (prefetch || []).forEach((b, i) => setTimeout(() => prefetchTiles(map, b, true), 300 + i * 400));
-  }, [map]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
 
-function boundsOfPositions(pos) {
-  const lats = pos.map((p) => p[0]); const lngs = pos.map((p) => p[1]);
-  return [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
-}
-
-function SceneMapa({ m }) {
-  const [tick, setTick] = useState(0);
-  const focus = useMemo(() => pickFocusFields(m), []); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    const t = setInterval(() => setTick((x) => x + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const all = m.geoFields.flatMap((f) => f.positions);
-  if (all.length === 0) return <Card><div style={{ color: C.dim }}>Nenhum talhão com mapa (KML) cadastrado ainda.</div></Card>;
-  // Primeiro a visão regional; depois zoom rápido em alguns talhões sorteados.
-  const step = tick < MAP_OVERVIEW_S ? -1 : Math.min(focus.length - 1, Math.floor((tick - MAP_OVERVIEW_S) / MAP_FIELD_S));
-  const current = step >= 0 ? focus[step] : null;
-
-  // Enquadra o grupo principal de talhões; um talhão isolado e distante não deve afastar o zoom.
+// Enquadra o grupo principal de talhões; um talhão isolado e distante não deve afastar o zoom.
+function overviewBoundsOf(m) {
   const centers = m.geoFields.map((f) => ({
     f, lat: f.positions.reduce((s, p) => s + p[0], 0) / f.positions.length, lng: f.positions.reduce((s, p) => s + p[1], 0) / f.positions.length,
   }));
@@ -379,7 +367,27 @@ function SceneMapa({ m }) {
   const near = centers.filter((c) => Math.abs(c.lat - mLat) < 0.6 && Math.abs(c.lng - mLng) < 0.6);
   const pts = (near.length ? near : centers).flatMap((c) => c.f.positions);
   const lats = pts.map((p) => p[0]); const lngs = pts.map((p) => p[1]);
-  const overview = [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
+  return { centers, overview: [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]] };
+}
+
+function boundsOfPositions(pos) {
+  const lats = pos.map((p) => p[0]); const lngs = pos.map((p) => p[1]);
+  return [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
+}
+
+function SceneMapa({ m, picks }) {
+  const [tick, setTick] = useState(0);
+  const focus = picks || [];
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const all = m.geoFields.flatMap((f) => f.positions);
+  if (all.length === 0) return <Card><div style={{ color: C.dim }}>Nenhum talhão com mapa (KML) cadastrado ainda.</div></Card>;
+  // Primeiro a visão regional; depois zoom rápido em algumas fazendas sorteadas.
+  const step = tick < MAP_OVERVIEW_S ? -1 : Math.min(focus.length - 1, Math.floor((tick - MAP_OVERVIEW_S) / MAP_FIELD_S));
+  const current = step >= 0 ? focus[step] : null;
+  const { centers, overview } = overviewBoundsOf(m);
   const target = current
     ? [[Math.min(...current.positions.map((p) => p[0])), Math.min(...current.positions.map((p) => p[1]))], [Math.max(...current.positions.map((p) => p[0])), Math.max(...current.positions.map((p) => p[1]))]]
     : overview;
@@ -389,7 +397,7 @@ function SceneMapa({ m }) {
       <MapContainer bounds={overview} boundsOptions={{ padding: [30, 30] }} style={{ height: "100%", width: "100%", background: "#31402a" }}
         zoomControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} keyboard={false} attributionControl={false}>
         <TileLayer url={TILE_URL} maxZoom={19} maxNativeZoom={16} keepBuffer={4} updateWhenIdle={false} />
-        <MapFocus bounds={target} zoomed={!!current} prefetch={focus.map((f) => boundsOfPositions(f.positions))} />
+        <MapFocus bounds={target} zoomed={!!current} />
         {m.geoFields.map((f) => (
           <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.fieldIds.includes(f.id) ? "#FFE082" : "#FFFFFF", weight: current?.fieldIds.includes(f.id) ? 3 : 1.5, fillColor: f.color, fillOpacity: current?.fieldIds.includes(f.id) ? 0.15 : (f.active ? 0.55 : 0.28) }} />
         ))}
@@ -614,6 +622,21 @@ export default function TvPage() {
     try { localStorage.setItem("semear_tv_som", next ? "on" : "off"); } catch {}
   }
 
+  // Sorteia as fazendas do mapa e baixa as imagens uma tela antes, pra a TV não esperar na hora.
+  const [mapPicks, setMapPicks] = useState(null);
+  useEffect(() => {
+    if (!m || m.geoFields.length === 0) return;
+    const mapIdx = SCENES.findIndex((x) => x.id === "mapa");
+    const antes = (mapIdx - 1 + SCENES.length) % SCENES.length;
+    if (mapPicks === null || scene === antes) {
+      const picks = pickFocusFields(m);
+      setMapPicks(picks);
+      prefetchCache.length = 0;
+      prefetchBounds(overviewBoundsOf(m).overview, false);
+      picks.forEach((f, i) => setTimeout(() => prefetchBounds(boundsOfPositions(f.positions), true), 400 + i * 600));
+    }
+  }, [scene, !!m]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const avisos = data?.avisos?.length ? data.avisos : [];
   const aviso = avisos.length ? avisos[avisoIdx % avisos.length] : "";
   const dateRaw = now.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" });
@@ -651,7 +674,7 @@ export default function TvPage() {
           <>
             {SCENES[scene].id === "painel" && <ScenePainel m={m} />}
             {SCENES[scene].id === "agenda" && <SceneAgenda m={m} />}
-            {SCENES[scene].id === "mapa" && <SceneMapa key={`map-${scene}`} m={m} />}
+            {SCENES[scene].id === "mapa" && <SceneMapa key={`map-${scene}`} m={m} picks={mapPicks} />}
           </>
         )}
       </div>
