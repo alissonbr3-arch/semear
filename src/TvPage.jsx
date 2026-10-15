@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polygon, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 
 const SCENES = [
   { id: "painel", title: "Painel geral" },
@@ -297,8 +298,8 @@ function SceneTempo({ weather }) {
   );
 }
 
-const MAP_OVERVIEW_S = 4;
-const MAP_FIELD_S = 4;
+const MAP_OVERVIEW_S = 5;
+const MAP_FIELD_S = 3.75;
 const MAP_FIELDS_PER_ROUND = 4;
 
 // Sorteia algumas fazendas a cada passagem (a tela inteira dura ~20 s); dá preferência às com safra ativa.
@@ -313,13 +314,47 @@ function pickFocusFields(m) {
   return [...active, ...rest].slice(0, MAP_FIELDS_PER_ROUND);
 }
 
-function MapFocus({ bounds, zoomed }) {
+const TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const MAP_ZOOM_FAZENDA = 15;
+const prefetchCache = []; // mantém as imagens vivas até o fim da tela
+
+// Baixa antes os mapas que vão aparecer (TVs lentas ficavam com a tela em branco esperando).
+function prefetchTiles(map, bounds, zoomed) {
+  try {
+    const size = map.getSize();
+    const pad = zoomed ? 110 : 30;
+    const z = Math.min(zoomed ? MAP_ZOOM_FAZENDA : 12, map.getBoundsZoom(bounds, false, L.point(pad, pad)));
+    const c = map.project(L.latLngBounds(bounds).getCenter(), z);
+    const x0 = Math.floor((c.x - size.x / 2) / 256), x1 = Math.floor((c.x + size.x / 2) / 256);
+    const y0 = Math.floor((c.y - size.y / 2) / 256), y1 = Math.floor((c.y + size.y / 2) / 256);
+    const max = 2 ** z;
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        if (y < 0 || y >= max) continue;
+        const img = new Image();
+        img.src = TILE_URL.replace("{z}", z).replace("{x}", ((x % max) + max) % max).replace("{y}", y);
+        prefetchCache.push(img);
+      }
+    }
+  } catch {}
+}
+
+function MapFocus({ bounds, zoomed, prefetch }) {
   const map = useMap();
   useEffect(() => {
     // Corte direto (sem animar): durante a animação o navegador estica o desenho dos contornos e fica borrado.
-    map.fitBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], maxZoom: zoomed ? 16 : 12, animate: false });
+    map.fitBounds(bounds, { padding: zoomed ? [110, 110] : [30, 30], maxZoom: zoomed ? MAP_ZOOM_FAZENDA : 12, animate: false });
   }, [map, bounds, zoomed]);
+  useEffect(() => {
+    prefetchCache.length = 0;
+    (prefetch || []).forEach((b, i) => setTimeout(() => prefetchTiles(map, b, true), 300 + i * 400));
+  }, [map]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
+}
+
+function boundsOfPositions(pos) {
+  const lats = pos.map((p) => p[0]); const lngs = pos.map((p) => p[1]);
+  return [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]];
 }
 
 function SceneMapa({ m }) {
@@ -351,12 +386,12 @@ function SceneMapa({ m }) {
 
   return (
     <div style={{ position: "relative", height: "100%", borderRadius: "0.9em", overflow: "hidden", border: `1px solid ${C.border}` }}>
-      <MapContainer bounds={overview} boundsOptions={{ padding: [30, 30] }} style={{ height: "100%", width: "100%" }}
+      <MapContainer bounds={overview} boundsOptions={{ padding: [30, 30] }} style={{ height: "100%", width: "100%", background: "#31402a" }}
         zoomControl={false} dragging={false} scrollWheelZoom={false} doubleClickZoom={false} touchZoom={false} keyboard={false} attributionControl={false}>
-        <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-        <MapFocus bounds={target} zoomed={!!current} />
+        <TileLayer url={TILE_URL} maxZoom={19} maxNativeZoom={16} keepBuffer={4} updateWhenIdle={false} />
+        <MapFocus bounds={target} zoomed={!!current} prefetch={focus.map((f) => boundsOfPositions(f.positions))} />
         {m.geoFields.map((f) => (
-          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.fieldIds.includes(f.id) ? "#FFE082" : "#FFFFFF", weight: current?.fieldIds.includes(f.id) ? 3 : 1.5, fillColor: f.color, fillOpacity: current?.fieldIds.includes(f.id) ? 0.15 : 0.65 }} />
+          <Polygon key={f.id} positions={f.positions} pathOptions={{ color: current?.fieldIds.includes(f.id) ? "#FFE082" : "#FFFFFF", weight: current?.fieldIds.includes(f.id) ? 3 : 1.5, fillColor: f.color, fillOpacity: current?.fieldIds.includes(f.id) ? 0.15 : (f.active ? 0.55 : 0.28) }} />
         ))}
         {!current && centers.map((c) => (
           <CircleMarker key={`c-${c.f.id}`} center={[c.lat, c.lng]} radius={7} pathOptions={{ color: "#FFFFFF", weight: 2, fillColor: c.f.color, fillOpacity: 1 }} />
