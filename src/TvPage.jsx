@@ -339,19 +339,29 @@ function SceneTempo({ weather }) {
 }
 
 const MAP_OVERVIEW_S = 5;
-const MAP_FIELD_S = 3.75;
-const MAP_FIELDS_PER_ROUND = 4;
+const MAP_FIELD_S = 3;
+const MAP_FIELDS_PER_ROUND = 5;
 
-// Sorteia algumas fazendas a cada passagem (a tela inteira dura ~20 s); dá preferência às com safra ativa.
+// Revezamento das fazendas: a cada passagem mostra as próximas da fila; quando a fila acaba,
+// embaralha de novo e recomeça. Assim TODAS as fazendas com mapa aparecem, sem ficar de fora.
+let fazendaFila = [];
 function pickFocusFields(m) {
-  const shuffle = (arr) => {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
-    return a;
-  };
-  const active = shuffle(m.geoProps.filter((p) => p.active));
-  const rest = shuffle(m.geoProps.filter((p) => !p.active));
-  return [...active, ...rest].slice(0, MAP_FIELDS_PER_ROUND);
+  const todas = m.geoProps.map((p) => p.id);
+  fazendaFila = fazendaFila.filter((id) => todas.includes(id));
+  const out = [];
+  const total = Math.min(MAP_FIELDS_PER_ROUND, todas.length);
+  while (out.length < total) {
+    if (fazendaFila.length === 0) {
+      const resto = todas.filter((id) => !out.includes(id));
+      for (let i = resto.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [resto[i], resto[j]] = [resto[j], resto[i]];
+      }
+      fazendaFila = resto;
+    }
+    out.push(fazendaFila.shift());
+  }
+  return out.map((id) => m.geoProps.find((p) => p.id === id)).filter(Boolean);
 }
 
 // --- Mapa por imagem única -------------------------------------------------------------
@@ -484,7 +494,7 @@ function SceneMapa({ m, picks }) {
           <span><span style={{ color: CULTURE_COLOR.Soja }}>●</span> Soja</span>
           <span><span style={{ color: CULTURE_COLOR.Milho }}>●</span> Milho</span>
           <span><span style={{ color: "#5F6B5A" }}>●</span> Sem safra ativa</span>
-          <span style={{ color: C.dim }}>{m.geoFields.length} talhões mapeados</span>
+          <span style={{ color: C.dim }}>{m.geoProps.length} fazendas · {m.geoFields.length} talhões mapeados{m.semMapa > 0 ? ` · ${m.semMapa} sem mapa` : ""}</span>
         </div>
       )}
     </div>
@@ -665,9 +675,10 @@ export default function TvPage() {
       propMap.set(g.propertyId, e);
     });
     const geoProps = [...propMap.values()].map((e) => ({ ...e, cultures: [...e.cultures] }));
+    const semMapa = properties.filter((p) => !propMap.has(p.id)).length;
 
     return {
-      geoProps,
+      geoProps, semMapa,
       clients: clients.length, properties: properties.length, fields: fields.length, activeHarvests: active.length,
       areaTotal, areaPlanted, areaByCulture, byGestor: [...byGestorMap.values()].sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
       late, weekDays, tasksByDay, recentVisits, geoFields, todayIso,
