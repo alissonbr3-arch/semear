@@ -88,6 +88,15 @@ function harvestStatus(h) {
   return h.harvestDate && h.harvestDate <= toISODateLocal(new Date()) ? "Colhida" : "Em andamento";
 }
 
+// Colheita estimada = plantio + dias até a emergência + ciclo da cultivar (o ciclo das
+// cultivares é contado da emergência até a maturação).
+const DIAS_EMERGENCIA = 5;
+function estimarColheita(plantingDate, cycle) {
+  if (!plantingDate || !cycle) return null;
+  const total = DIAS_EMERGENCIA + Number(cycle);
+  return new Date(new Date(plantingDate + "T00:00:00").getTime() + total * 86400000).toISOString().slice(0, 10);
+}
+
 function addMonthsToISODate(dateStr, months) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const date = new Date(y, m - 1 + months, d);
@@ -1424,9 +1433,7 @@ export default function AgroTrackApp() {
       const client = property ? clients.find((c) => c.id === property.clientId) : null;
       const harvestVisits = visits.filter((v) => v.harvestId === h.id).sort((a, b) => b.date.localeCompare(a.date));
       const variety = varieties.find((vv) => vv.name === h.variety && vv.culture === h.culture);
-      const estimatedHarvestDate = h.plantingDate && variety?.cycle
-        ? new Date(new Date(h.plantingDate + "T00:00:00").getTime() + Number(variety.cycle) * 86400000).toISOString().slice(0, 10)
-        : null;
+      const estimatedHarvestDate = estimarColheita(h.plantingDate, variety?.cycle);
       return {
         ...h,
         fieldName: field ? field.name : "—",
@@ -7465,12 +7472,7 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
   const [nameEdited, setNameEdited] = useState(!!data?.name);
   const cultureVarieties = varieties.filter((v) => v.culture === form.culture);
   const selectedVariety = varieties.find((v) => v.name === form.variety && v.culture === form.culture);
-  const estimatedHarvest =
-    form.plantingDate && selectedVariety?.cycle
-      ? new Date(new Date(form.plantingDate + "T00:00:00").getTime() + Number(selectedVariety.cycle) * 86400000)
-          .toISOString()
-          .slice(0, 10)
-      : null;
+  const estimatedHarvest = estimarColheita(form.plantingDate, selectedVariety?.cycle);
   const seasonOptions = generateSeasonOptions();
   const hasCustomName = form.name && !seasonOptions.some((s) => s.value === form.name);
 
@@ -7528,7 +7530,7 @@ function HarvestModal({ data, fields, properties, clients, varieties, onSave, on
       </Field>
       {estimatedHarvest && (
         <div style={{ fontSize: 10.5, color: "var(--green)", marginTop: -8, marginBottom: 14 }}>
-          Colheita estimada: {fmtDate(estimatedHarvest)} (ciclo de {selectedVariety.cycle} dias)
+          Colheita estimada: {fmtDate(estimatedHarvest)} ({DIAS_EMERGENCIA} dias até emergir + ciclo de {selectedVariety.cycle} dias)
         </div>
       )}
       <Field label="Data de colheita (preencha ao colher)">
@@ -8245,7 +8247,7 @@ function VarietyModal({ data, onSave, onClose }) {
           <option value="Milho">Milho</option>
         </select>
       </Field>
-      <Field label="Ciclo médio (dias)">
+      <Field label="Ciclo médio (dias, da emergência à maturação)">
         <input type="number" style={inputStyle} value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })} placeholder="Ex: 110" />
       </Field>
       <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
