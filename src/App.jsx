@@ -6622,7 +6622,16 @@ function AplicacoesView({ harvests, dados, onSalvar }) {
   }
 
   const tituloPdf = clienteSel ? (clientes.find(([id]) => id === clienteSel)?.[1] || "") + (fazendaSel ? ` — ${fazendaSel}` : "") : `Safra ${safraSel}`;
-  const arq = (tipo) => `aplicacoes-${tipo}-${tituloPdf}`.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase() + ".pdf";
+  // Nome do arquivo: "Programa Fungicidas Alisson Gabriel.pdf" (produtor abreviado, fazenda se filtrada).
+  const arq = (tipo) => {
+    const limpa = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+    const clienteNome = clientes.find(([id]) => id === clienteSel)?.[1] || "";
+    const palavras = limpa(clienteNome).split(" ").filter((w) => !["e", "de", "da", "do", "dos", "das"].includes(w.toLowerCase()));
+    const produtor = palavras.slice(0, 2).join(" ");
+    const base = tipo === "data" ? "Linha do Tempo Fungicidas" : "Programa Fungicidas";
+    const partes = [base, produtor || `Safra ${limpa(safraSel).replace(/ /g, "-")}`, fazendaSel ? limpa(fazendaSel) : ""].filter(Boolean);
+    return `${partes.join(" ")}.pdf`;
+  };
   const nIn = { ...inputStyle, width: 52, padding: "4px 6px", fontSize: 10.5, textAlign: "center" };
   const dIn = { ...inputStyle, width: 122, padding: "4px 6px", fontSize: 10.5 };
   const th = { fontSize: 9, whiteSpace: "nowrap" };
