@@ -210,7 +210,12 @@ export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
   cabecalhoSemear(doc, logo, "Programa de Fungicidas", safra);
   let y = tituloSemear(doc, "Programa de Fungicidas", subtituloPadrao(linhas, `${linhas.length} talhão(ões)`));
   y = secaoSemear(doc, y, "1 · Aplicações por Talhão");
-  const head = [["Talhão", "Cultivar", "Emergência", "Colheita", ...Array.from({ length: maxQ }, (_, i) => `${i + 1}ª Aplic.`), "Em aberto"]];
+  const head = [["Talhão", "Cultivar", "Emergência", "Colheita", ...Array.from({ length: maxQ }, (_, i) => `${i + 1}ª\nAplic.`), "Em\naberto"]];
+  // Larguras fixas pras colunas de texto; as datas "dd/mm" dividem o resto sem quebrar em duas linhas.
+  const largAbertoMm = 14;
+  const largAplicMm = (180 - 32 - 30 - 20 - 23 - largAbertoMm) / maxQ;
+  const fonteAplic = largAplicMm >= 12 ? 8.4 : largAplicMm >= 10 ? 7.6 : 6.8;
+  const colunasAplic = Object.fromEntries(Array.from({ length: maxQ }, (_, i) => [4 + i, { cellWidth: largAplicMm, fontSize: fonteAplic, cellPadding: { top: 2.2, bottom: 2.2, left: 0.8, right: 0.8 } }]));
   const body = linhas.map((l) => [
     "", `${l.cultivar}\n${l.qtde}× · cada ${l.intervalo} dias`, dataBR(l.emergencia), `${dataBR(l.colheita)}${l.colheitaEstimada ? "*" : ""}`,
     ...Array.from({ length: maxQ }, (_, i) => (i < l.qtde && l.datas[i] ? dataBR(l.datas[i]).slice(0, 5) : "—")),
@@ -220,9 +225,13 @@ export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
     startY: y, head, body, theme: "grid",
     margin: { left: 15, right: 15, top: 30, bottom: 22 },
     styles: { font: F.txt, fontSize: 9, textColor: COR.texto, lineColor: COR.borda, lineWidth: 0.2, cellPadding: { top: 2.2, bottom: 2.2, left: 2, right: 2 }, valign: "middle", halign: "center", minCellHeight: 11 },
-    headStyles: { font: F.tit, fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 8, halign: "center" },
+    headStyles: { font: F.tit, fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 7.6, halign: "center", cellPadding: { top: 2, bottom: 2, left: 0.8, right: 0.8 } },
     alternateRowStyles: { fillColor: COR.zebra },
-    columnStyles: { 0: { cellWidth: 34, halign: "left" }, 1: { cellWidth: 31, halign: "left", fontSize: 8 }, 2: { cellWidth: 22, fontSize: 8.6 }, 3: { cellWidth: 26, fontSize: 8.6 } },
+    columnStyles: {
+      0: { cellWidth: 32, halign: "left" }, 1: { cellWidth: 30, halign: "left", fontSize: 7.8 }, 2: { cellWidth: 20, fontSize: 8.2 }, 3: { cellWidth: 23, fontSize: 8.2 },
+      ...colunasAplic,
+      [head[0].length - 1]: { cellWidth: largAbertoMm, fontSize: 8, cellPadding: { top: 2.2, bottom: 2.2, left: 0.8, right: 0.8 } },
+    },
     didParseCell: (d) => {
       if (d.section === "body" && d.column.index === head[0].length - 1) {
         const l = linhas[d.row.index];
