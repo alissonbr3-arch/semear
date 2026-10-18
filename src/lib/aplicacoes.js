@@ -244,12 +244,13 @@ export async function pdfPorTalhao(linhasEntrada, { titulo, nomeArquivo } = {}) 
     didParseCell: (d) => {
       if (d.section === "body" && d.column.index === head[0].length - 1) {
         const l = linhas[d.row.index];
+        if (!l) return;
         d.cell.styles.fontStyle = "bold";
         if (l.aberto !== null && l.aberto > 25) d.cell.styles.textColor = [168, 112, 20];
         if (l.aberto !== null && l.aberto < 0) d.cell.styles.textColor = [176, 48, 40];
       }
     },
-    didDrawCell: (d) => { if (d.section === "body" && d.column.index === 0) celulaTalhao(doc, d, linhas[d.row.index], variosClientes); },
+    didDrawCell: (d) => { const l = linhas[d.row.index]; if (d.section === "body" && d.column.index === 0 && l) celulaTalhao(doc, d, l, variosClientes); },
     didDrawPage: () => { cabecalhoSemear(doc, logo, "Programa de Fungicidas", safra); rodapeSemear(doc); },
   });
   let yn = doc.lastAutoTable.finalY + 5;
@@ -267,7 +268,7 @@ export async function pdfCronologico(linhas, { titulo, nomeArquivo } = {}) {
   const safra = nomeSafra(linhas);
   const variosClientes = new Set(linhas.map((l) => l.cliente)).size > 1;
   const itens = linhas.flatMap((l) => l.datas.map((d, i) => ({ l, n: i + 1, d, ultima: i === l.qtde - 1 }))).filter((x) => x.d)
-    .sort((a, b) => a.d.localeCompare(b.d) || String(a.l.talhao).localeCompare(String(b.l.talhao), "pt-BR", { numeric: true }));
+    .sort((a, b) => a.d.localeCompare(b.d) || porOrdemDePlantio(a.l, b.l));
   cabecalhoSemear(doc, logo, "Linha do Tempo de Fungicidas", safra);
   let y = tituloSemear(doc, "Linha do Tempo de Aplicações", subtituloPadrao(linhas, `${itens.length} aplicações`));
   y = secaoSemear(doc, y, "1 · Aplicações em Ordem de Data");
@@ -284,9 +285,11 @@ export async function pdfCronologico(linhas, { titulo, nomeArquivo } = {}) {
     columnStyles: { 0: { cellWidth: 18, halign: "center", font: F.tit, fontStyle: "bold" }, 1: { cellWidth: 44 }, 2: { cellWidth: 38 } },
     didParseCell: (d) => {
       if (d.section !== "body") return;
-      d.cell.styles.fillColor = COR_APLIC[(itens[d.row.index].n - 1) % COR_APLIC.length];
+      const it = itens[d.row.index];
+      if (it) d.cell.styles.fillColor = COR_APLIC[(it.n - 1) % COR_APLIC.length];
     },
-    didDrawCell: (d) => { if (d.section === "body" && d.column.index === 1) celulaTalhao(doc, d, itens[d.row.index].l, variosClientes); },
+    // Quando a tabela quebra de página o jspdf-autotable chama o gancho com row.index = -1: ignora.
+    didDrawCell: (d) => { const it = itens[d.row.index]; if (d.section === "body" && d.column.index === 1 && it) celulaTalhao(doc, d, it.l, variosClientes); },
     didDrawPage: () => { cabecalhoSemear(doc, logo, "Linha do Tempo de Fungicidas", safra); rodapeSemear(doc); },
   });
   // Legenda das cores (1ª, 2ª, 3ª… aplicação).
