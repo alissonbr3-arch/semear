@@ -16,7 +16,7 @@ import { intersection, union } from "martinez-polygon-clipping";
 import shpwrite from "@mapbox/shp-write";
 import { safeGet, safeSet } from "./lib/storage.js";
 import { gerarZonasManejo, pontoNaZona } from "./lib/zonasManejo.js";
-import { PADRAO_PROGRAMA, calcularLinha, pdfPorTalhao, pdfCronologico } from "./lib/aplicacoes.js";
+import { PADRAO_PROGRAMA, calcularLinha, pdfPorTalhao, pdfCronologico, porOrdemDePlantio } from "./lib/aplicacoes.js";
 import {
   STATUS_ABERTO, PARADO_PADRAO, VISITA_INTERVALO_PADRAO, novasEtapas, ehAvulso, emAberto, etapaAtual, diasParado,
   ultimaVisitaPorCliente, semaforoVisita, addDiasIso,
@@ -6590,8 +6590,7 @@ function AplicacoesView({ harvests, dados, onSalvar }) {
   const linhasTodas = doCliente
     .filter((h) => !fazendaSel || h.propertyName === fazendaSel)
     .map((h) => ({ h, incluido: !!programas[h.id]?.incluido, l: calcularLinha(h, programas[h.id], padrao) }))
-    .sort((a, b) => (Number(b.incluido) - Number(a.incluido)) || (Number(a.l.codigo || 9999) - Number(b.l.codigo || 9999))
-      || String(a.l.cliente).localeCompare(String(b.l.cliente)) || String(a.l.fazenda).localeCompare(String(b.l.fazenda)) || String(a.l.talhao).localeCompare(String(b.l.talhao), "pt-BR", { numeric: true }));
+    .sort((a, b) => (Number(b.incluido) - Number(a.incluido)) || porOrdemDePlantio(a.l, b.l));
   const linhas = soIncluidas ? linhasTodas.filter((x) => x.incluido) : linhasTodas;
   const incluidas = linhasTodas.filter((x) => x.incluido).map((x) => x.l);
   const maxQtde = Math.max(padrao.qtde, ...linhasTodas.map((x) => (x.incluido ? x.l.qtde : 0)));

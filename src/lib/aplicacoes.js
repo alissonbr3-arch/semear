@@ -49,7 +49,7 @@ export function calcularLinha(safra, prog, padrao = PADRAO_PROGRAMA) {
   return {
     safraId: safra.id, codigo: p.codigo || null, cliente: safra.clientName, clientId: safra.clientId, fazenda: safra.propertyName,
     talhao: safra.fieldName, cultivar: safra.variety || "—", cultura: safra.culture, area: safra.fieldArea,
-    emergencia, colheita, colheitaEstimada: !p.colheita && !safra.harvestDate && !!safra.estimatedHarvestDate,
+    plantio: safra.plantingDate || null, emergencia, colheita, colheitaEstimada: !p.colheita && !safra.harvestDate && !!safra.estimatedHarvestDate,
     qtde, intervalo: Number(p.intervalo) || 0, inicio: Number(p.inicio) || 0, datas, ajustes, aberto, fimCobertura,
   };
 }
@@ -199,8 +199,17 @@ function subtituloPadrao(linhas, extra) {
   return [clientes.length === 1 ? clientes[0] : `${clientes.length} produtores`, safra && `Safra ${safra}`, `Gerado em ${new Date().toLocaleDateString("pt-BR")}`, extra].filter(Boolean).join("  ·  ");
 }
 
+// Ordem de plantio (depois produtor, fazenda e talhão) — usada na tela e nos PDFs.
+export function porOrdemDePlantio(a, b) {
+  return String(a.plantio || a.emergencia || "9999").localeCompare(String(b.plantio || b.emergencia || "9999"))
+    || String(a.cliente).localeCompare(String(b.cliente), "pt-BR")
+    || String(a.fazenda).localeCompare(String(b.fazenda), "pt-BR")
+    || String(a.talhao).localeCompare(String(b.talhao), "pt-BR", { numeric: true });
+}
+
 // PDF 1: programa por talhão — uma linha por talhão com todas as aplicações.
-export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
+export async function pdfPorTalhao(linhasEntrada, { titulo, nomeArquivo } = {}) {
+  const linhas = [...linhasEntrada].sort(porOrdemDePlantio);
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   await prepararFontes(doc);
   const logo = await carregarLogo();
@@ -213,7 +222,7 @@ export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
   const head = [["Talhão", "Cultivar", "Emergência", "Colheita", ...Array.from({ length: maxQ }, (_, i) => `${i + 1}ª\nAplic.`), "Em\naberto"]];
   // Larguras fixas pras colunas de texto; as datas "dd/mm" dividem o resto sem quebrar em duas linhas.
   const largAbertoMm = 14;
-  const largAplicMm = (180 - 32 - 30 - 20 - 23 - largAbertoMm) / maxQ;
+  const largAplicMm = (180 - 30 - 28 - 23 - 24 - largAbertoMm) / maxQ;
   const fonteAplic = largAplicMm >= 12 ? 8.4 : largAplicMm >= 10 ? 7.6 : 6.8;
   const colunasAplic = Object.fromEntries(Array.from({ length: maxQ }, (_, i) => [4 + i, { cellWidth: largAplicMm, fontSize: fonteAplic, cellPadding: { top: 2.2, bottom: 2.2, left: 0.8, right: 0.8 } }]));
   const body = linhas.map((l) => [
@@ -228,7 +237,7 @@ export async function pdfPorTalhao(linhas, { titulo, nomeArquivo } = {}) {
     headStyles: { font: F.tit, fontStyle: "bold", fillColor: COR.verde, textColor: 255, fontSize: 7.6, halign: "center", cellPadding: { top: 2, bottom: 2, left: 0.8, right: 0.8 } },
     alternateRowStyles: { fillColor: COR.zebra },
     columnStyles: {
-      0: { cellWidth: 32, halign: "left" }, 1: { cellWidth: 30, halign: "left", fontSize: 7.8 }, 2: { cellWidth: 20, fontSize: 8.2 }, 3: { cellWidth: 23, fontSize: 8.2 },
+      0: { cellWidth: 30, halign: "left" }, 1: { cellWidth: 28, halign: "left", fontSize: 7.8 }, 2: { cellWidth: 23, fontSize: 8.2 }, 3: { cellWidth: 24, fontSize: 8.2 },
       ...colunasAplic,
       [head[0].length - 1]: { cellWidth: largAbertoMm, fontSize: 8, cellPadding: { top: 2.2, bottom: 2.2, left: 0.8, right: 0.8 } },
     },
