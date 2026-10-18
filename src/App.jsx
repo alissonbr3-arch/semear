@@ -1754,7 +1754,7 @@ export default function AgroTrackApp() {
         ) : (
           <>
         {view === "dashboard" && (
-          <Dashboard totals={totals} recentVisits={recentVisits} clients={clientsWithMeta} properties={properties} fields={fieldsWithMeta} onOpenField={openField} onOpenClient={openClientFromDashboard} isFinance={isFinance} monthFinanceSummary={monthFinanceSummary} />
+          <Dashboard totals={totals} recentVisits={recentVisits} clients={clientsWithMeta} properties={properties} fields={fieldsWithMeta} harvests={harvestsWithMeta} team={team} finances={finances} programas={fungicidaProgramas} onOpenField={openField} onOpenClient={openClientFromDashboard} onAddVisit={() => setModal({ type: "visit", data: null })} isFinance={isFinance} monthFinanceSummary={monthFinanceSummary} />
         )}
 
         {view === "clientes" && !selectedClientId && (
@@ -2135,112 +2135,344 @@ function StatCard({ label, value, sub, accent }) {
   );
 }
 
-function Dashboard({ totals, recentVisits, clients, properties, fields, onOpenField, onOpenClient, isFinance, monthFinanceSummary }) {
-  const pctSoja = totals.areaPlantada ? Math.round((totals.areaSoja / totals.areaPlantada) * 100) : 0;
-  const lateClients = clients
-    .filter((c) => c.hasKml && (c.visitStatus === "late" || c.visitStatus === "none"))
+// Painel (home): indicadores, mapa, chuva, atenção, fungicida, colheita e financeiro, com filtros por
+// cultura e gestor. Tudo calculado das safras em andamento.
+function Dashboard({ totals, recentVisits, clients, properties, fields, harvests, team, finances, programas, onOpenField, onOpenClient, onAddVisit, isFinance, monthFinanceSummary }) {
+  const [cultura, setCultura] = useState("Todas");
+  const [gestorSel, setGestorSel] = useState("Todos");
+  const [clienteSel, setClienteSel] = useState(null);
+  const [verValores, setVerValores] = usePersistedState("painelVerValores", true);
+  const [chuva, setChuva] = useState(null);
+  const hojeIso = toISODateLocal(new Date());
+  const monthLabel = new Date().toLocaleDateString("pt-BR", { month: "long" });
+
+  // Chuva: 7 dias que passaram + hoje e os próximos 6 (Open-Meteo, no centro das fazendas mapeadas).
+  const centro = useMemo(() => {
+    const pts = fields.filter((f) => f.fieldMap?.points?.length >= 3).map((f) => f.fieldMap.points[0]);
+    if (!pts.length) return [-19.39, -54.56];
+    const med = (arr) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
+    return [med(pts.map((p) => p[0])), med(pts.map((p) => p[1]))];
+  }, [fields]);
+  useEffect(() => {
+    let vivo = true;
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${centro[0].toFixed(3)}&longitude=${centro[1].toFixed(3)}&daily=precipitation_sum&past_days=7&forecast_days=8&timezone=America%2FCampo_Grande`)
+      .then((r) => r.json())
+      .then((d) => { if (vivo && d?.daily?.precipitation_sum) setChuva({ dias: d.daily.time, mm: d.daily.precipitation_sum.map((v) => v || 0) }); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [centro[0], centro[1]]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const gestorNome = (id) => team.find((t) => t.id === id)?.name || "";
+  const gestoresLista = useMemo(() => [...new Set(harvests.filter((h) => h.status === "Em andamento" && h.gestorId).map((h) => h.gestorId))]
+    .map((id) => ({ id, nome: gestorNome(id) })).filter((g) => g.nome).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")), [harvests, team]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const R = useMemo(() => harvests.filter((h) => h.status === "Em andamento"
+    && (cultura === "Todas" || h.culture === cultura) && (gestorSel === "Todos" || h.gestorId === gestorSel)), [harvests, cultura, gestorSel]);
+  const clientesR = useMemo(() => new Set(R.map((h) => h.clientId).filter(Boolean)), [R]);
+  const areaR = R.reduce((s, h) => s + (h.fieldArea || 0), 0);
+  const clientesAcomp = clients.filter((c) => c.hasKml && clientesR.has(c.id));
+  const emDia = clientesAcomp.filter((c) => c.visitStatus === "ok").length;
+  const atrasados = clientesAcomp
+    .filter((c) => c.visitStatus !== "ok")
     .sort((a, b) => (a.lastVisitDate || "").localeCompare(b.lastVisitDate || ""));
-  const monthLabel = new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+  const diasDesde = (iso) => (iso ? Math.round((Date.parse(`${hojeIso}T00:00:00`) - Date.parse(`${iso}T00:00:00`)) / 86400000) : null);
+
+  const porCultura = {};
+  R.forEach((h) => { porCultura[h.culture] = (porCultura[h.culture] || 0) + (h.fieldArea || 0); });
+
+  const porGestor = useMemo(() => {
+    const m = new Map();
+    clientesAcomp.forEach((c) => {
+      const k = c.gestorName || "Sem gestor";
+      const e = m.get(k) || { nome: k, avatar: c.gestorAvatar, n: 0, ok: 0 };
+      e.n += 1; if (c.visitStatus === "ok") e.ok += 1;
+      m.set(k, e);
+    });
+    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [clientesAcomp]);
+
+  const porSemana = useMemo(() => {
+    const m = {};
+    R.forEach((h) => {
+      if (!h.plantingDate) return;
+      const d = new Date(`${h.plantingDate}T12:00:00`);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      const k = toISODateLocal(d);
+      m[k] = (m[k] || 0) + (h.fieldArea || 0);
+    });
+    return Object.keys(m).sort().map((k) => ({ k, ha: m[k] }));
+  }, [R]);
+
+  const padrao = { ...PADRAO_PROGRAMA, ...(programas?.padrao || {}) };
+  const proximasAplic = useMemo(() => R
+    .filter((h) => programas?.programas?.[h.id]?.incluido)
+    .map((h) => {
+      const l = calcularLinha(h, programas.programas[h.id], padrao);
+      const prox = (l.datas || []).find((d) => d && d >= hojeIso);
+      return prox ? { h, l, prox, dias: diasDesde(hojeIso) === null ? 0 : Math.round((Date.parse(`${prox}T00:00:00`) - Date.parse(`${hojeIso}T00:00:00`)) / 86400000), n: l.datas.indexOf(prox) + 1 } : null;
+    })
+    .filter(Boolean).sort((a, b) => a.prox.localeCompare(b.prox)).slice(0, 5), [R, programas]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const colheitas = R.filter((h) => h.estimatedHarvestDate || h.harvestDate).sort((a, b) => (a.harvestDate || a.estimatedHarvestDate).localeCompare(b.harvestDate || b.estimatedHarvestDate)).slice(0, 5);
+
+  const camposMapa = useMemo(() => {
+    const ids = new Set(R.map((h) => h.fieldId));
+    return fields.filter((f) => ids.has(f.id) && f.fieldMap?.points?.length >= 3 && f.fieldMap.mode === "kml");
+  }, [R, fields]);
+
+  const boletosAbertos = (finances || []).filter((f) => f.status !== "pago" && f.asaasBoletoUrl);
+  const valor = (txt) => (verValores ? txt : "•••••");
+
+  const cardStyle = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, minWidth: 0 };
+  const titulo = (t, extra) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>
+      <span>{t}</span>{extra && <span style={{ fontWeight: 400, fontSize: 9.5, color: "var(--ink-faint)" }}>{extra}</span>}
+    </div>
+  );
+  const vazio = (t) => <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>{t}</div>;
+  const chip = (ativo, label, onClick) => (
+    <button key={label} onClick={onClick} style={{
+      padding: "5px 12px", borderRadius: 999, fontSize: 10.5, cursor: "pointer",
+      border: ativo ? "1px solid var(--green)" : "1px solid var(--border-input)",
+      background: ativo ? "var(--green-soft-bg)" : "transparent", color: ativo ? "var(--green)" : "var(--ink-dim)",
+    }}>{label}</button>
+  );
+  const nomeCliente = (id, nome) => (
+    <span onClick={() => setClienteSel(clienteSel === id ? null : id)} style={{ cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--border-input)", textUnderlineOffset: 3 }}>{nome}</span>
+  );
+  const linha = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 10.5, padding: "6px 0", borderBottom: "1px solid var(--border-soft)", color: "var(--ink-soft)" };
+  const barra = (pct, cor) => (
+    <div style={{ height: 8, borderRadius: 99, background: "var(--bg-inset)", overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: cor, borderRadius: 99 }} /></div>
+  );
+
+  // Cartão do cliente clicado
+  const clienteInfo = clienteSel ? (() => {
+    const c = clients.find((x) => x.id === clienteSel);
+    const hs = harvests.filter((h) => h.clientId === clienteSel && h.status === "Em andamento");
+    const faz = {};
+    hs.forEach((h) => { faz[h.propertyName] = (faz[h.propertyName] || 0) + 1; });
+    return c ? { c, hs, faz, ha: hs.reduce((s, h) => s + (h.fieldArea || 0), 0) } : null;
+  })() : null;
+
+  const maxSemana = Math.max(1, ...porSemana.map((s) => s.ha));
+  const maxChuva = Math.max(1, ...(chuva?.mm || [0]));
+  const passados = chuva ? chuva.mm.slice(0, 7) : [];
+  const futuros = chuva ? chuva.mm.slice(7, 14) : [];
+  const dsem = ["D", "S", "T", "Q", "Q", "S", "S"];
+
   return (
     <div>
-      <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Painel geral</h2>
-      <p style={{ color: "var(--ink-dim)", fontSize: 11, margin: "0 0 22px" }}>Visão geral das lavouras acompanhadas</p>
-
-      <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
-        <StatCard label="Clientes" value={clients.length} />
-        <StatCard label="Propriedades" value={properties.length} />
-        <StatCard label="Talhões" value={fields.length} />
-        <StatCard label="Safras ativas" value={totals.activeHarvestCount} accent="var(--green)" />
-        <StatCard label="Área total" value={totals.areaTotal.toLocaleString("pt-BR") + " ha"} sub={totals.areaPlantada > 0 ? `${totals.areaPlantada.toLocaleString("pt-BR")} ha plantados` : "nenhuma área plantada ainda"} />
-        <StatCard label="Visitas · 7 dias" value={totals.visitsWeek} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Manrope', sans-serif", fontSize: 17.5, fontWeight: 800, color: "var(--ink)", margin: "0 0 4px" }}>Painel geral</h2>
+          <p style={{ color: "var(--ink-dim)", fontSize: 11, margin: 0 }}>Safras em andamento · {clients.length} clientes · {properties.length} propriedades · {fields.length} talhões</p>
+        </div>
       </div>
 
-      {isFinance && monthFinanceSummary && (
-        <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
-          <StatCard label={`Entradas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalRecebido)} accent="var(--green)"
-            sub={monthFinanceSummary.totalPendente > 0 ? `${fmtCurrency(monthFinanceSummary.totalPendente)} pendente` : "tudo recebido"} />
-          <StatCard label={`Saídas previstas · ${monthLabel}`} value={fmtCurrency(monthFinanceSummary.totalSaidasPrevistas)} accent="var(--gold)"
-            sub={`Pró-labore do mês anterior ${fmtCurrency(monthFinanceSummary.totalProLaboreCaixa)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasDoMes)}`} />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 9.5, color: "var(--ink-faint)", marginRight: 2 }}>Cultura</span>
+        {["Todas", "Soja", "Milho"].map((c) => chip(cultura === c, c, () => { setCultura(c); setClienteSel(null); }))}
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 14 }}>
+        <span style={{ fontSize: 9.5, color: "var(--ink-faint)", marginRight: 2 }}>Gestor</span>
+        {chip(gestorSel === "Todos", "Todos", () => { setGestorSel("Todos"); setClienteSel(null); })}
+        {gestoresLista.map((g) => chip(gestorSel === g.id, g.nome.split(" ")[0], () => { setGestorSel(g.id); setClienteSel(null); }))}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap" }}>
+        <StatCard label="Clientes" value={clientesR.size} sub="com safra ativa" />
+        <StatCard label="Safras ativas" value={R.length} accent="var(--green)" sub="talhões em andamento" />
+        <StatCard label="Área plantada" value={Math.round(areaR).toLocaleString("pt-BR") + " ha"} sub={R.length ? `${Math.round(areaR / R.length).toLocaleString("pt-BR")} ha por talhão` : "—"} />
+        <StatCard label="Visitas em dia" value={`${emDia} de ${clientesAcomp.length}`} accent={atrasados.length ? "var(--gold)" : "var(--green)"} sub={`${atrasados.length} atrasada(s) · ${totals.visitsWeek} visitas em 7 dias`} />
+      </div>
+
+      {clienteInfo && (
+        <div style={{ background: "var(--blue-bg)", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <strong style={{ fontSize: 13, color: "var(--ink)" }}>{clienteInfo.c.name}</strong>
+            <button onClick={() => setClienteSel(null)} style={{ ...iconBtnStyle, padding: 4 }} aria-label="Fechar"><X size={14} /></button>
+          </div>
+          <div style={{ fontSize: 10.5, color: "var(--ink-soft)", lineHeight: 1.6 }}>
+            {Object.keys(clienteInfo.faz).length ? Object.entries(clienteInfo.faz).map(([f, n]) => `${f} (${n} talhão${n > 1 ? "s" : ""})`).join(" · ") : "Nenhuma safra em andamento"}
+            <br />{Math.round(clienteInfo.ha).toLocaleString("pt-BR")} ha · gestor {clienteInfo.c.gestorName || "—"} · última visita: {clienteInfo.c.lastVisitDate ? `${fmtDate(clienteInfo.c.lastVisitDate)} (${diasDesde(clienteInfo.c.lastVisitDate)} dias)` : "sem visitas"}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <GhostBtn onClick={() => onOpenClient && onOpenClient(clienteInfo.c.id)}>Abrir cadastro</GhostBtn>
+            {onAddVisit && <GhostBtn onClick={() => onAddVisit(clienteInfo.c.id)}><Plus size={13} /> Registrar visita</GhostBtn>}
+          </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 18, alignItems: "stretch", marginBottom: 24, flexWrap: "wrap" }}>
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Área por cultura</div>
-          {totals.areaPlantada === 0 ? (
-            <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma safra em andamento ainda.</div>
-          ) : (
-            <>
-              <div style={{ display: "flex", height: 14, borderRadius: 7, overflow: "hidden", marginBottom: 10 }}>
-                <div style={{ width: pctSoja + "%", background: CULTURE_META.Soja.color }} />
-                <div style={{ width: (100 - pctSoja) + "%", background: CULTURE_META.Milho.color }} />
-              </div>
-              <div style={{ display: "flex", gap: 18, fontSize: 10.5 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-soft)" }}>
-                  <span style={{ width: 9, height: 9, borderRadius: 3, background: CULTURE_META.Soja.color, display: "inline-block" }} />
-                  Soja — {totals.areaSoja.toLocaleString("pt-BR")} ha
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ink-soft)" }}>
-                  <span style={{ width: 9, height: 9, borderRadius: 3, background: CULTURE_META.Milho.color, display: "inline-block" }} />
-                  Milho — {totals.areaMilho.toLocaleString("pt-BR")} ha
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, flex: 1, minWidth: 260 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 12 }}>Visita semanal por gestor</div>
-          {lateClients.length === 0 ? (
-            <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Todos os clientes estão em dia com a visita semanal.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {lateClients.map((c) => (
-                <div
-                  key={c.id}
-                  onClick={() => onOpenClient && onOpenClient(c.id)}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: onOpenClient ? "pointer" : "default" }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-                    {c.gestorName && <Avatar name={c.gestorName} url={c.gestorAvatar} size={26} />}
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 10.5, color: "var(--ink-soft)", fontWeight: 600 }}>{c.name}</div>
-                      <div style={{ fontSize: 9.5, color: "var(--ink-faint)" }}>
-                        {c.gestorName ? `Gestor: ${c.gestorName}` : "Sem gestor definido"}
-                        {c.lastVisitDate ? ` · última visita ${fmtDate(c.lastVisitDate)}` : ""}
-                      </div>
-                    </div>
-                  </div>
-                  <VisitStatusBadge status={c.visitStatus} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14 }}>
+        <div style={cardStyle}>
+          {titulo("Área por cultura")}
+          {Object.keys(porCultura).length === 0 ? vazio("Nenhuma safra com esses filtros.") : Object.entries(porCultura).map(([k, ha]) => {
+            const pct = areaR ? (ha / areaR) * 100 : 0;
+            const cor = CULTURE_META[k]?.color || "var(--green)";
+            return (
+              <div key={k} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 4 }}>
+                  <span><span style={{ color: cor }}>●</span> {k}</span><span>{Math.round(ha).toLocaleString("pt-BR")} ha · {Math.round(pct)}%</span>
                 </div>
-              ))}
+                {barra(pct, cor)}
+              </div>
+            );
+          })}
+        </div>
+        <div style={cardStyle}>
+          {titulo("Visitas da semana por gestor")}
+          {porGestor.length === 0 ? vazio("Sem clientes com mapa (KML) nesses filtros.") : porGestor.map((g) => {
+            const pct = g.n ? (g.ok / g.n) * 100 : 0;
+            return (
+              <div key={g.nome} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10.5, color: "var(--ink-soft)", marginBottom: 4 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 7 }}><Avatar name={g.nome} url={g.avatar} size={20} />{g.nome}</span><span>{g.ok} de {g.n}</span>
+                </div>
+                {barra(pct, pct >= 70 ? "var(--green-solid)" : pct >= 40 ? "var(--gold)" : "var(--red)")}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14 }}>
+        <div style={cardStyle}>
+          {titulo("Mapa das fazendas", "clique num talhão")}
+          {camposMapa.length === 0 ? vazio("Nenhum talhão com mapa (KML) nesses filtros.") : (
+            <div style={{ height: 190, borderRadius: 8, overflow: "hidden", border: "1px solid var(--border)" }}>
+              <MapContainer key={`${cultura}-${gestorSel}`} bounds={camposMapa.flatMap((f) => f.fieldMap.points.map(([a, b]) => [a, b]))} boundsOptions={{ padding: [16, 16] }}
+                style={{ height: "100%", width: "100%" }} scrollWheelZoom={false} zoomControl={false} attributionControl={false}>
+                <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                {camposMapa.map((f) => {
+                  const cor = CULTURE_META[f.activeHarvest?.culture]?.color || "var(--green)";
+                  return (
+                    <Polygon key={f.id} positions={f.fieldMap.points.map(([a, b]) => [a, b])}
+                      pathOptions={{ color: "#FFFFFF", weight: 1.2, fillColor: cor, fillOpacity: 0.6 }}
+                      eventHandlers={{ click: () => setClienteSel(f.clientId) }} />
+                  );
+                })}
+              </MapContainer>
             </div>
+          )}
+          <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: "var(--ink-faint)", marginTop: 6 }}>
+            <span><span style={{ color: CULTURE_META.Soja.color }}>●</span> Soja</span><span><span style={{ color: CULTURE_META.Milho.color }}>●</span> Milho</span>
+          </div>
+        </div>
+        <div style={cardStyle}>
+          {titulo("Chuva", chuva ? `${Math.round(passados.reduce((a, b) => a + b, 0))} mm caíram · ${Math.round(futuros.reduce((a, b) => a + b, 0))} mm previstos` : "")}
+          {!chuva ? vazio("Carregando a chuva…") : (
+            <svg viewBox="0 0 300 120" width="100%" role="img" aria-label="Chuva dos últimos 7 dias e previsão dos próximos 7" style={{ display: "block" }}>
+              {[...passados, ...futuros].map((v, i) => {
+                const fut = i >= 7, h = (v / maxChuva) * 70, x = 8 + i * 20.5;
+                const dia = new Date(`${chuva.dias[i]}T12:00:00`).getDay();
+                return (
+                  <g key={i}>
+                    <rect x={x} y={86 - h} width="15" height={Math.max(h, 1)} rx="2" fill={fut ? "#85B7EB" : "#185FA5"} />
+                    {v > 0 && <text x={x + 7.5} y={82 - h} textAnchor="middle" fontSize="10" fill="var(--ink-soft)">{Math.round(v)}</text>}
+                    <text x={x + 7.5} y="100" textAnchor="middle" fontSize="10" fill="var(--ink-faint)">{dsem[dia]}</text>
+                  </g>
+                );
+              })}
+              <line x1="148" y1="10" x2="148" y2="104" stroke="var(--ink-faint)" opacity=".4" strokeDasharray="3 3" />
+              <text x="78" y="114" textAnchor="middle" fontSize="10" fill="var(--ink-faint)">últimos 7 dias</text>
+              <text x="222" y="114" textAnchor="middle" fontSize="10" fill="var(--ink-faint)">hoje e próximos 6</text>
+            </svg>
           )}
         </div>
       </div>
 
-      <FieldsOverviewMap fields={fields} onOpenField={onOpenField} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14 }}>
+        <div style={cardStyle}>
+          {titulo("Área plantada por semana (ha)")}
+          {porSemana.length === 0 ? vazio("Sem plantios com esses filtros.") : (
+            <svg viewBox="0 0 300 130" width="100%" role="img" aria-label="Área plantada por semana" style={{ display: "block" }}>
+              {porSemana.map((s, i) => {
+                const bw = Math.min(40, 270 / porSemana.length - 8), h = (s.ha / maxSemana) * 86, x = 14 + i * (bw + 8);
+                return (
+                  <g key={s.k}>
+                    <rect x={x} y={100 - h} width={bw} height={h} rx="3" fill="#3E8E2F" opacity=".85" />
+                    <text x={x + bw / 2} y={94 - h} textAnchor="middle" fontSize="11" fill="var(--ink-soft)">{Math.round(s.ha).toLocaleString("pt-BR")}</text>
+                    <text x={x + bw / 2} y="116" textAnchor="middle" fontSize="10.5" fill="var(--ink-faint)">{s.k.slice(8, 10)}/{s.k.slice(5, 7)}</text>
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+        </div>
+        <div style={cardStyle}>
+          {titulo("Atenção", "visita há mais de 7 dias")}
+          {atrasados.length === 0 ? <div style={{ ...linha, border: 0, color: "var(--green)" }}>Todas as visitas em dia</div> : atrasados.slice(0, 6).map((c) => {
+            const d = diasDesde(c.lastVisitDate);
+            const forte = d === null || d > 14;
+            return (
+              <div key={c.id} style={linha}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                  {c.gestorName && <Avatar name={c.gestorName} url={c.gestorAvatar} size={18} />}{nomeCliente(c.id, c.name)}
+                </span>
+                <span style={{ fontSize: 9.5, padding: "1px 8px", borderRadius: 99, whiteSpace: "nowrap", background: forte ? "var(--red-bg)" : "var(--gold-bg)", color: forte ? "var(--red)" : "var(--gold-text)" }}>
+                  {d === null ? "sem visitas" : `${d} dias`}
+                </span>
+              </div>
+            );
+          })}
+          {atrasados.length > 6 && <div style={{ fontSize: 9.5, color: "var(--ink-faint)", paddingTop: 6 }}>+ {atrasados.length - 6} clientes</div>}
+        </div>
+      </div>
 
-      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 18, marginTop: 24 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--ink-soft)", marginBottom: 10 }}>Visitas recentes</div>
-        {recentVisits.length === 0 ? (
-          <div style={{ color: "var(--ink-faint)", fontSize: 10.5 }}>Nenhuma visita registrada ainda.</div>
-        ) : (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14 }}>
+        <div style={cardStyle}>
+          {titulo("Próximas aplicações de fungicida")}
+          {proximasAplic.length === 0 ? vazio("Nenhuma aplicação programada. Inclua talhões em Aplicações.") : proximasAplic.map((x) => (
+            <div key={x.h.id} style={linha}>
+              <span>{nomeCliente(x.h.clientId, x.h.clientName)} <span style={{ color: "var(--ink-faint)" }}>· {x.h.fieldName} · {x.n}ª aplic.</span></span>
+              <span style={{ fontSize: 9.5, padding: "1px 8px", borderRadius: 99, whiteSpace: "nowrap", background: "var(--blue-bg)", color: "var(--blue)" }}>{x.dias <= 0 ? "hoje" : `em ${x.dias} dias`} · {fmtDate(x.prox).slice(0, 5)}</span>
+            </div>
+          ))}
+        </div>
+        <div style={cardStyle}>
+          {titulo("Colheita prevista")}
+          {colheitas.length === 0 ? vazio("Sem colheita estimada (falta cultivar ou plantio).") : colheitas.map((h) => (
+            <div key={h.id} style={linha}>
+              <span>{nomeCliente(h.clientId, h.clientName)} <span style={{ color: "var(--ink-faint)" }}>· {h.fieldName} · {h.culture}</span></span>
+              <span style={{ color: "var(--ink-dim)", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(h.harvestDate || h.estimatedHarvestDate).slice(0, 5)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {isFinance && monthFinanceSummary && (
+        <div style={{ ...cardStyle, marginBottom: 14 }}>
+          {titulo(`Financeiro · ${monthLabel}`, "só master e administrador")}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "stretch" }}>
+            <StatCard label="Entradas recebidas" value={valor(fmtCurrency(monthFinanceSummary.totalRecebido))} accent="var(--green)" sub={valor(`de ${fmtCurrency(monthFinanceSummary.totalEntradasPrevistas)} previstas`)} />
+            <StatCard label="Saídas previstas" value={valor(fmtCurrency(monthFinanceSummary.totalSaidasPrevistas))} accent="var(--gold)" sub={valor(`pró-labore do mês anterior ${fmtCurrency(monthFinanceSummary.totalProLaboreCaixa)} + despesas ${fmtCurrency(monthFinanceSummary.totalDespesasDoMes)}`)} />
+            <StatCard label="Saldo previsto" value={valor(fmtCurrency(monthFinanceSummary.totalEntradasPrevistas - monthFinanceSummary.totalSaidasPrevistas))} accent={monthFinanceSummary.totalEntradasPrevistas - monthFinanceSummary.totalSaidasPrevistas < 0 ? "var(--red)" : "var(--ink)"} sub="entradas − saídas" />
+            <StatCard label="Boletos em aberto" value={valor(String(boletosAbertos.length))} sub={valor(`${fmtCurrency(boletosAbertos.reduce((s, f) => s + Number(f.amount || 0), 0))} a receber`)} />
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <GhostBtn onClick={() => setVerValores(!verValores)} style={{ fontSize: 10, padding: "5px 10px" }}>{verValores ? "Ocultar valores" : "Mostrar valores"}</GhostBtn>
+          </div>
+        </div>
+      )}
+
+      <div style={cardStyle}>
+        {titulo("Visitas recentes")}
+        {recentVisits.length === 0 ? vazio("Nenhuma visita registrada ainda.") : (
           <div style={{ overflowX: "auto" }}>
-          <table>
-            <thead><tr><th>Data</th><th>Cliente / Propriedade / Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th></tr></thead>
-            <tbody>
-              {recentVisits.map((v) => (
-                <tr key={v.id}>
-                  <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(v.date)}</td>
-                  <td>{v.clientName} <span style={{ color: "var(--ink-faint)" }}>· {v.propertyName} · {v.fieldName}</span></td>
-                  <td>{v.culture && <CultureBadge culture={v.culture} />}</td>
-                  <td>{v.culture && <StageProgress culture={v.culture} stage={v.stage} />}</td>
-                  <td>{v.technician}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            <table>
+              <thead><tr><th>Data</th><th>Cliente / Propriedade / Talhão</th><th>Cultura</th><th>Estágio</th><th>Técnico</th></tr></thead>
+              <tbody>
+                {recentVisits.map((v) => (
+                  <tr key={v.id}>
+                    <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{fmtDate(v.date)}</td>
+                    <td>{v.clientName} <span style={{ color: "var(--ink-faint)" }}>· {v.propertyName} · {v.fieldName}</span></td>
+                    <td>{v.culture && <CultureBadge culture={v.culture} />}</td>
+                    <td>{v.culture && <StageProgress culture={v.culture} stage={v.stage} />}</td>
+                    <td>{v.technician}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
