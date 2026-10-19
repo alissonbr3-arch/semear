@@ -1508,8 +1508,8 @@ export default function AgroTrackApp() {
   const currentMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const monthFinanceSummary = useMemo(() => {
     if (!isFinance) return null;
-    return computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: currentMonth });
-  }, [isFinance, finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentMonth]);
+    return computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month: currentMonth });
+  }, [isFinance, finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, currentMonth]);
 
   const NAV = [
     { id: "dashboard", label: "Painel", icon: LayoutDashboard },
@@ -1943,7 +1943,7 @@ export default function AgroTrackApp() {
         {view === "financeiro" && isFinance && (
           <FinanceiroView
             finances={finances} bonuses={bonuses} bills={bills} settings={settings}
-            clients={clients} team={team} properties={properties} fields={fields} ajudaCusto={ajudaCusto} currentUserId={profile?.id}
+            clients={clients} team={team} properties={properties} fields={fields} ajudaCusto={ajudaCusto} serviceTypes={serviceTypes} currentUserId={profile?.id}
             onAddFinance={() => setModal({ type: "finance", data: null })}
             onEditFinance={(f) => setModal({ type: "finance", data: f })}
             onDeleteFinance={deleteFinance}
@@ -2113,7 +2113,7 @@ export default function AgroTrackApp() {
         />
       )}
       {modal?.type === "finance" && (
-        <FinanceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} revenueCategories={revenueCategories} onSave={saveFinance} onClose={() => setModal(null)} />
+        <FinanceModal data={modal.data} clients={clients} team={team} serviceTypes={serviceTypes} revenueCategories={revenueCategories} taxaPadrao={settings.projectShareRate} onSave={saveFinance} onClose={() => setModal(null)} />
       )}
       {modal?.type === "bonus" && (
         <BonusModal data={modal.data} team={team} clients={clients} onSave={saveBonus} onClose={() => setModal(null)} />
@@ -8260,6 +8260,7 @@ function ConfiguracoesView({
             { key: "name", label: "Tipo de serviço" },
             { key: "cobranca", label: "Forma de cobrança", render: (t) => SERVICE_COBRANCA_LABELS[t.cobranca] || "—" },
             { key: "valores", label: "Valores", render: (t) => serviceCobrancaSummary(t) },
+            { key: "percentualGestor", label: "Pró-labore do gestor", render: (t) => (t.percentualGestor !== undefined && t.percentualGestor !== null && t.percentualGestor !== "" ? `${Number(t.percentualGestor).toLocaleString("pt-BR")}%` : "padrão") },
           ]}
           emptyTitle="Nenhum tipo cadastrado"
           emptySub="Cadastre os tipos de serviço oferecidos (Assistência Técnica, Projeto de Custeio, etc.) e como cada um é cobrado, para usar em Serviços."
@@ -8853,7 +8854,15 @@ function matchBankTransactions(transactions, finances, bills, categoryMemory) {
   return [...credits, ...debits].sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || ""));
 }
 
-function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month, _semMesAnterior = false }) {
+// % do honorário que vira pró-labore do gestor responsável: o do tipo de serviço (Configurações →
+// Tipos de Serviço), ou o padrão da aba Pró-labore quando o tipo não define um.
+function taxaGestorDoTipo(tipo, serviceTypes, settings) {
+  const t = (serviceTypes || []).find((x) => x.name === tipo || x.name === FINANCE_TYPE_LABELS[tipo]);
+  const v = t?.percentualGestor;
+  return v === undefined || v === null || v === "" || Number.isNaN(Number(v)) ? Number(settings?.projectShareRate || 0) : Number(v);
+}
+
+function computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month, _semMesAnterior = false }) {
   const monthFinances = finances.filter((f) => f.referenceMonth === month);
   const totalRecebido = monthFinances.filter((f) => f.status === "pago").reduce((s, f) => s + Number(f.amount), 0);
   const totalPendente = monthFinances.filter((f) => f.status === "pendente").reduce((s, f) => s + Number(f.amount), 0);
@@ -8899,7 +8908,7 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
     .forEach((f) => {
       const gestorId = f.responsibleGestorId || gestorByClientId[f.clientId];
       if (!gestorId) return;
-      projectShareByGestor[gestorId] = (projectShareByGestor[gestorId] || 0) + Number(f.amount) * (Number(settings.projectShareRate || 0) / 100);
+      projectShareByGestor[gestorId] = (projectShareByGestor[gestorId] || 0) + Number(f.amount) * (taxaGestorDoTipo(f.type, serviceTypes, settings) / 100);
     });
 
   const proLaboreRows = team.map((t) => {
@@ -8921,7 +8930,7 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
   const totalProLaboreCaixaPago = proLaboreBillsDoMes.filter((b) => b.status === "pago").reduce((s, b) => s + Number(b.amount), 0);
   if (!_semMesAnterior) {
     const mesAnterior = addMonthsToReferenceMonth(month, -1);
-    const anterior = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: mesAnterior, _semMesAnterior: true });
+    const anterior = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month: mesAnterior, _semMesAnterior: true });
     const jaGerados = new Set((bills || []).filter((b) => b.proLaboreMonth === mesAnterior).map((b) => b.proLaboreGestorId));
     totalProLaboreCaixa += anterior.proLaboreRows.filter((r) => r.total > 0 && !jaGerados.has(r.gestor.id)).reduce((s, r) => s + r.total, 0);
   }
@@ -9658,6 +9667,12 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
       <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
 Ao marcar como "Finalizado", gera um honorário Pendente em Financeiro (aparece em Entradas Previstas e no Extrato, com data do vencimento). Ao marcar como "Recebido", esse honorário vira Pago e conta como pró-labore pro gestor responsável escolhido acima. Voltar pra "Em negociação"/"Em andamento" ou editar o serviço atualiza/remove o honorário automaticamente.
       </div>
+      <Field label="Pró-labore do gestor responsável (% do honorário pago)">
+        <input type="number" style={inputStyle} value={form.percentualGestor ?? ""} onChange={(e) => setForm({ ...form, percentualGestor: e.target.value })} placeholder="Vazio = usa o padrão da aba Pró-labore" />
+      </Field>
+      <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: -8, marginBottom: 8 }}>
+        Quanto do honorário deste serviço, depois de pago, vira pró-labore do gestor responsável pelo projeto. Ex: 30 para Coleta de solo.
+      </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
         <GhostBtn onClick={onClose}>Cancelar</GhostBtn>
         <PrimaryBtn onClick={() => canSave && onSave(form)} disabled={!canSave} style={!canSave ? { opacity: 0.5, cursor: "not-allowed" } : {}}>Salvar</PrimaryBtn>
@@ -9714,7 +9729,7 @@ function ServiceTypeModal({ data, onSave, onClose }) {
 }
 
 function FinanceiroView({
-  finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, currentUserId,
+  finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, currentUserId,
   onAddFinance, onEditFinance, onDeleteFinance, onGerarBoleto, onGerarNotaFiscal, onEnviarWhatsapp, onTesteWhatsapp, onChangeWhatsappCobranca, onToggleMovementStatus,
   onAddBonus, onEditBonus, onDeleteBonus,
   onAddBill, onEditBill, onDeleteBill,
@@ -9754,8 +9769,8 @@ function FinanceiroView({
   const [fluxoPeriodo, setFluxoPeriodo] = useState("mensal");
 
   const summary = useMemo(
-    () => computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month }),
-    [finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month]
+    () => computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month }),
+    [finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month]
   );
   const monthFinances = [...summary.monthFinances].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const { totalRecebido, totalPendente } = summary;
@@ -9799,7 +9814,7 @@ function FinanceiroView({
     const result = [];
     for (let i = 11; i >= 0; i--) {
       const m = addMonthsToReferenceMonth(month, -i);
-      const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: m });
+      const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month: m });
       const [y, mm] = m.split("-").map(Number);
       const label = new Date(y, mm - 1, 1).toLocaleDateString("pt-BR", { month: "short" }).replace(".", "");
       result.push({ month: m, label, entradas: s.totalEntradasPrevistas, saidas: s.totalSaidasPrevistas });
@@ -9815,7 +9830,7 @@ function FinanceiroView({
       let entradas = 0, saidas = 0;
       for (let mm = 1; mm <= 12; mm++) {
         const m = `${y}-${String(mm).padStart(2, "0")}`;
-        const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, month: m });
+        const s = computeMonthFinanceSummary({ finances, bonuses, bills, settings, clients, team, properties, fields, ajudaCusto, serviceTypes, month: m });
         entradas += s.totalEntradasPrevistas;
         saidas += s.totalSaidasPrevistas;
       }
@@ -10317,11 +10332,12 @@ function FinanceiroView({
               <div style={{ fontSize: 9.5, color: "var(--ink-faint)", marginTop: 6 }}>= {fmtCurrency((Number(rateInput) || 0) / 12)}/ha/mês</div>
             </div>
             <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
-              <div style={{ fontSize: 9.5, color: "var(--ink-dim)", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>De projetos (% dos honorários pagos)</div>
+              <div style={{ fontSize: 9.5, color: "var(--ink-dim)", fontWeight: 600, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".03em" }}>De projetos — % padrão dos honorários pagos</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <input type="number" style={{ ...inputStyle, width: 100 }} value={projectRateInput} onChange={(e) => setProjectRateInput(e.target.value)} />
                 <GhostBtn onClick={() => onChangeProjectRate(Number(projectRateInput) || 0)}>Salvar</GhostBtn>
               </div>
+              <div style={{ fontSize: 9, color: "var(--ink-faint)", marginTop: 6, maxWidth: 190 }}>Vale pros serviços sem % próprio. Cada serviço pode ter o seu em Configurações → Tipos de Serviço.</div>
             </div>
           </div>
 
@@ -10444,7 +10460,7 @@ function FinanceiroView({
   );
 }
 
-function FinanceModal({ data, clients, team, serviceTypes, revenueCategories, onSave, onClose }) {
+function FinanceModal({ data, clients, team, serviceTypes, revenueCategories, taxaPadrao, onSave, onClose }) {
   const isEdit = !!data?.id;
   const [form, setForm] = useState({
     clientId: clients[0]?.id || "", amount: "", date: new Date().toISOString().slice(0, 10),
@@ -10498,7 +10514,7 @@ function FinanceModal({ data, clients, team, serviceTypes, revenueCategories, on
         </Field>
       )}
       <div style={{ fontSize: 10, color: "var(--ink-faint)", marginTop: -6, marginBottom: 8 }}>
-        Honorários que não sejam "Mensalidade" pagos geram automaticamente pró-labore pro gestor responsável escolhido acima, na aba Pró-labore.
+        Honorários que não sejam "Mensalidade" pagos geram automaticamente pró-labore pro gestor responsável escolhido acima, na aba Pró-labore — {taxaGestorDoTipo(form.type, serviceTypes, { projectShareRate: taxaPadrao }).toLocaleString("pt-BR")}% do valor para este tipo.
       </div>
       <Field label="Valor (R$)">
         <input type="number" style={inputStyle} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="Ex: 1500" />
