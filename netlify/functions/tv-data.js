@@ -5,6 +5,12 @@
 // Devolve apenas o que a TV mostra — nada de financeiro, telefone ou e-mail.
 import { createClient } from "@supabase/supabase-js";
 
+// Rádios da TV (a primeira toca por padrão). Dá pra trocar a lista em tvConfig.radios.
+const RADIOS_PADRAO = [
+  { name: "Groove Salad (SomaFM)", url: "https://ice2.somafm.com/groovesalad-128-aac" },
+  { name: "Jovem Pan Floripa", url: "https://live.paineldj.com.br/proxy/jfloripa?mp=/stream" },
+];
+
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -65,7 +71,7 @@ export const handler = async (event) => {
     generatedAt: new Date().toISOString(),
     cotacoes,
     avisos: Array.isArray(config.avisos) ? config.avisos : [],
-    radio: config.radio === false ? null : (config.radio || { name: "Groove Salad (SomaFM)", url: "https://ice2.somafm.com/groovesalad-128-aac" }),
+    radios: config.radio === false ? [] : (Array.isArray(config.radios) && config.radios.length ? config.radios : RADIOS_PADRAO),
     team,
     clients: clients.map((c) => ({ id: c.id, name: maskName(c.name), gestorId: c.gestorId || null })),
     properties: properties.map((p) => ({ id: p.id, clientId: p.clientId, name: config?.mask ? "" : p.name })),

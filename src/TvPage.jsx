@@ -695,7 +695,16 @@ export default function TvPage() {
 
   // Música de fundo: o navegador só libera som depois do primeiro clique/tecla na página
   // (regra de autoplay). Tenta tocar sozinho e, se bloquear, o primeiro toque liga.
-  const radioUrl = data?.radio?.url || "";
+  const radios = data?.radios || [];
+  const [radioIdx, setRadioIdx] = useState(() => { try { return Number(localStorage.getItem("semear_tv_radio")) || 0; } catch { return 0; } });
+  const radio = radios.length ? radios[radioIdx % radios.length] : null;
+  const radioUrl = radio?.url || "";
+  function trocarRadio() {
+    const prox = (radioIdx + 1) % Math.max(1, radios.length);
+    setRadioIdx(prox);
+    setSoundOn(true);
+    try { localStorage.setItem("semear_tv_radio", String(prox)); localStorage.setItem("semear_tv_som", "on"); } catch {}
+  }
   useEffect(() => {
     const a = audioRef.current;
     if (!a || !radioUrl) return;
@@ -790,9 +799,16 @@ export default function TvPage() {
         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#FAC775" }}>{aviso}</span>
         {offline && <span style={{ color: "#F09595", whiteSpace: "nowrap" }}>sem conexão — mostrando últimos dados</span>}
         {radioUrl && (
-          <button onClick={(e) => { e.stopPropagation(); toggleSound(); }} style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#EDEBE0", borderRadius: 99, padding: "0.2em 0.9em", fontSize: "0.85em", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
-            {!soundOn ? "🔇 Música desligada" : needsClick ? "🔈 Toque para ativar a música" : `🎵 ${data.radio.name}`}
-          </button>
+          <span style={{ display: "flex", gap: "0.4em", alignItems: "center" }}>
+            <button onClick={(e) => { e.stopPropagation(); toggleSound(); }} style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#EDEBE0", borderRadius: 99, padding: "0.2em 0.9em", fontSize: "0.85em", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
+              {!soundOn ? "🔇 Música desligada" : needsClick ? "🔈 Toque para ativar a música" : `🎵 ${radio.name}`}
+            </button>
+            {radios.length > 1 && (
+              <button onClick={(e) => { e.stopPropagation(); trocarRadio(); }} title="Trocar de rádio" style={{ background: "rgba(255,255,255,.12)", border: "none", color: "#EDEBE0", borderRadius: 99, padding: "0.2em 0.7em", fontSize: "0.85em", fontFamily: "inherit", cursor: "pointer", whiteSpace: "nowrap" }}>
+                ⇄ {radios[(radioIdx + 1) % radios.length].name.split(" (")[0]}
+              </button>
+            )}
+          </span>
         )}
         <span style={{ display: "flex", gap: "0.5em" }}>
           {SCENES.map((s, i) => (
