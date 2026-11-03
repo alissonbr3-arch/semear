@@ -8985,6 +8985,14 @@ const SERVICE_STATUS = [
 ];
 const SERVICE_PERIODICIDADE_LABELS = { unica: "Única", mensal: "Mensal", anual: "Anual" };
 const DEFAULT_SERVICE_TYPES = ["Assistência Técnica", "Projeto de Custeio", "Projeto de Investimento", "Análise de Solo", "Limite de Crédito"];
+
+// Só os tipos cadastrados em Configurações (os padrão só quando não há nenhum), pra não aparecer um
+// "Análise de Solo" sem % ao lado do tipo renomeado. O valor atual entra se for de um lançamento antigo.
+function tiposDeServico(serviceTypes, atual) {
+  const nomes = (serviceTypes || []).map((t) => t.name);
+  const base = nomes.length ? nomes : DEFAULT_SERVICE_TYPES;
+  return atual && !base.includes(atual) ? [...base, atual] : base;
+}
 const DEFAULT_ESTOQUE_CATEGORIAS = ["Sementes", "Fertilizantes", "Defensivos", "Combustível", "Peças e Manutenção", "Outros"];
 
 function ServiceStatusBadge({ status }) {
@@ -9542,7 +9550,7 @@ function ServiceModal({ data, clients, team, serviceTypes, services, onSave, onC
     return f;
   });
   const [cobrando, setCobrando] = useState(false);
-  const tipoOptions = Array.from(new Set([...(serviceTypes || []).map((t) => t.name), ...DEFAULT_SERVICE_TYPES]));
+  const tipoOptions = tiposDeServico(serviceTypes, form.tipo);
   const selectedType = (serviceTypes || []).find((t) => t.name === form.tipo);
 
   function applyTipo(tipoName) {
@@ -10468,7 +10476,7 @@ function FinanceModal({ data, clients, team, serviceTypes, revenueCategories, ta
     responsibleGestorId: "", recurring: false,
     ...(data || {}),
   });
-  const tipoOptions = Array.from(new Set([...(serviceTypes || []).map((t) => t.name), ...DEFAULT_SERVICE_TYPES]));
+  const tipoOptions = tiposDeServico(serviceTypes, form.type).filter((n) => n !== "mensalidade" && n !== "outros");
   const canSave = form.clientId && Number(form.amount) > 0 && form.date
     && (form.type === "mensalidade" || form.responsibleGestorId);
   const needsResponsible = form.type !== "mensalidade";
