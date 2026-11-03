@@ -6277,7 +6277,21 @@ function PropertyDetail({ property, fields, ajudaCusto, onBack, onAddField, onEd
   );
 }
 
-function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, onDelete, onOpen, hasProperties }) {
+function TalhoesView({ fields: allFields, cultureFilter, setCultureFilter, onAdd, onEdit, onDelete, onOpen, hasProperties }) {
+  const [busca, setBusca] = useState("");
+  const [clienteFiltro, setClienteFiltro] = useState("");
+  const [fazendaFiltro, setFazendaFiltro] = useState("");
+  const ordena = (arr) => Array.from(new Set(arr.filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const clientesOpcoes = ordena(allFields.map((f) => f.clientName));
+  const fazendasOpcoes = ordena(allFields.filter((f) => !clienteFiltro || f.clientName === clienteFiltro).map((f) => f.propertyName));
+  const norm = (t) => (t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const termo = norm(busca.trim());
+  const fields = allFields.filter((f) =>
+    (!clienteFiltro || f.clientName === clienteFiltro)
+    && (!fazendaFiltro || f.propertyName === fazendaFiltro)
+    && (!termo || norm(`${f.name} ${f.propertyName} ${f.clientName} ${f.activeHarvest?.variety || ""}`).includes(termo)));
+  const filtrando = busca || clienteFiltro || fazendaFiltro;
+  const selectFiltro = { ...inputStyle, width: "auto", minWidth: 180, padding: "7px 10px", fontSize: 10.5 };
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, gap: 12 }}>
@@ -6291,7 +6305,7 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
           <AlertTriangle size={15} /> Cadastre uma propriedade antes de adicionar talhões.
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {["Todas", "Soja", "Milho"].map((c) => (
           <button key={c} onClick={() => setCultureFilter(c)} style={{
             padding: "7px 14px", borderRadius: 20, border: "1px solid " + (cultureFilter === c ? "var(--green-deep)" : "var(--border)"),
@@ -6299,7 +6313,25 @@ function TalhoesView({ fields, cultureFilter, setCultureFilter, onAdd, onEdit, o
             fontSize: 10.5, fontWeight: 600, cursor: "pointer"
           }}>{c}</button>
         ))}
+        <div style={{ flex: 1 }} />
+        <input style={{ ...selectFiltro, minWidth: 200 }} value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar talhão, fazenda, variedade…" />
+        <select style={selectFiltro} value={clienteFiltro} onChange={(e) => { setClienteFiltro(e.target.value); setFazendaFiltro(""); }}>
+          <option value="">Todos os clientes</option>
+          {clientesOpcoes.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <select style={selectFiltro} value={fazendaFiltro} onChange={(e) => setFazendaFiltro(e.target.value)}>
+          <option value="">Todas as fazendas</option>
+          {fazendasOpcoes.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {filtrando && (
+          <button onClick={() => { setBusca(""); setClienteFiltro(""); setFazendaFiltro(""); }} style={{ ...iconBtnStyle, fontSize: 10.5, padding: "7px 12px" }}>Limpar</button>
+        )}
       </div>
+      {fields.length > 0 && (
+        <div style={{ fontSize: 10.5, color: "var(--ink-dim)", marginBottom: 10 }}>
+          {fields.length} {fields.length === 1 ? "talhão" : "talhões"} · {fields.reduce((s, f) => s + fieldAreaHa(f), 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} ha
+        </div>
+      )}
       {fields.length === 0 ? (
         <EmptyState icon={Sprout} title="Nenhum talhão encontrado" sub="Ajuste o filtro ou cadastre um novo talhão." />
       ) : (
