@@ -615,8 +615,8 @@ export default function AgroTrackApp() {
   // Mês virou, pró-labore de projetos fechou: nada que mude os honorários pagos de projeto de um mês
   // anterior passa (lançar, editar, apagar, marcar pago/pendente). Devolve false quando bloqueia.
   function persistFinances(data) {
-    if (mudaProLaboreFechado(finances, data)) {
-      alert("O pró-labore de projetos de meses anteriores já está fechado. Lance este honorário no mês atual.");
+    if (mudaProLaboreFechado(finances, data, bills)) {
+      alert("O pró-labore de projetos deste mês já está fechado (o mês virou ou as despesas de pró-labore já foram geradas). Lance este honorário no mês atual. Se precisar mesmo corrigir, apague antes a despesa de pró-labore gerada em Despesas.");
       return false;
     }
     setFinances(data);
@@ -826,6 +826,7 @@ export default function AgroTrackApp() {
         recurring: false,
         proLaboreMonth: month,
         proLaboreGestorId: r.gestor.id,
+        proLaboreSnapshot: { areaHa: r.areaHa, base: r.base, projectShare: r.projectShare, ajudaCustoTotal: r.ajudaCustoTotal, bonusTotal: r.bonusTotal },
       }));
     if (newBills.length === 0) {
       alert("As despesas de pró-labore desta competência já foram geradas para todos os gestores.");
@@ -8896,12 +8897,15 @@ function matchBankTransactions(transactions, finances, bills, categoryMemory) {
   return [...credits, ...debits].sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || ""));
 }
 
-// Honorários pagos de projeto (os que geram pró-labore de projetos) de meses já encerrados.
-// Se essa "foto" muda entre a lista antiga e a nova, a alteração mexeria num pró-labore fechado.
-function mudaProLaboreFechado(antes, depois) {
+// Honorários pagos de projeto (os que geram pró-labore de projetos) de meses fechados: os que já
+// passaram e os que já tiveram as despesas de pró-labore geradas. Se essa "foto" muda entre a lista
+// antiga e a nova, a alteração mexeria num pró-labore fechado.
+function mudaProLaboreFechado(antes, depois, bills) {
   const mesAtual = toISODateLocal(new Date()).slice(0, 7);
+  const gerados = new Set((bills || []).filter((b) => b.proLaboreMonth).map((b) => b.proLaboreMonth));
+  const fechado = (mes) => mes && (mes < mesAtual || gerados.has(mes));
   const foto = (lista) => (lista || [])
-    .filter((f) => f.referenceMonth && f.referenceMonth < mesAtual && (f.type !== "mensalidade" || f.serviceId) && f.status === "pago")
+    .filter((f) => fechado(f.referenceMonth) && (f.type !== "mensalidade" || f.serviceId) && f.status === "pago")
     .map((f) => [f.id, f.referenceMonth, Number(f.amount), f.type, f.responsibleGestorId || "", f.clientId].join("|"))
     .sort().join("\n");
   return foto(antes) !== foto(depois);
@@ -8970,7 +8974,11 @@ function computeMonthFinanceSummary({ finances, bonuses, bills, settings, client
     const projectShare = projectShareByGestor[t.id] || 0;
     const bonusTotal = monthBonuses.filter((b) => b.gestorId === t.id).reduce((s, b) => s + Number(b.amount), 0);
     const ajudaCustoTotal = ajudaCustoByGestor[t.id] || 0;
-    return { gestor: t, areaHa, base, projectShare, bonusTotal, ajudaCustoTotal, total: base + projectShare + bonusTotal + ajudaCustoTotal };
+    const row = { gestor: t, areaHa, base, projectShare, bonusTotal, ajudaCustoTotal, total: base + projectShare + bonusTotal + ajudaCustoTotal };
+    // Despesa já gerada: vale o que foi gerado (é o que se paga), não o recálculo de agora.
+    const gerada = (bills || []).find((b) => b.proLaboreMonth === month && b.proLaboreGestorId === t.id);
+    if (!gerada) return row;
+    return { ...row, ...(gerada.proLaboreSnapshot || {}), total: Number(gerada.amount) || 0, calculadoAgora: row.total };
   });
 
   // Pró-labore da competência = o que o gestor gerou NESTE mês (aba Pró-labore). Mas ele só é PAGO
@@ -10417,7 +10425,14 @@ function FinanceiroView({
                       <td>{fmtCurrency(r.projectShare)}</td>
                       <td>{fmtCurrency(r.ajudaCustoTotal)}</td>
                       <td style={r.bonusTotal < 0 ? { color: "var(--red)", fontWeight: 600 } : undefined}>{fmtCurrency(r.bonusTotal)}</td>
-                      <td style={{ fontWeight: 600, color: "var(--green)" }}>{fmtCurrency(r.total)}</td>
+                      <td style={{ fontWeight: 600, color: "var(--green)" }}>
+                        {fmtCurrency(r.total)}
+                        {r.calculadoAgora !== undefined && Math.abs(r.calculadoAgora - r.total) >= 0.01 && (
+                          <div style={{ fontSize: 9, fontWeight: 500, color: "var(--gold)" }} title="A despesa foi gerada com outro valor. O total fica congelado no que foi gerado.">
+                            recalculado hoje: {fmtCurrency(r.calculadoAgora)}
+                          </div>
+                        )}
+                      </td>
                       <td>
                         {proLaboreGeneratedIds.has(r.gestor.id) ? (
                           <span style={{ color: "var(--green)", fontSize: 10, fontWeight: 600 }}>✓ Gerado</span>
