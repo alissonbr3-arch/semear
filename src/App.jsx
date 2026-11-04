@@ -612,7 +612,17 @@ export default function AgroTrackApp() {
     persistActivityLog([...activityLog, ...list]);
   }
 
-  async function persistFinances(data) { setFinances(data); await safeSet("finances", data); }
+  // Mês virou, pró-labore de projetos fechou: nada que mude os honorários pagos de projeto de um mês
+  // anterior passa (lançar, editar, apagar, marcar pago/pendente). Devolve false quando bloqueia.
+  function persistFinances(data) {
+    if (mudaProLaboreFechado(finances, data)) {
+      alert("O pró-labore de projetos de meses anteriores já está fechado. Lance este honorário no mês atual.");
+      return false;
+    }
+    setFinances(data);
+    safeSet("finances", data);
+    return true;
+  }
   async function persistBonuses(data) { setBonuses(data); await safeSet("bonuses", data); }
   async function persistSettings(data) { setSettings(data); await safeSet("settings", data); }
   async function persistBills(data) { setBills(data); await safeSet("bills", data); }
@@ -636,15 +646,15 @@ export default function AgroTrackApp() {
   function saveFinance(form) {
     const client = clients.find((c) => c.id === form.clientId);
     if (form.id) {
+      if (!persistFinances(finances.map((fEntry) => (fEntry.id === form.id ? form : fEntry)))) return;
       logActivity(makeLogEntry("update", "finance", client?.name, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
-      persistFinances(finances.map((fEntry) => (fEntry.id === form.id ? form : fEntry)));
     } else if (form.recurring) {
       const entries = generateRecurringEntries(form);
+      if (!persistFinances([...finances, ...entries])) return;
       logActivity(makeLogEntry("create", "finance", client?.name, `Recorrente · ${entries.length} meses lançados`));
-      persistFinances([...finances, ...entries]);
     } else {
+      if (!persistFinances([...finances, { ...form, id: uid() }])) return;
       logActivity(makeLogEntry("create", "finance", client?.name, `R$ ${Number(form.amount).toLocaleString("pt-BR")} · ${form.referenceMonth}`));
-      persistFinances([...finances, { ...form, id: uid() }]);
     }
     setModal(null);
   }
@@ -717,13 +727,13 @@ export default function AgroTrackApp() {
   function deleteFinance(id) {
     const entry = finances.find((f) => f.id === id);
     const client = clients.find((c) => c.id === entry?.clientId);
+    if (!persistFinances(finances.filter((f) => f.id !== id))) return;
     logActivity(makeLogEntry("delete", "finance", client?.name));
-    persistFinances(finances.filter((f) => f.id !== id));
   }
   function markFinancePaid(entry, transaction, bankTxKey) {
     const client = clients.find((c) => c.id === entry.clientId);
+    if (!persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString(), ...(bankTxKey ? { bankTxKey } : {}) } : f)))) return;
     logActivity(makeLogEntry("update", "finance", client?.name, `Conciliado via extrato · ${fmtCurrency(entry.amount)} em ${fmtDate(transaction.date)}`));
-    persistFinances(finances.map((f) => (f.id === entry.id ? { ...f, status: "pago", date: transaction.date, reconciledBank: true, reconciledAt: new Date().toISOString(), ...(bankTxKey ? { bankTxKey } : {}) } : f)));
   }
   // Troca o status pendente <-> pago direto do Extrato de Movimentações (sem
   // passar por conciliação bancária).
@@ -733,8 +743,8 @@ export default function AgroTrackApp() {
       const entry = finances.find((f) => f.id === id);
       if (!entry) return;
       const client = clients.find((c) => c.id === entry.clientId);
+      if (!persistFinances(finances.map((f) => (f.id === id ? { ...f, status: flip(f.status) } : f)))) return;
       logActivity(makeLogEntry("update", "finance", client?.name, `Status → ${flip(entry.status)} (pelo extrato) · R$ ${Number(entry.amount).toLocaleString("pt-BR")}`));
-      persistFinances(finances.map((f) => (f.id === id ? { ...f, status: flip(f.status) } : f)));
     } else {
       const entry = bills.find((b) => b.id === id);
       if (!entry) return;
@@ -8884,6 +8894,17 @@ function matchBankTransactions(transactions, finances, bills, categoryMemory) {
   });
 
   return [...credits, ...debits].sort((a, b) => (a.transaction.date || "").localeCompare(b.transaction.date || ""));
+}
+
+// Honorários pagos de projeto (os que geram pró-labore de projetos) de meses já encerrados.
+// Se essa "foto" muda entre a lista antiga e a nova, a alteração mexeria num pró-labore fechado.
+function mudaProLaboreFechado(antes, depois) {
+  const mesAtual = toISODateLocal(new Date()).slice(0, 7);
+  const foto = (lista) => (lista || [])
+    .filter((f) => f.referenceMonth && f.referenceMonth < mesAtual && (f.type !== "mensalidade" || f.serviceId) && f.status === "pago")
+    .map((f) => [f.id, f.referenceMonth, Number(f.amount), f.type, f.responsibleGestorId || "", f.clientId].join("|"))
+    .sort().join("\n");
+  return foto(antes) !== foto(depois);
 }
 
 // % do honorário que vira pró-labore do gestor responsável: o do tipo de serviço (Configurações →
