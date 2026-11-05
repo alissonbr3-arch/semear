@@ -810,6 +810,11 @@ export default function AgroTrackApp() {
   function generateProLaboreBills(month, rows) {
     const [y, m] = month.split("-").map(Number);
     const mesLabel = new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    // Só depois que o mês acaba: gerado antes, ficam de fora os honorários e descontos lançados no resto do mês.
+    if (month >= toISODateLocal(new Date()).slice(0, 7)) {
+      alert(`O pró-labore de ${mesLabel} só pode ser gerado depois que o mês terminar (a partir de ${fmtDate(`${addMonthsToReferenceMonth(month, 1)}-01`)}).`);
+      return;
+    }
     const paymentMonth = addMonthsToReferenceMonth(month, 1);
     const dueDate = `${paymentMonth}-10`;
     const alreadyGenerated = new Set(bills.filter((b) => b.proLaboreMonth === month).map((b) => b.proLaboreGestorId));
