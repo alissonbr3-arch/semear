@@ -256,18 +256,6 @@ function SceneCotacoes({ q }) {
   );
 }
 
-// Cor do card do dia: azul mais forte quanto mais chuva; amarelo nos dias de sol; cinza nos nublados secos.
-function tintDoDia(d) {
-  if (d.mm >= 15) return { bg: "#B9D6F3", border: "#5B9BD5" };
-  if (d.mm >= 8 || (d.prob >= 85 && d.mm >= 4)) return { bg: "#CCE1F6", border: "#7DB0E0" };
-  if (d.mm >= 3 || d.prob >= 70) return { bg: "#DDEBF9", border: "#9CC3EA" };
-  if (d.mm >= 0.5 || d.prob >= 40) return { bg: "#EDF4FB", border: "#BFD7F0" };
-  if (d.code <= 1) return { bg: "#FFF1B8", border: "#F2D45C" };
-  if (d.code === 2) return { bg: "#FFF8DA", border: "#EFDFA0" };
-  return { bg: "#EEF0EA", border: "#D6D9D0" };
-}
-
-
 function tempoRelativo(dataStr) {
   const t = Date.parse(dataStr);
   if (!t) return "";
@@ -311,31 +299,156 @@ function SceneNews({ news }) {
   );
 }
 
+// Janela de pulverização por hora: vento, umidade, temperatura e chance de chuva.
+const SPRAY = { bom: "#2F7A2F", atencao: "#D6A93A", ruim: "#C24B42" };
+function sprayHora(h) {
+  if (h.prob >= 50 || h.wind > 15 || h.wind < 2 || h.hum < 45 || h.temp > 32) return "ruim";
+  if (h.wind >= 3 && h.wind <= 10 && h.hum >= 55 && h.temp <= 30 && h.prob < 30) return "bom";
+  return "atencao";
+}
+function janelaPulverizacao(hourly) {
+  if (!hourly?.length) return null;
+  const agora = new Date();
+  const hojeIso = isoLocal(agora);
+  // Depois das 20h já mostra a janela de amanhã.
+  const dia = agora.getHours() >= 20 ? isoLocal(addDays(agora, 1)) : hojeIso;
+  const horas = hourly.filter((h) => h.time.startsWith(dia) && Number(h.time.slice(11, 13)) >= 6 && Number(h.time.slice(11, 13)) <= 21)
+    .map((h) => ({ hora: Number(h.time.slice(11, 13)), st: sprayHora(h) }));
+  if (!horas.length) return null;
+  const faixas = [];
+  horas.forEach((h) => {
+    const last = faixas[faixas.length - 1];
+    if (h.st === "bom" && last && last.fim === h.hora - 1) last.fim = h.hora;
+    else if (h.st === "bom") faixas.push({ ini: h.hora, fim: h.hora });
+  });
+  const resumo = faixas.length
+    ? `Boa ${faixas.map((f) => (f.ini === f.fim ? `às ${f.ini}h` : `das ${f.ini}h às ${f.fim + 1}h`)).join(" e ")}`
+    : horas.some((h) => h.st === "atencao") ? "Só com atenção — sem horário ideal" : "Sem janela boa";
+  return { label: dia === hojeIso ? "HOJE" : "AMANHÃ", horas, resumo };
+}
+
+function tintAgora(code) {
+  if (code <= 1) return { bg: "#FFF1B8", border: "#F2D45C", ink: "#5A4406", head: "#7A5A08" };
+  if (code <= 3) return { bg: "#EEF0EA", border: "#D6D9D0", ink: C.soft, head: C.dim };
+  if (code <= 48) return { bg: "#EEF0EA", border: "#D6D9D0", ink: C.soft, head: C.dim };
+  return { bg: "#DDEBF9", border: "#9CC3EA", ink: "#0C447C", head: "#185FA5" };
+}
+
+function GraficoTempo({ days }) {
+  const W = 1000, H = 520, L = 10, R = 10;
+  const cw = (W - L - R) / days.length;
+  const maxT = Math.max(...days.map((d) => d.max)) + 2, minT = Math.min(...days.map((d) => d.min)) - 2;
+  const tTop = 30, tBot = 280;
+  const ty = (t) => tTop + ((maxT - t) / (maxT - minT)) * (tBot - tTop);
+  const base = 470, rainMaxH = 150;
+  const maxMm = Math.max(20, ...days.map((d) => d.mm));
+  const rh = (mm) => (mm / maxMm) * rainMaxH;
+  const cx = (i) => L + cw * i + cw / 2;
+  const linha = (k) => days.map((d, i) => `${cx(i)},${ty(d[k])}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{ width: "100%", height: "100%", display: "block" }}>
+      <rect x={L + 2} y={0} width={cw - 4} height={H} rx={10} fill={C.greenSoft} opacity={0.7} />
+      <line x1={L} x2={W - R} y1={base} y2={base} stroke={C.border} strokeWidth={2} />
+      {days.map((d, i) => {
+        const h = rh(d.mm);
+        return (
+          <g key={d.date}>
+            {h > 0.5 && <rect x={cx(i) - cw * 0.28} y={base - h} width={cw * 0.56} height={h} rx={5} fill="#85B7EB" />}
+            {d.mm >= 0.5 && <text x={cx(i)} y={base - h - 8} textAnchor="middle" fontSize={20} fontWeight={800} fill="#185FA5">{Math.round(d.mm)}</text>}
+            <text x={cx(i)} y={base + 30} textAnchor="middle" fontSize={18} fontWeight={d.prob >= 60 ? 800 : 600} fill={d.prob >= 60 ? "#185FA5" : "#9AA196"}>{d.prob}%</text>
+          </g>
+        );
+      })}
+      <polyline points={linha("max")} fill="none" stroke="#D85A30" strokeWidth={4} strokeLinejoin="round" />
+      <polyline points={linha("min")} fill="none" stroke="#378ADD" strokeWidth={4} strokeLinejoin="round" />
+      {days.map((d, i) => (
+        <g key={`t-${d.date}`}>
+          <circle cx={cx(i)} cy={ty(d.max)} r={6} fill="#D85A30" />
+          <text x={cx(i)} y={ty(d.max) - 13} textAnchor="middle" fontSize={20} fontWeight={800} fill="#B4461F">{d.max}°</text>
+          <circle cx={cx(i)} cy={ty(d.min)} r={6} fill="#378ADD" />
+          <text x={cx(i)} y={ty(d.min) + 30} textAnchor="middle" fontSize={20} fontWeight={700} fill="#185FA5">{d.min}°</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 function SceneTempo({ weather }) {
   if (!weather?.days) return <Card><div style={{ color: C.dim }}>Carregando previsão…</div></Card>;
-  const totalMm = Math.round(weather.days.reduce((s, d) => s + d.mm, 0));
+  const days = weather.days;
+  const totalMm = Math.round(days.reduce((s, d) => s + d.mm, 0));
+  const diasChuva = days.filter((d) => d.mm >= 1).length;
+  const forte = days.reduce((a, d) => (d.mm > (a?.mm ?? 0) ? d : a), null);
+  const forteLabel = forte && forte.mm >= 1
+    ? `${new Date(`${forte.date}T12:00:00`).toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")} ${forte.date.slice(8, 10)}/${forte.date.slice(5, 7)}`
+    : "";
+  const tint = tintAgora(weather.code ?? 0);
+  const jan = janelaPulverizacao(weather.hourly);
+  const head = (cor) => ({ fontSize: "0.72em", fontWeight: 700, letterSpacing: ".06em", color: cor });
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.8em", height: "100%", minHeight: 0 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gridTemplateRows: "repeat(3, 1fr)", gap: "0.7em", flex: 1, minHeight: 0 }}>
-        {weather.days.map((d, i) => {
-          const dt = new Date(`${d.date}T12:00:00`);
-          const label = i === 0 ? "Hoje" : dt.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
-          const wet = d.prob >= 60 || d.mm >= 5;
-          return (
-            <div key={d.date} style={{ background: tintDoDia(d).bg, border: `${i === 0 ? 3 : 1}px solid ${i === 0 ? C.green : tintDoDia(d).border}`, borderRadius: "0.8em", padding: "0.5em 0.7em", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5em", minHeight: 0 }}>
-              <div>
-                <div style={{ fontSize: "0.7em", fontWeight: 700, letterSpacing: ".05em", color: i === 0 ? C.green : C.dim }}>{label.toUpperCase()} · {d.date.slice(8, 10)}/{d.date.slice(5, 7)}</div>
-                <div style={{ fontSize: "1.3em", fontWeight: 800, lineHeight: 1.15 }}>{d.max}° <span style={{ color: C.dim, fontWeight: 600, fontSize: "0.75em" }}>{d.min}°</span></div>
-                <div style={{ fontSize: "0.72em", color: wet ? "#1F5F9E" : C.soft, fontWeight: wet ? 700 : 500 }}>chuva {d.prob}%{d.mm > 0 ? ` · ${d.mm.toLocaleString("pt-BR")} mm` : ""}</div>
-              </div>
-              <div style={{ fontSize: "2em" }}>{WMO_ICON(d.code)}</div>
+    <div style={{ display: "grid", gridTemplateColumns: "22em minmax(0, 1fr)", gap: "1em", height: "100%", minHeight: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "1em", minHeight: 0 }}>
+        <div style={{ background: tint.bg, border: `1px solid ${tint.border}`, borderRadius: "0.9em", padding: "1em 1.2em", flex: 1.3, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={head(tint.head)}>AGORA · SÃO GABRIEL DO OESTE</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.3em" }}>
+            <span style={{ fontSize: "4.2em", lineHeight: 1 }}>{WMO_ICON(weather.code ?? 0)}</span>
+            <span style={{ fontSize: "5em", fontWeight: 800, lineHeight: 1, color: C.ink }}>{weather.temp}°</span>
+          </div>
+          <div style={{ fontSize: "1.15em", fontWeight: 700, color: tint.ink }}>{weather.text} · {weather.min}° – {weather.max}°</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.35em 0.8em", fontSize: "0.95em", color: tint.ink }}>
+            {weather.windNow != null && <span>💨 vento {weather.windNow} km/h</span>}
+            {weather.hum != null && <span>💧 umidade {weather.hum}%</span>}
+            {weather.rain != null && <span>☔ chuva {weather.rain}%</span>}
+            {weather.feels != null && <span>🌡️ sensação {weather.feels}°</span>}
+          </div>
+        </div>
+
+        {jan && (
+          <div style={{ background: C.greenSoft, border: "1px solid #9CC97F", borderRadius: "0.9em", padding: "0.9em 1.2em" }}>
+            <div style={head(C.greenDark)}>JANELA DE PULVERIZAÇÃO · {jan.label}</div>
+            <div style={{ display: "flex", gap: "0.15em", margin: "0.6em 0 0.25em" }}>
+              {jan.horas.map((h) => <div key={h.hora} style={{ flex: 1, height: "1.3em", borderRadius: "0.2em", background: SPRAY[h.st] }} />)}
             </div>
-          );
-        })}
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.7em", color: C.soft }}>
+              {jan.horas.filter((h) => h.hora % 3 === 0).map((h) => <span key={h.hora}>{h.hora}h</span>)}
+            </div>
+            <div style={{ fontSize: "1em", fontWeight: 700, color: C.greenDark, marginTop: "0.35em" }}>{jan.resumo}</div>
+          </div>
+        )}
+
+        <div style={{ background: "#DDEBF9", border: "1px solid #9CC3EA", borderRadius: "0.9em", padding: "0.9em 1.2em" }}>
+          <div style={head("#185FA5")}>CHUVA NOS PRÓXIMOS 15 DIAS</div>
+          <div style={{ fontSize: "2.6em", fontWeight: 800, lineHeight: 1.1, color: "#0C447C" }}>{totalMm} mm</div>
+          <div style={{ fontSize: "0.9em", color: "#185FA5", fontWeight: 600 }}>
+            {diasChuva} {diasChuva === 1 ? "dia" : "dias"} com chuva{forteLabel ? ` · mais forte ${forteLabel}` : ""}
+          </div>
+        </div>
       </div>
-      <div style={{ fontSize: "0.85em", color: C.soft }}>
-        Chuva prevista nos próximos 15 dias: <strong>{totalMm} mm</strong> · fonte Open-Meteo · São Gabriel do Oeste, MS
-      </div>
+
+      <Card style={{ minHeight: 0 }}>
+        <div style={{ ...head(C.dim), marginBottom: "0.4em" }}>PRÓXIMOS 15 DIAS · TEMPERATURA E CHUVA</div>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${days.length}, 1fr)`, textAlign: "center", padding: "0 1%" }}>
+          {days.map((d, i) => {
+            const dt = new Date(`${d.date}T12:00:00`);
+            const label = i === 0 ? "Hoje" : dt.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "");
+            return (
+              <div key={d.date}>
+                <div style={{ fontSize: "0.75em", fontWeight: 700, color: i === 0 ? C.green : C.dim }}>{label.toUpperCase()}</div>
+                <div style={{ fontSize: "0.65em", color: C.dim }}>{d.date.slice(8, 10)}/{d.date.slice(5, 7)}</div>
+                <div style={{ fontSize: "1.9em", lineHeight: 1.2 }}>{WMO_ICON(d.code)}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}><GraficoTempo days={days} /></div>
+        <div style={{ display: "flex", gap: "1.4em", fontSize: "0.8em", color: C.soft, marginTop: "0.3em", flexWrap: "wrap" }}>
+          <span><span style={{ color: "#D85A30" }}>●</span> Máxima</span>
+          <span><span style={{ color: "#378ADD" }}>●</span> Mínima</span>
+          <span><span style={{ color: "#85B7EB" }}>■</span> Chuva (mm)</span>
+          <span>% = chance de chover</span>
+          <span style={{ marginLeft: "auto", color: C.dim }}>fonte Open-Meteo</span>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -564,11 +677,19 @@ export default function TvPage() {
     let alive = true;
     async function loadWeather() {
       try {
-        const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-19.39&longitude=-54.56&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=America%2FCampo_Grande&forecast_days=16");
+        const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-19.39&longitude=-54.56&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max&timezone=America%2FCampo_Grande&forecast_days=16");
         const w = await r.json();
         if (alive && w?.current) {
+          const hourly = (w.hourly?.time || []).slice(0, 48).map((t, i) => ({
+            time: t, temp: w.hourly.temperature_2m?.[i], hum: w.hourly.relative_humidity_2m?.[i],
+            wind: w.hourly.wind_speed_10m?.[i], prob: w.hourly.precipitation_probability?.[i] ?? 0,
+          }));
           setWeather({
-            temp: Math.round(w.current.temperature_2m), text: WMO(w.current.weather_code),
+            temp: Math.round(w.current.temperature_2m), text: WMO(w.current.weather_code), code: w.current.weather_code,
+            feels: w.current.apparent_temperature != null ? Math.round(w.current.apparent_temperature) : null,
+            hum: w.current.relative_humidity_2m != null ? Math.round(w.current.relative_humidity_2m) : null,
+            windNow: w.current.wind_speed_10m != null ? Math.round(w.current.wind_speed_10m) : null,
+            hourly,
             max: Math.round(w.daily.temperature_2m_max[0]), min: Math.round(w.daily.temperature_2m_min[0]),
             rain: w.daily.precipitation_probability_max?.[0],
             days: w.daily.time.slice(0, 15).map((t, i) => ({
